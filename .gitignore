@@ -1,0 +1,29 @@
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+credentials/
+
+# Assessment output (client-confidential)
+output/
+results/
+reports/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
