@@ -209,6 +209,18 @@ class TestLoadConfig:
         assert cfg.tools["scubagear"].enabled is True
         assert cfg.tools["maester"].enabled is False
 
+    def test_load_tool_shorthand_string_raises(self, tmp_path: Path) -> None:
+        """Quoted YAML string 'false' must not be silently coerced to True."""
+        f = tmp_path / "string_tool.yaml"
+        f.write_text(
+            "client:\n  name: Test\n  tenant_id: t1\n"
+            "auth:\n  method: client_credential\n  tenant_id: t1\n  client_id: c1\n"
+            "tools:\n  scubagear: 'false'\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigError, match=r"scubagear.*boolean.*str"):
+            load_config(f)
+
 
 class TestValidateConfig:
     def test_valid_config_no_errors(self, fixtures_config_dir: Path) -> None:

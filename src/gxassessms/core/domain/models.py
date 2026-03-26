@@ -129,6 +129,14 @@ class RawToolOutput(BaseModel):
     file_manifest: dict[str, str]  # filename -> encoding ("utf-8" or "binary")
     execution_metadata: dict[str, Any]
 
+    @field_validator("timestamp")
+    @classmethod
+    def timestamp_must_be_aware(cls, v: datetime) -> datetime:
+        """Reject naive datetimes -- all timestamps must carry timezone info."""
+        if v.tzinfo is None:
+            raise ValueError("timestamp must be timezone-aware (use UTC)")
+        return v
+
 
 class AdapterResult(BaseModel):
     """Wrapper returned by the adapter runner."""

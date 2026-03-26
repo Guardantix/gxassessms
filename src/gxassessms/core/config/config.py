@@ -123,14 +123,16 @@ def _parse_raw_config(raw: dict[str, Any]) -> EngagementConfig:
     report_raw: dict[str, Any] = raw.get("report", {})
     pipeline_raw: dict[str, Any] = raw.get("pipeline", {})
 
-    tools = {
-        name: (
-            ToolConfig(**cast(dict[str, Any], cfg))
-            if isinstance(cfg, dict)
-            else ToolConfig(enabled=bool(cfg))
-        )
-        for name, cfg in tools_raw.items()
-    }
+    tools: dict[str, ToolConfig] = {}
+    for name, cfg in tools_raw.items():
+        if isinstance(cfg, dict):
+            tools[name] = ToolConfig(**cast(dict[str, Any], cfg))
+        elif isinstance(cfg, bool):
+            tools[name] = ToolConfig(enabled=cfg)
+        else:
+            raise ConfigError(
+                f"Tool '{name}' must be a mapping or boolean, got {type(cfg).__name__}: {cfg!r}"
+            )
 
     auth = AuthConfig(**auth_raw)
 

@@ -228,6 +228,16 @@ class TestRawToolOutput:
         assert rto.schema_version == "1.0.0"
         assert rto.file_manifest["TestResults.json"] == "utf-8"
 
+    def test_rejects_naive_timestamp(self) -> None:
+        with pytest.raises(ValidationError, match="timezone-aware"):
+            RawToolOutput(
+                tool=ToolSource.SCUBAGEAR,
+                schema_version="1.0.0",
+                timestamp=datetime(2026, 3, 25, 10, 0, 0),
+                file_manifest={},
+                execution_metadata={},
+            )
+
 
 class TestAdapterResult:
     def test_success_result_has_raw_output(self) -> None:
