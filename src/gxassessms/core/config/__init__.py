@@ -16,9 +16,6 @@ from gxassessms.core.config.config import (
     validate_config as validate_config,
 )
 from gxassessms.core.config.datetime_utils import (
-    LOCAL_TZ as LOCAL_TZ,
-)
-from gxassessms.core.config.datetime_utils import (
     format_utc as format_utc,
 )
 from gxassessms.core.config.datetime_utils import (

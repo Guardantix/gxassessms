@@ -7,11 +7,13 @@ and bare fromisoformat() outside this module.
 
 import time as _time
 from datetime import UTC, datetime, timezone
+from functools import lru_cache
 from zoneinfo import ZoneInfo
 
 
+@lru_cache(maxsize=1)
 def _detect_local_tz() -> ZoneInfo | timezone:
-    """Detect the system's local timezone."""
+    """Detect the system's local timezone. Cached after first call."""
     import subprocess
 
     try:
@@ -29,10 +31,6 @@ def _detect_local_tz() -> ZoneInfo | timezone:
         pass
     # Fallback: use the system's UTC offset
     return UTC
-
-
-# Detect local timezone at import time (no I/O, no side effects)
-LOCAL_TZ: ZoneInfo | timezone = _detect_local_tz()
 
 
 def utc_now() -> datetime:
@@ -67,4 +65,4 @@ def utc_to_local(dt: datetime) -> datetime:
     """Convert a UTC datetime to the system's local timezone. Display use only."""
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
-    return dt.astimezone(LOCAL_TZ)
+    return dt.astimezone(_detect_local_tz())
