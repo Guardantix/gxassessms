@@ -35,7 +35,7 @@ Design spec: `../gxassessms-guardantix/docs/specs/2026-03-25-gxassessms-architec
 ## Workspace
 
 Both GxAssessMS packages live in `~/Claude/gxassessms-workspace/`:
-- `GxAssessMS/` -- this repo
+- `gxassessms/` -- this repo
 - `gxassessms-guardantix/` -- private Guardantix extension (sibling directory)
 
 ## Related Repos
