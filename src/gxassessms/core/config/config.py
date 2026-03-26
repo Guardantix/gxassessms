@@ -69,7 +69,7 @@ def load_config(path: Path) -> EngagementConfig:
         return _parse_raw_config(cast(dict[str, Any], raw))
     except ConfigError:
         raise
-    except (ValueError, TypeError, KeyError) as e:
+    except (ValueError, TypeError, KeyError, AttributeError) as e:
         raise ConfigError(f"Config validation failed: {e}") from e
 
 

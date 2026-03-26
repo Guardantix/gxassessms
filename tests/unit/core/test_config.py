@@ -84,6 +84,13 @@ class TestLoadConfig:
         with pytest.raises(ConfigError):
             load_config(bad_file)
 
+    def test_load_non_mapping_section_raises(self, tmp_path: Path) -> None:
+        """Non-mapping YAML sections (e.g., tools: [a, b]) must raise ConfigError."""
+        bad_file = tmp_path / "bad_section.yaml"
+        bad_file.write_text("client: just-a-string\ntools:\n  - item1\n  - item2\n")
+        with pytest.raises(ConfigError):
+            load_config(bad_file)
+
 
 class TestValidateConfig:
     def test_valid_config_no_errors(self, fixtures_config_dir: Path) -> None:

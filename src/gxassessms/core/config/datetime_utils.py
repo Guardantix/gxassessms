@@ -5,7 +5,6 @@ Convention tests ban direct use of datetime.now(), datetime.utcnow(),
 and bare fromisoformat() outside this module.
 """
 
-import time as _time
 from datetime import UTC, datetime, timezone
 from functools import lru_cache
 from zoneinfo import ZoneInfo
@@ -13,23 +12,32 @@ from zoneinfo import ZoneInfo
 
 @lru_cache(maxsize=1)
 def _detect_local_tz() -> ZoneInfo | timezone:
-    """Detect the system's local timezone. Cached after first call."""
-    import subprocess
+    """Detect the system's local timezone. Cached after first call.
 
+    Strategy (portable, no subprocess):
+    1. Check TZ env var for a named IANA zone (e.g., "America/New_York").
+    2. Use datetime.now().astimezone() to get the system's current UTC offset
+       and build a fixed-offset timezone. Works on Linux, macOS, and Windows.
+    """
+    import os
+
+    # 1. Named zone from TZ env var (common in containers and server configs)
+    tz_env = os.environ.get("TZ", "").strip()
+    if tz_env and tz_env != "UTC":
+        try:
+            return ZoneInfo(tz_env)
+        except KeyError, ValueError:
+            pass  # Invalid zone name -- fall through to offset detection
+
+    # 2. Portable offset detection via the C library's localtime
     try:
-        local_name = _time.tzname[0]
-        if local_name and local_name != "UTC":
-            result = subprocess.run(
-                ["timedatectl", "show", "--property=Timezone", "--value"],  # noqa: S607
-                capture_output=True,
-                text=True,
-                timeout=2,
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                return ZoneInfo(result.stdout.strip())
-    except OSError, KeyError, subprocess.SubprocessError, ValueError:
+        local_dt = datetime.now(UTC).astimezone()
+        offset = local_dt.utcoffset()
+        if offset is not None and offset.total_seconds() != 0:
+            return timezone(offset)
+    except OSError, ValueError, OverflowError:
         pass
-    # Fallback: use the system's UTC offset
+
     return UTC
 
 
