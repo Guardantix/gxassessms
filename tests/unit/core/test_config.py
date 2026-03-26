@@ -28,6 +28,10 @@ class TestToolConfig:
         assert tc.timeout == 600
         assert tc.extra_args == {}
 
+    def test_rejects_unknown_fields(self) -> None:
+        with pytest.raises(ValidationError):
+            ToolConfig(enabled=True, enbaled=True)  # type: ignore[call-arg]
+
 
 class TestAuthConfig:
     def test_create_client_credential(self) -> None:

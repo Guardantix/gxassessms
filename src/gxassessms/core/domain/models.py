@@ -158,6 +158,14 @@ class ToolRunResult(BaseModel):
     finding_count: int
     error: str | None = None
 
+    @field_validator("started_at", "completed_at")
+    @classmethod
+    def timestamps_must_be_aware(cls, v: datetime) -> datetime:
+        """Reject naive datetimes -- all timestamps must carry timezone info."""
+        if v.tzinfo is None:
+            raise ValueError("timestamp must be timezone-aware (use UTC)")
+        return v
+
 
 class RemediationPhase(BaseModel):
     """Phased roadmap entry."""

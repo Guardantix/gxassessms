@@ -304,6 +304,26 @@ class TestToolRunResult:
         )
         assert trr.finding_count == 42
 
+    def test_rejects_naive_started_at(self) -> None:
+        with pytest.raises(ValidationError, match="timezone-aware"):
+            ToolRunResult(
+                tool=ToolSource.SCUBAGEAR,
+                started_at=datetime(2026, 3, 25, 10, 0, 0),
+                completed_at=datetime(2026, 3, 25, 10, 15, 0, tzinfo=UTC),
+                status=AdapterRunStatus.SUCCESS,
+                finding_count=0,
+            )
+
+    def test_rejects_naive_completed_at(self) -> None:
+        with pytest.raises(ValidationError, match="timezone-aware"):
+            ToolRunResult(
+                tool=ToolSource.SCUBAGEAR,
+                started_at=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+                completed_at=datetime(2026, 3, 25, 10, 15, 0),
+                status=AdapterRunStatus.SUCCESS,
+                finding_count=0,
+            )
+
 
 class TestRemediationPhase:
     def test_rejects_invalid_phase(self) -> None:

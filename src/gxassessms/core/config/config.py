@@ -20,7 +20,7 @@ from gxassessms.core.domain.constants import AuthMethod
 class ToolConfig(BaseModel):
     """Per-tool configuration."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     enabled: bool = False
     modules: list[str] = Field(default_factory=list)
@@ -31,7 +31,7 @@ class ToolConfig(BaseModel):
 class AuthConfig(BaseModel):
     """Authentication settings."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     method: AuthMethod
     tenant_id: str
@@ -62,7 +62,7 @@ def load_config(path: Path) -> EngagementConfig:
 
     Raises ConfigError on file not found, invalid YAML, or structural failure.
     Raises ConfigValidationError on blocking validation errors (empty required
-    fields, invalid tool references, etc.).
+    fields, misspelled config keys, etc.).
     """
     try:
         text = path.read_text(encoding="utf-8")
