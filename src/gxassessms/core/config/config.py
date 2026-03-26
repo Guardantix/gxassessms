@@ -7,7 +7,7 @@ loaded once at pipeline start, never mutated during execution.
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
 from pydantic import BaseModel, Field
@@ -66,7 +66,7 @@ def load_config(path: Path) -> EngagementConfig:
         raise ConfigError(f"Config file must be a YAML mapping, got {type(raw).__name__}")
 
     try:
-        return _parse_raw_config(raw)
+        return _parse_raw_config(cast(dict[str, Any], raw))
     except ConfigError:
         raise
     except (ValueError, TypeError, KeyError) as e:
@@ -75,14 +75,18 @@ def load_config(path: Path) -> EngagementConfig:
 
 def _parse_raw_config(raw: dict[str, Any]) -> EngagementConfig:
     """Parse raw YAML dict into EngagementConfig."""
-    client = raw.get("client", {})
-    auth_raw = raw.get("auth", {})
-    tools_raw = raw.get("tools", {})
-    report_raw = raw.get("report", {})
-    pipeline_raw = raw.get("pipeline", {})
+    client: dict[str, Any] = raw.get("client", {})
+    auth_raw: dict[str, Any] = raw.get("auth", {})
+    tools_raw: dict[str, Any] = raw.get("tools", {})
+    report_raw: dict[str, Any] = raw.get("report", {})
+    pipeline_raw: dict[str, Any] = raw.get("pipeline", {})
 
     tools = {
-        name: ToolConfig(**cfg) if isinstance(cfg, dict) else ToolConfig(enabled=bool(cfg))
+        name: (
+            ToolConfig(**cast(dict[str, Any], cfg))
+            if isinstance(cfg, dict)
+            else ToolConfig(enabled=bool(cfg))
+        )
         for name, cfg in tools_raw.items()
     }
 
