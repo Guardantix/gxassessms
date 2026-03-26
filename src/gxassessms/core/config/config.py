@@ -10,13 +10,17 @@ from pathlib import Path
 from typing import Any, cast
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ValidationError as PydanticValidationError
 
-from gxassessms.core.contracts.errors import ConfigError
+from gxassessms.core.contracts.errors import ConfigError, ConfigValidationError
+from gxassessms.core.domain.constants import AuthMethod
 
 
 class ToolConfig(BaseModel):
     """Per-tool configuration."""
+
+    model_config = ConfigDict(frozen=True)
 
     enabled: bool = False
     modules: list[str] = Field(default_factory=list)
@@ -27,7 +31,9 @@ class ToolConfig(BaseModel):
 class AuthConfig(BaseModel):
     """Authentication settings."""
 
-    method: str  # "client_credential", "device_code", "interactive"
+    model_config = ConfigDict(frozen=True)
+
+    method: AuthMethod
     tenant_id: str
     client_id: str
     client_secret_env: str = ""
@@ -36,6 +42,8 @@ class AuthConfig(BaseModel):
 
 class EngagementConfig(BaseModel):
     """Root engagement configuration."""
+
+    model_config = ConfigDict(frozen=True)
 
     client_name: str
     tenant_id: str
@@ -52,13 +60,21 @@ class EngagementConfig(BaseModel):
 def load_config(path: Path) -> EngagementConfig:
     """Load and validate an engagement config from a YAML file.
 
-    Raises ConfigError on file not found, invalid YAML, or validation failure.
+    Raises ConfigError on file not found, invalid YAML, or structural failure.
+    Raises ConfigValidationError on blocking validation errors (empty required
+    fields, invalid tool references, etc.).
     """
-    if not path.exists():
-        raise ConfigError(f"Config file not found: {path}")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError as e:
+        raise ConfigError(f"Config file not found: {path}") from e
+    except UnicodeDecodeError as e:
+        raise ConfigError(f"Config file {path} is not valid UTF-8: {e}") from e
+    except OSError as e:
+        raise ConfigError(f"Cannot read config file {path}: {e}") from e
 
     try:
-        raw = yaml.safe_load(path.read_text())
+        raw = yaml.safe_load(text)
     except yaml.YAMLError as e:
         raise ConfigError(f"Invalid YAML in {path}: {e}") from e
 
@@ -66,17 +82,43 @@ def load_config(path: Path) -> EngagementConfig:
         raise ConfigError(f"Config file must be a YAML mapping, got {type(raw).__name__}")
 
     try:
-        return _parse_raw_config(cast(dict[str, Any], raw))
+        config = _parse_raw_config(cast(dict[str, Any], raw))
     except ConfigError:
         raise
-    except (ValueError, TypeError, KeyError, AttributeError) as e:
+    except PydanticValidationError as e:
         raise ConfigError(f"Config validation failed: {e}") from e
+
+    errors, warnings = validate_config(config)
+    if errors:
+        raise ConfigValidationError(
+            message="Config validation failed: " + "; ".join(errors),
+            errors=errors,
+            warnings=warnings,
+        )
+
+    return config
 
 
 def _parse_raw_config(raw: dict[str, Any]) -> EngagementConfig:
     """Parse raw YAML dict into EngagementConfig."""
-    client: dict[str, Any] = raw.get("client", {})
-    auth_raw: dict[str, Any] = raw.get("auth", {})
+    # Required sections
+    for key in ("client", "auth"):
+        if key not in raw:
+            raise ConfigError(f"Missing required config section: '{key}'")
+        if not isinstance(raw[key], dict):
+            raise ConfigError(
+                f"Config section '{key}' must be a mapping, got {type(raw[key]).__name__}"
+            )
+
+    # Optional sections -- must be dicts if present
+    for key in ("tools", "report", "pipeline"):
+        if key in raw and not isinstance(raw[key], dict):
+            raise ConfigError(
+                f"Config section '{key}' must be a mapping, got {type(raw[key]).__name__}"
+            )
+
+    client: dict[str, Any] = raw["client"]
+    auth_raw: dict[str, Any] = raw["auth"]
     tools_raw: dict[str, Any] = raw.get("tools", {})
     report_raw: dict[str, Any] = raw.get("report", {})
     pipeline_raw: dict[str, Any] = raw.get("pipeline", {})
@@ -126,8 +168,7 @@ def validate_config(config: EngagementConfig) -> tuple[list[str], list[str]]:
     if not config.auth.client_id:
         errors.append("auth.client_id is required")
 
-    enabled_tools = [name for name, tc in config.tools.items() if tc.enabled]
-    if not enabled_tools:
+    if not any(tc.enabled for tc in config.tools.values()):
         warnings.append("No tools are enabled -- pipeline will produce no findings")
 
     return errors, warnings

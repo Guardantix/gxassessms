@@ -15,6 +15,7 @@ ALLOWED_FILE = SRC_ROOT / "core" / "config" / "datetime_utils.py"
 BANNED_CALLS = {
     "datetime.now": "Use datetime_utils.utc_now() instead",
     "datetime.utcnow": "Use datetime_utils.utc_now() instead",
+    "datetime.fromisoformat": "Use datetime_utils.parse_utc() instead",
 }
 
 
@@ -26,9 +27,9 @@ def _find_banned_datetime_calls(filepath: Path) -> list[str]:
     """Find banned datetime method calls via AST analysis."""
     violations = []
     try:
-        tree = ast.parse(filepath.read_text(), filename=str(filepath))
-    except SyntaxError:
-        return []
+        tree = ast.parse(filepath.read_text(encoding="utf-8"), filename=str(filepath))
+    except SyntaxError as e:
+        return [f"{filepath}: SyntaxError -- {e}"]
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute):

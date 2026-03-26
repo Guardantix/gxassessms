@@ -1,17 +1,17 @@
 """Protocol definitions and type aliases for all extension points.
 
-Imports from domain only. Uses string annotations for forward references
-to models that live in domain/models.py (resolved at runtime by Pydantic
-and at type-check time by mypy).
+Runtime imports from domain only (config types via TYPE_CHECKING). Uses
+string annotations for forward references to models that live in
+domain/models.py (resolved at runtime by Pydantic and at type-check time
+by mypy).
 """
 
 from __future__ import annotations
 
-from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, TypedDict, runtime_checkable
 
-from gxassessms.core.domain.enums import Severity
+from gxassessms.core.domain.enums import AdapterRunStatus, Severity  # noqa: F401 (re-exported)
 
 if TYPE_CHECKING:
     from gxassessms.core.config.config import EngagementConfig
@@ -29,13 +29,6 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 # Supporting types
 # ---------------------------------------------------------------------------
-
-
-class AdapterRunStatus(StrEnum):
-    SUCCESS = "SUCCESS"
-    FAILED = "FAILED"
-    SKIPPED = "SKIPPED"
-    TIMEOUT = "TIMEOUT"
 
 
 class PrerequisiteResult(TypedDict):
@@ -67,12 +60,29 @@ class ToolAdapter(Protocol):
     tool_name: str = ""
     capabilities: frozenset[str] = frozenset()
 
-    def check_prerequisites(self) -> PrerequisiteResult: ...
-    def authenticate(self, config: EngagementConfig) -> AuthContext | None: ...
-    def collect(self, config: EngagementConfig, auth: AuthContext | None) -> RawToolOutput: ...
-    def validate_raw(self, raw: RawToolOutput) -> None: ...
-    def parse(self, raw: RawToolOutput) -> list[ToolObservation]: ...
-    def coverage(self, raw: RawToolOutput) -> list[CoverageRecord]: ...
+    def check_prerequisites(self) -> PrerequisiteResult:
+        """Verify tool is installed and meets version requirements."""
+        ...
+
+    def authenticate(self, config: EngagementConfig) -> AuthContext | None:
+        """Acquire credentials for the tool. Returns None if no auth needed."""
+        ...
+
+    def collect(self, config: EngagementConfig, auth: AuthContext | None) -> RawToolOutput:
+        """Execute the tool and capture raw output. Called after authenticate()."""
+        ...
+
+    def validate_raw(self, raw: RawToolOutput) -> None:
+        """Validate raw output structure. Raises RawOutputValidationError on failure."""
+        ...
+
+    def parse(self, raw: RawToolOutput) -> list[ToolObservation]:
+        """Parse raw output into tool-native observations. Called after validate_raw()."""
+        ...
+
+    def coverage(self, raw: RawToolOutput) -> list[CoverageRecord]:
+        """Extract per-control coverage records from raw output."""
+        ...
 
 
 @runtime_checkable

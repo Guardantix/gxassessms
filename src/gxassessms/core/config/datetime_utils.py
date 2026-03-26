@@ -19,7 +19,6 @@ def parse_utc(iso_string: str) -> datetime:
     Handles: "Z" suffix, "+00:00" offset, and naive datetimes (assumed UTC).
     Raises ValueError on unparseable input.
     """
-    # Normalize "Z" to "+00:00" for fromisoformat
     normalized = iso_string.replace("Z", "+00:00") if iso_string.endswith("Z") else iso_string
     dt = datetime.fromisoformat(normalized)
     if dt.tzinfo is None:
@@ -28,11 +27,17 @@ def parse_utc(iso_string: str) -> datetime:
 
 
 def format_utc(dt: datetime) -> str:
-    """Format a UTC datetime as ISO 8601 with Z suffix."""
+    """Format a UTC datetime as ISO 8601 with Z suffix.
+
+    Raises ValueError if the datetime is naive (no tzinfo). Callers must
+    provide timezone-aware datetimes; silent assumption of UTC masks bugs.
+    """
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
+        raise ValueError(
+            "format_utc() requires a timezone-aware datetime, got naive. "
+            "Use utc_now() or parse_utc() to create UTC datetimes."
+        )
     utc_dt = dt.astimezone(UTC)
-    # Use isoformat and replace +00:00 with Z
     return utc_dt.isoformat().replace("+00:00", "Z")
 
 

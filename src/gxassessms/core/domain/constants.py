@@ -6,13 +6,15 @@ literals for these values outside this module.
 
 from typing import Literal
 
+from gxassessms.core.domain.enums import Category, Severity
+
 # ---------------------------------------------------------------------------
 # Severity
 # ---------------------------------------------------------------------------
 
 SeverityLevel = Literal["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
 
-SEVERITIES: frozenset[str] = frozenset({"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"})
+SEVERITIES: frozenset[str] = frozenset(s.value for s in Severity)
 
 SEVERITY_ORDER: dict[str, int] = {
     "INFO": 0,
@@ -34,7 +36,7 @@ SEVERITY_COLORS: dict[str, str] = {
 # Remediation Phases
 # ---------------------------------------------------------------------------
 
-RemediationPhase = Literal["IMMEDIATE", "SHORT_TERM", "MEDIUM_TERM", "LONG_TERM"]
+RemediationPhaseName = Literal["IMMEDIATE", "SHORT_TERM", "MEDIUM_TERM", "LONG_TERM"]
 
 REMEDIATION_PHASES: frozenset[str] = frozenset(
     {"IMMEDIATE", "SHORT_TERM", "MEDIUM_TERM", "LONG_TERM"}
@@ -65,19 +67,7 @@ CategoryName = Literal[
     "Application Security",
 ]
 
-CATEGORY_DISPLAY_NAMES: dict[str, str] = {
-    "IDENTITY_ACCESS": "Identity & Access",
-    "DATA_PROTECTION": "Data Protection",
-    "DEVICE_MANAGEMENT": "Device Management",
-    "EMAIL_COLLABORATION": "Email & Collaboration",
-    "INFRASTRUCTURE_SECURITY": "Infrastructure Security",
-    "NETWORK_SECURITY": "Network Security",
-    "LOGGING_MONITORING": "Logging & Monitoring",
-    "COST_OPTIMIZATION": "Cost Optimization",
-    "OPERATIONAL_EXCELLENCE": "Operational Excellence",
-    "COMPLIANCE": "Compliance & Governance",
-    "APPLICATION_SECURITY": "Application Security",
-}
+CATEGORY_DISPLAY_NAMES: dict[str, str] = {c.name: c.value for c in Category}
 
 # ---------------------------------------------------------------------------
 # Confidence
@@ -86,6 +76,14 @@ CATEGORY_DISPLAY_NAMES: dict[str, str] = {
 ConfidenceLabel = Literal["HIGH", "MEDIUM", "LOW", "UNSCORED"]
 
 CONFIDENCE_LABELS: frozenset[str] = frozenset({"HIGH", "MEDIUM", "LOW", "UNSCORED"})
+
+ConfidenceProvenance = Literal["system-generated", "human-overridden", "AI-adjusted"]
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+
+AuthMethod = Literal["client_credential", "device_code", "interactive"]
 
 # ---------------------------------------------------------------------------
 # Adapter Capabilities

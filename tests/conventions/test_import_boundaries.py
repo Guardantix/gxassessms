@@ -62,10 +62,7 @@ def _is_type_checking_block(node: ast.If) -> bool:
 def _get_imports(filepath: Path) -> list[tuple[int, str]]:
     """Extract all import targets from a Python file, skipping TYPE_CHECKING blocks."""
     imports = []
-    try:
-        tree = ast.parse(filepath.read_text(), filename=str(filepath))
-    except SyntaxError:
-        return []
+    tree = ast.parse(filepath.read_text(encoding="utf-8"), filename=str(filepath))
 
     def _walk_skipping_type_checking(nodes: list[ast.stmt]) -> None:
         for node in nodes:
@@ -89,6 +86,10 @@ def _get_imports(filepath: Path) -> list[tuple[int, str]]:
 def _check_file_boundaries(filepath: Path) -> list[str]:
     """Check a single file against import boundary rules."""
     violations = []
+    try:
+        file_imports = _get_imports(filepath)
+    except SyntaxError as e:
+        return [f"{filepath}: SyntaxError -- {e}"]
     rel_path = filepath.relative_to(SRC_ROOT)
     rel_str = str(rel_path).replace("\\", "/")
 
@@ -96,7 +97,7 @@ def _check_file_boundaries(filepath: Path) -> list[str]:
         if not rel_str.startswith(package_prefix):
             continue
 
-        for lineno, import_target in _get_imports(filepath):
+        for lineno, import_target in file_imports:
             for banned in banned_imports:
                 if import_target.startswith(banned):
                     violations.append(

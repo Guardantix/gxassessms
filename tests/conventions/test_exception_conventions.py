@@ -1,8 +1,7 @@
 """Convention test: ban broad except clauses.
 
-Only narrow exception catches are allowed. except Exception, except BaseException,
-and broad library-level catches (except sqlite3.Error, except OSError) are banned.
-Every except must name a specific leaf exception type.
+Bare except:, except Exception, and except BaseException are banned.
+Every except must name a specific exception type.
 """
 
 import ast
@@ -26,9 +25,9 @@ def _find_broad_except_clauses(filepath: Path) -> list[str]:
     """Find except clauses that catch overly broad exception types."""
     violations = []
     try:
-        tree = ast.parse(filepath.read_text(), filename=str(filepath))
-    except SyntaxError:
-        return []
+        tree = ast.parse(filepath.read_text(encoding="utf-8"), filename=str(filepath))
+    except SyntaxError as e:
+        return [f"{filepath}: SyntaxError -- {e}"]
 
     for node in ast.walk(tree):
         if isinstance(node, ast.ExceptHandler):

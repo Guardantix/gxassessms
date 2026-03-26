@@ -2,7 +2,9 @@
 
 from gxassessms.core.domain.constants import SEVERITIES
 from gxassessms.core.domain.enums import (
+    AdapterRunStatus,
     Category,
+    CoverageStatus,
     FindingStatus,
     Severity,
     ToolSource,
@@ -53,6 +55,31 @@ class TestCategory:
 
     def test_is_str_enum(self) -> None:
         assert isinstance(Category.IDENTITY_ACCESS, str)
+
+
+class TestAdapterRunStatus:
+    def test_has_four_values(self) -> None:
+        assert len(AdapterRunStatus) == 4
+
+    def test_is_str_enum(self) -> None:
+        assert isinstance(AdapterRunStatus.SUCCESS, str)
+        assert AdapterRunStatus.SUCCESS == "SUCCESS"
+
+    def test_all_expected_values(self) -> None:
+        expected = {"SUCCESS", "FAILED", "SKIPPED", "TIMEOUT"}
+        assert {s.value for s in AdapterRunStatus} == expected
+
+
+class TestCoverageStatus:
+    def test_has_three_values(self) -> None:
+        assert len(CoverageStatus) == 3
+
+    def test_is_str_enum(self) -> None:
+        assert isinstance(CoverageStatus.ASSESSED, str)
+
+    def test_all_expected_values(self) -> None:
+        expected = {"assessed", "partially_assessed", "not_assessed"}
+        assert {s.value for s in CoverageStatus} == expected
 
 
 class TestToolSource:

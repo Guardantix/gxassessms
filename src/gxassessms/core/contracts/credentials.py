@@ -22,7 +22,10 @@ class CredentialProvider(Protocol):
 
 
 class EnvVarProvider:
-    """Reads credentials from environment variables. Default provider."""
+    """Reads credentials from environment variables. Default provider.
+
+    Empty strings are returned as-is (an empty env var is not treated as unset).
+    """
 
     def get_credential(self, key: str) -> str:
         """Read credential from environment variable. Raises KeyError if unset."""

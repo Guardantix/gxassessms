@@ -110,6 +110,24 @@ class TestExceptionContext:
         assert err.engagement_id == "eng-001"
         assert err.timeout_seconds == 30.0
 
+    def test_config_validation_error_with_explicit_empty_lists(self) -> None:
+        """Passing errors=[] and warnings=[] must preserve empty lists, not replace them."""
+        err = ConfigValidationError(
+            message="Structurally invalid",
+            errors=[],
+            warnings=[],
+        )
+        assert err.errors == []
+        assert err.warnings == []
+        assert isinstance(err.errors, list)
+        assert isinstance(err.warnings, list)
+
+    def test_config_validation_error_with_none_defaults_to_empty_list(self) -> None:
+        """Omitting errors/warnings must default to empty lists."""
+        err = ConfigValidationError(message="Bare error")
+        assert err.errors == []
+        assert err.warnings == []
+
     def test_gxassess_error_is_catchable_as_exception(self) -> None:
         with pytest.raises(Exception, match="test"):
             raise GxAssessError("test")

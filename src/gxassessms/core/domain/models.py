@@ -1,8 +1,8 @@
 """Pydantic domain models for the GxAssessMS assessment pipeline.
 
-All models use UTC datetimes (via datetime_utils). Models are created and
-mutated throughout the pipeline; config models (separate module) are
-loaded once and read-only.
+All models use UTC datetimes (via datetime_utils). Models are created
+during pipeline execution. Config models (separate module) are loaded
+once and frozen.
 """
 
 from __future__ import annotations
@@ -10,10 +10,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator
 
+from gxassessms.core.domain.constants import ConfidenceProvenance, RemediationPhaseName
 from gxassessms.core.domain.enums import (
+    AdapterRunStatus,
     Category,
+    CoverageStatus,
     FindingStatus,
     Severity,
     ToolSource,
@@ -79,7 +82,7 @@ class ConfidenceScore(BaseModel):
     evidence_strength: float = Field(ge=0.0, le=1.0)
     corroborating_tools: int = Field(ge=0)
     data_freshness: float = Field(ge=0.0, le=1.0)
-    provenance: str
+    provenance: ConfidenceProvenance
     overall: float = Field(ge=0.0, le=1.0)
 
 
@@ -100,13 +103,20 @@ class ConsolidatedFinding(BaseModel):
     remediation: str | None = None
     narrative: str | None = None
 
+    @field_validator("sources")
+    @classmethod
+    def sources_must_be_nonempty(cls, v: list[SourceEvidence]) -> list[SourceEvidence]:
+        if not v:
+            raise ValueError("sources must contain at least one evidence record")
+        return v
+
 
 class CoverageRecord(BaseModel):
     """Per-control assessment status from an adapter."""
 
     control_id: str
     tool: ToolSource
-    status: str  # "assessed", "partially_assessed", "not_assessed"
+    status: CoverageStatus
     reason: str | None = None
 
 
@@ -124,7 +134,7 @@ class AdapterResult(BaseModel):
     """Wrapper returned by the adapter runner."""
 
     adapter_name: str
-    status: str  # AdapterRunStatus value
+    status: AdapterRunStatus
     raw_output: RawToolOutput | None = None
     error: str | None = None
     duration_seconds: float
@@ -136,7 +146,7 @@ class ToolRunResult(BaseModel):
     tool: ToolSource
     started_at: datetime
     completed_at: datetime
-    status: str  # AdapterRunStatus value
+    status: AdapterRunStatus
     finding_count: int
     error: str | None = None
 
@@ -144,7 +154,7 @@ class ToolRunResult(BaseModel):
 class RemediationPhase(BaseModel):
     """Phased roadmap entry."""
 
-    phase: str
+    phase: RemediationPhaseName
     title: str
     description: str
     findings: list[str] = Field(default_factory=list)  # finding_instance_ids
@@ -167,7 +177,11 @@ class ReportKeyStats(BaseModel):
 
 
 class ReportPayload(BaseModel):
-    """JSON contract between Python pipeline and Node.js renderers."""
+    """JSON contract between Python pipeline and Node.js renderers.
+
+    The dict[str, Any] fields are intentional -- the JSON schema is shared
+    across the Python/Node.js language boundary for report generation.
+    """
 
     schema_version: str = "1.0.0"
     engagement_id: str
@@ -183,7 +197,7 @@ class ReportPayload(BaseModel):
 class AuthContext(BaseModel):
     """Authentication state from adapter's authenticate() method."""
 
-    token: str | None = None
+    token: SecretStr | None = None
     credential_refs: dict[str, str] = Field(default_factory=dict)
     expires_at: datetime | None = None
     extra: dict[str, Any] = Field(default_factory=dict)

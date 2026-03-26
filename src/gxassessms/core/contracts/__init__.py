@@ -1,4 +1,7 @@
-"""Contracts layer -- protocols, errors, and credentials. Imports from domain only."""
+"""Contracts layer -- protocols, errors, and credentials.
+
+Runtime imports from domain only (TYPE_CHECKING imports from config for annotations).
+"""
 
 from gxassessms.core.contracts.credentials import (
     CredentialProvider as CredentialProvider,

@@ -1,4 +1,4 @@
-"""Core domain layer -- constants, enums, and models. No internal imports."""
+"""Core domain layer -- constants, enums, and models. No imports from other layers."""
 
 from gxassessms.core.domain.constants import (
     ADAPTER_CAPABILITIES as ADAPTER_CAPABILITIES,
@@ -27,8 +27,23 @@ from gxassessms.core.domain.constants import (
 from gxassessms.core.domain.constants import (
     SEVERITY_ORDER as SEVERITY_ORDER,
 )
+from gxassessms.core.domain.constants import (
+    AuthMethod as AuthMethod,
+)
+from gxassessms.core.domain.constants import (
+    ConfidenceProvenance as ConfidenceProvenance,
+)
+from gxassessms.core.domain.constants import (
+    RemediationPhaseName as RemediationPhaseName,
+)
+from gxassessms.core.domain.enums import (
+    AdapterRunStatus as AdapterRunStatus,
+)
 from gxassessms.core.domain.enums import (
     Category as Category,
+)
+from gxassessms.core.domain.enums import (
+    CoverageStatus as CoverageStatus,
 )
 from gxassessms.core.domain.enums import (
     FindingStatus as FindingStatus,

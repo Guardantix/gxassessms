@@ -34,6 +34,19 @@ class Category(StrEnum):
     APPLICATION_SECURITY = "Application Security"
 
 
+class AdapterRunStatus(StrEnum):
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    SKIPPED = "SKIPPED"
+    TIMEOUT = "TIMEOUT"
+
+
+class CoverageStatus(StrEnum):
+    ASSESSED = "assessed"
+    PARTIALLY_ASSESSED = "partially_assessed"
+    NOT_ASSESSED = "not_assessed"
+
+
 class ToolSource(StrEnum):
     SCUBAGEAR = "ScubaGear"
     MAESTER = "Maester"

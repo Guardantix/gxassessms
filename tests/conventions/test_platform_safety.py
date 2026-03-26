@@ -35,7 +35,8 @@ def _is_binary_mode(node: ast.Call) -> bool:
     # Check keyword mode arg
     for kw in node.keywords:
         if kw.arg == "mode" and isinstance(kw.value, ast.Constant):
-            return kw.value in _BINARY_MODES
+            # kw.value is an ast.Constant node; .value is the actual Python value
+            return kw.value.value in _BINARY_MODES
     return False
 
 
@@ -48,8 +49,8 @@ def _find_open_without_encoding(filepath: Path) -> list[str]:
     violations = []
     try:
         tree = ast.parse(filepath.read_text(encoding="utf-8"), filename=str(filepath))
-    except SyntaxError:
-        return []
+    except SyntaxError as e:
+        return [f"{filepath}: SyntaxError -- {e}"]
 
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -103,8 +104,8 @@ def _find_banned_os_path(filepath: Path) -> list[str]:
     violations = []
     try:
         tree = ast.parse(filepath.read_text(encoding="utf-8"), filename=str(filepath))
-    except SyntaxError:
-        return []
+    except SyntaxError as e:
+        return [f"{filepath}: SyntaxError -- {e}"]
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute):
@@ -127,8 +128,106 @@ def _find_banned_os_path(filepath: Path) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Rule 3: Path.read_text() / .write_text() must have explicit encoding=
+# ---------------------------------------------------------------------------
+
+_PATHLIB_TEXT_METHODS = frozenset({"read_text", "write_text"})
+
+
+def _find_pathlib_without_encoding(filepath: Path) -> list[str]:
+    """Find Path.read_text() / .write_text() calls without encoding= keyword."""
+    violations = []
+    try:
+        tree = ast.parse(filepath.read_text(encoding="utf-8"), filename=str(filepath))
+    except SyntaxError as e:
+        return [f"{filepath}: SyntaxError -- {e}"]
+
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in _PATHLIB_TEXT_METHODS
+            and not _has_encoding_kwarg(node)
+        ):
+            violations.append(
+                f"{filepath}:{node.lineno}: {node.func.attr}() without encoding= -- "
+                "pass encoding='utf-8' explicitly (Windows defaults to cp1252)"
+            )
+
+    return violations
+
+
+# ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+
+class TestIsBinaryMode:
+    """Unit tests for the _is_binary_mode helper (C1 regression coverage)."""
+
+    def test_keyword_binary_mode_not_flagged(self, tmp_path: Path) -> None:
+        """open('f', mode='rb') should NOT be flagged as missing encoding."""
+        f = tmp_path / "kw_binary.py"
+        f.write_text("open('f', mode='rb')\n", encoding="utf-8")
+        assert _find_open_without_encoding(f) == []
+
+    def test_positional_binary_mode_not_flagged(self, tmp_path: Path) -> None:
+        """open('f', 'rb') should NOT be flagged as missing encoding."""
+        f = tmp_path / "pos_binary.py"
+        f.write_text("open('f', 'rb')\n", encoding="utf-8")
+        assert _find_open_without_encoding(f) == []
+
+    def test_keyword_text_mode_without_encoding_flagged(self, tmp_path: Path) -> None:
+        """open('f', mode='w') without encoding= SHOULD be flagged."""
+        f = tmp_path / "kw_text.py"
+        f.write_text("open('f', mode='w')\n", encoding="utf-8")
+        violations = _find_open_without_encoding(f)
+        assert len(violations) == 1
+        assert "without encoding=" in violations[0]
+
+
+class TestFindPathlibWithoutEncoding:
+    """Unit tests for the _find_pathlib_without_encoding helper."""
+
+    def test_read_text_without_encoding_flagged(self, tmp_path: Path) -> None:
+        """Path.read_text() without encoding= SHOULD be flagged."""
+        f = tmp_path / "no_enc.py"
+        f.write_text("from pathlib import Path\nPath('f').read_text()\n", encoding="utf-8")
+        violations = _find_pathlib_without_encoding(f)
+        assert len(violations) == 1
+        assert "read_text()" in violations[0]
+        assert "without encoding=" in violations[0]
+
+    def test_write_text_without_encoding_flagged(self, tmp_path: Path) -> None:
+        """Path.write_text() without encoding= SHOULD be flagged."""
+        f = tmp_path / "no_enc_write.py"
+        f.write_text("from pathlib import Path\nPath('f').write_text('x')\n", encoding="utf-8")
+        violations = _find_pathlib_without_encoding(f)
+        assert len(violations) == 1
+        assert "write_text()" in violations[0]
+
+    def test_read_text_with_encoding_not_flagged(self, tmp_path: Path) -> None:
+        """Path.read_text(encoding='utf-8') must NOT be flagged."""
+        f = tmp_path / "with_enc.py"
+        f.write_text(
+            "from pathlib import Path\nPath('f').read_text(encoding='utf-8')\n",
+            encoding="utf-8",
+        )
+        assert _find_pathlib_without_encoding(f) == []
+
+    def test_syntax_error_returns_error_string(self, tmp_path: Path) -> None:
+        """SyntaxError in scanned file returns error string, not raises."""
+        f = tmp_path / "broken.py"
+        f.write_text("def (:\n", encoding="utf-8")
+        result = _find_pathlib_without_encoding(f)
+        assert len(result) == 1
+        assert "SyntaxError" in result[0]
+
+    def test_unrelated_method_not_flagged(self, tmp_path: Path) -> None:
+        """read_bytes() without encoding= must NOT be flagged (binary, no encoding needed)."""
+        f = tmp_path / "binary.py"
+        f.write_text("from pathlib import Path\nPath('f').read_bytes()\n", encoding="utf-8")
+        assert _find_pathlib_without_encoding(f) == []
 
 
 def test_no_open_without_encoding() -> None:
@@ -139,6 +238,18 @@ def test_no_open_without_encoding() -> None:
 
     if all_violations:
         pytest.fail("open() without explicit encoding= found:\n" + "\n".join(all_violations))
+
+
+def test_no_pathlib_without_encoding() -> None:
+    """Every Path.read_text() / .write_text() must specify encoding= explicitly."""
+    all_violations = []
+    for pyfile in _collect_python_files():
+        all_violations.extend(_find_pathlib_without_encoding(pyfile))
+
+    if all_violations:
+        pytest.fail(
+            "Path text methods without explicit encoding= found:\n" + "\n".join(all_violations)
+        )
 
 
 def test_no_os_path_usage() -> None:

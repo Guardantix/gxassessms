@@ -3,22 +3,25 @@
 from datetime import UTC, datetime
 
 import pytest
-from pydantic import ValidationError
+from pydantic import SecretStr, ValidationError
 
-from gxassessms.core.contracts.types import AdapterRunStatus
 from gxassessms.core.domain.enums import (
+    AdapterRunStatus,
     Category,
+    CoverageStatus,
     FindingStatus,
     Severity,
     ToolSource,
 )
 from gxassessms.core.domain.models import (
     AdapterResult,
+    AuthContext,
     ConfidenceScore,
     ConsolidatedFinding,
     CoverageRecord,
     Finding,
     RawToolOutput,
+    RemediationPhase,
     ReportPayload,
     SourceEvidence,
     ToolObservation,
@@ -105,8 +108,64 @@ class TestConfidenceScore:
                 overall=1.5,
             )
 
+    def test_rejects_invalid_provenance(self) -> None:
+        with pytest.raises(ValidationError):
+            ConfidenceScore(
+                evidence_strength=0.9,
+                corroborating_tools=1,
+                data_freshness=0.95,
+                provenance="invalid-provenance",
+                overall=0.88,
+            )
+
+    def test_rejects_negative_evidence_strength(self) -> None:
+        with pytest.raises(ValidationError):
+            ConfidenceScore(
+                evidence_strength=-0.1,
+                corroborating_tools=1,
+                data_freshness=0.95,
+                provenance="system-generated",
+                overall=0.88,
+            )
+
+    def test_rejects_negative_corroborating_tools(self) -> None:
+        with pytest.raises(ValidationError):
+            ConfidenceScore(
+                evidence_strength=0.9,
+                corroborating_tools=-1,
+                data_freshness=0.95,
+                provenance="system-generated",
+                overall=0.88,
+            )
+
+    def test_rejects_data_freshness_above_one(self) -> None:
+        with pytest.raises(ValidationError):
+            ConfidenceScore(
+                evidence_strength=0.9,
+                corroborating_tools=1,
+                data_freshness=1.1,
+                provenance="system-generated",
+                overall=0.88,
+            )
+
 
 class TestConsolidatedFinding:
+    def _make_source(self) -> SourceEvidence:
+        return SourceEvidence(
+            tool=ToolSource.SCUBAGEAR,
+            check_id="MS.AAD.3.1v1",
+            raw_data={},
+        )
+
+    def _make_confidence(self) -> ConfidenceScore:
+        return ConfidenceScore(
+            evidence_strength=0.9,
+            corroborating_tools=2,
+            data_freshness=0.95,
+            provenance="system-generated",
+            overall=0.88,
+        )
+
     def test_create_with_confidence(self) -> None:
         cf = ConsolidatedFinding(
             finding_instance_id="uuid-001",
@@ -116,24 +175,26 @@ class TestConsolidatedFinding:
             status=FindingStatus.FAIL,
             category=Category.IDENTITY_ACCESS,
             description="MFA is not enabled.",
-            sources=[
-                SourceEvidence(
-                    tool=ToolSource.SCUBAGEAR,
-                    check_id="MS.AAD.3.1v1",
-                    raw_data={},
-                ),
-            ],
-            confidence=ConfidenceScore(
-                evidence_strength=0.9,
-                corroborating_tools=2,
-                data_freshness=0.95,
-                provenance="system-generated",
-                overall=0.88,
-            ),
+            sources=[self._make_source()],
+            confidence=self._make_confidence(),
             benchmark_refs=["CIS M365 1.1.1"],
         )
         assert cf.confidence.overall == 0.88
         assert cf.benchmark_refs == ["CIS M365 1.1.1"]
+
+    def test_empty_sources_raises(self) -> None:
+        with pytest.raises(ValidationError, match="sources"):
+            ConsolidatedFinding(
+                finding_instance_id="uuid-001",
+                finding_key="cis:m365:1.1.1",
+                title="MFA",
+                severity=Severity.CRITICAL,
+                status=FindingStatus.FAIL,
+                category=Category.IDENTITY_ACCESS,
+                description="Test",
+                sources=[],
+                confidence=self._make_confidence(),
+            )
 
 
 class TestCoverageRecord:
@@ -141,10 +202,18 @@ class TestCoverageRecord:
         cr = CoverageRecord(
             control_id="CIS M365 1.1.1",
             tool=ToolSource.SCUBAGEAR,
-            status="assessed",
+            status=CoverageStatus.ASSESSED,
             reason=None,
         )
-        assert cr.status == "assessed"
+        assert cr.status == CoverageStatus.ASSESSED
+
+    def test_rejects_invalid_status(self) -> None:
+        with pytest.raises(ValidationError):
+            CoverageRecord(
+                control_id="CIS M365 1.1.1",
+                tool=ToolSource.SCUBAGEAR,
+                status="invalid_status",  # type: ignore[arg-type]
+            )
 
 
 class TestRawToolOutput:
@@ -189,6 +258,14 @@ class TestAdapterResult:
         assert ar.raw_output is None
         assert ar.error == "Connection refused"
 
+    def test_rejects_invalid_status(self) -> None:
+        with pytest.raises(ValidationError):
+            AdapterResult(
+                adapter_name="scubagear",
+                status="INVALID",  # type: ignore[arg-type]
+                duration_seconds=5.0,
+            )
+
 
 class TestReportPayload:
     def test_default_schema_version(self) -> None:
@@ -216,3 +293,24 @@ class TestToolRunResult:
             error=None,
         )
         assert trr.finding_count == 42
+
+
+class TestRemediationPhase:
+    def test_rejects_invalid_phase(self) -> None:
+        with pytest.raises(ValidationError):
+            RemediationPhase(
+                phase="INVALID_PHASE",  # type: ignore[arg-type]
+                title="Test",
+                description="Test",
+            )
+
+
+class TestAuthContext:
+    def test_token_is_secret_str(self) -> None:
+        ctx = AuthContext(
+            token="my-secret-token",
+            credential_refs={},
+        )
+        assert isinstance(ctx.token, SecretStr)
+        assert ctx.token.get_secret_value() == "my-secret-token"
+        assert "my-secret-token" not in repr(ctx)

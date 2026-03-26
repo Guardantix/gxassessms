@@ -1,8 +1,9 @@
 """Typed exception hierarchy -- fail-closed, no silent fallbacks.
 
 Every leaf exception carries enough context to diagnose without re-running.
-Callers catch at the right granularity: `except AdapterError` for any adapter
-problem, or `except CollectionError` for tool execution specifically.
+Callers catch at the right granularity: `except GxAssessError` for any
+GxAssessMS problem, `except AdapterError` for any adapter problem, or
+`except CollectionError` for tool execution specifically.
 """
 
 
@@ -24,7 +25,7 @@ class ConfigError(GxAssessError):
 
 
 class ConfigValidationError(ConfigError):
-    """Preflight validation failures with structured pass/warn/fail."""
+    """Preflight validation failures with structured errors and warnings."""
 
     def __init__(
         self,
@@ -32,8 +33,8 @@ class ConfigValidationError(ConfigError):
         errors: list[str] | None = None,
         warnings: list[str] | None = None,
     ) -> None:
-        self.errors = errors or []
-        self.warnings = warnings or []
+        self.errors = errors if errors is not None else []
+        self.warnings = warnings if warnings is not None else []
         super().__init__(message)
 
 

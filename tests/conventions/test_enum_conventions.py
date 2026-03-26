@@ -30,9 +30,9 @@ def _find_raw_enum_literals(filepath: Path) -> list[str]:
     """Find string literals that match known enum values."""
     violations = []
     try:
-        tree = ast.parse(filepath.read_text(), filename=str(filepath))
-    except SyntaxError:
-        return []
+        tree = ast.parse(filepath.read_text(encoding="utf-8"), filename=str(filepath))
+    except SyntaxError as e:
+        return [f"{filepath}: SyntaxError -- {e}"]
 
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str):

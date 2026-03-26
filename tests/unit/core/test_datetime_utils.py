@@ -1,6 +1,8 @@
 """Tests for centralized datetime handling."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
+
+import pytest
 
 from gxassessms.core.config.datetime_utils import (
     format_utc,
@@ -41,10 +43,14 @@ class TestParseUtc:
         assert result.tzinfo == UTC
 
     def test_raises_on_invalid_format(self) -> None:
-        import pytest
-
         with pytest.raises(ValueError, match="Invalid isoformat"):
             parse_utc("not-a-date")
+
+    def test_converts_non_utc_offset_to_utc(self) -> None:
+        result = parse_utc("2026-03-25T12:30:00+05:30")
+        assert result.tzinfo == UTC
+        assert result.hour == 7
+        assert result.minute == 0
 
 
 class TestFormatUtc:
@@ -58,6 +64,17 @@ class TestFormatUtc:
         result = format_utc(dt)
         assert result == "2026-03-25T10:30:00.123456Z"
 
+    def test_raises_on_naive_datetime(self) -> None:
+        dt = datetime(2026, 3, 25, 10, 30, 0)
+        with pytest.raises(ValueError, match="timezone-aware"):
+            format_utc(dt)
+
+    def test_converts_non_utc_aware_datetime(self) -> None:
+        tz_plus5 = timezone(timedelta(hours=5))
+        dt = datetime(2026, 3, 25, 15, 30, 0, tzinfo=tz_plus5)
+        result = format_utc(dt)
+        assert result == "2026-03-25T10:30:00Z"
+
 
 class TestUtcToLocal:
     def test_returns_datetime_with_local_tz(self) -> None:
@@ -67,3 +84,10 @@ class TestUtcToLocal:
         # Converting back to UTC should give the same instant
         back_to_utc = local.astimezone(UTC)
         assert back_to_utc == dt
+
+    def test_naive_datetime_assumed_utc(self) -> None:
+        dt = datetime(2026, 3, 25, 10, 30, 0)
+        local = utc_to_local(dt)
+        assert local.tzinfo is not None
+        back_to_utc = local.astimezone(UTC)
+        assert back_to_utc.hour == 10
