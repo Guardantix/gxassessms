@@ -100,6 +100,9 @@ def load_config(path: Path) -> EngagementConfig:
 
 
 _KNOWN_SECTIONS = frozenset({"client", "auth", "tools", "report", "pipeline"})
+_KNOWN_CLIENT_KEYS = frozenset({"name", "tenant_id"})
+_KNOWN_REPORT_KEYS = frozenset({"formats", "theme", "logo_path"})
+_KNOWN_PIPELINE_KEYS = frozenset({"max_parallel", "qa_model", "qa_token_budget"})
 
 
 def _parse_raw_config(raw: dict[str, Any]) -> EngagementConfig:
@@ -129,6 +132,18 @@ def _parse_raw_config(raw: dict[str, Any]) -> EngagementConfig:
     tools_raw: dict[str, Any] = raw.get("tools", {})
     report_raw: dict[str, Any] = raw.get("report", {})
     pipeline_raw: dict[str, Any] = raw.get("pipeline", {})
+
+    # Reject unknown keys in nested sections
+    for section_name, section_dict, known_keys in (
+        ("client", client, _KNOWN_CLIENT_KEYS),
+        ("report", report_raw, _KNOWN_REPORT_KEYS),
+        ("pipeline", pipeline_raw, _KNOWN_PIPELINE_KEYS),
+    ):
+        bad = set(section_dict.keys()) - known_keys
+        if bad:
+            raise ConfigError(
+                f"Unknown keys in '{section_name}': {', '.join(sorted(str(k) for k in bad))}"
+            )
 
     tools: dict[str, ToolConfig] = {}
     for name, cfg in tools_raw.items():

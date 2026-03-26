@@ -1,7 +1,6 @@
 client:
   name: "Acme Healthcare"
   tenant_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
-  contact: "john@acme.com"
 
 auth:
   method: "client_credential"

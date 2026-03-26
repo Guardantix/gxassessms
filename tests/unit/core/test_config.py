@@ -153,6 +153,18 @@ class TestLoadConfig:
         with pytest.raises(ConfigError, match=r"Unknown config sections.*pipline"):
             load_config(f)
 
+    def test_load_unknown_nested_key_raises(self, tmp_path: Path) -> None:
+        """Misspelled keys inside sections (e.g., max_paralel) must not be silently ignored."""
+        f = tmp_path / "unknown_nested.yaml"
+        f.write_text(
+            "client:\n  name: Test\n  tenant_id: t1\n"
+            "auth:\n  method: client_credential\n  tenant_id: t1\n  client_id: c1\n"
+            "pipeline:\n  max_paralel: 2\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigError, match=r"Unknown keys in 'pipeline'.*max_paralel"):
+            load_config(f)
+
     def test_load_non_string_key_raises(self, tmp_path: Path) -> None:
         """YAML integer keys are reported cleanly, not as TypeError."""
         f = tmp_path / "int_key.yaml"
