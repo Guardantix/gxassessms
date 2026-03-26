@@ -42,9 +42,12 @@ def test_import_has_no_side_effects(module_name: str) -> None:
     with patch("sys.stdout", captured):
         try:
             importlib.import_module(module_name)
-        except ImportError:
-            # Missing optional dependencies are OK (e.g., cli depends on click)
-            pytest.skip(f"Optional dependency missing for {module_name}")
+        except ImportError as exc:
+            # Only skip for missing external dependencies (e.g., click).
+            # Internal import breakages (gxassessms.*) must fail the test.
+            if exc.name and exc.name.startswith("gxassessms"):
+                raise
+            pytest.skip(f"Optional dependency missing for {module_name}: {exc.name}")
 
     output = captured.getvalue()
     if output.strip():

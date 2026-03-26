@@ -330,6 +330,20 @@ class TestReportPayload:
         )
         assert rp.schema_version == "1.0.0"
 
+    def test_narratives_accept_none_values(self) -> None:
+        """Narratives with None values (e.g., omitted findings_narrative) must be accepted."""
+        rp = ReportPayload(
+            engagement_id="eng-001",
+            tenant_name="Acme Healthcare",
+            assessment_date="2026-03-25",
+            tool_sources=["ScubaGear"],
+            findings=[],
+            coverage=[],
+            narratives={"executive_summary": "Good", "findings_narrative": None},
+            metadata={},
+        )
+        assert rp.narratives["findings_narrative"] is None
+
 
 class TestToolRunResult:
     def test_create_tool_run_result(self) -> None:

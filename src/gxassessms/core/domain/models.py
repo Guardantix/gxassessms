@@ -222,7 +222,7 @@ class ReportPayload(BaseModel):
     tool_sources: list[str]
     findings: list[dict[str, Any]]
     coverage: list[dict[str, Any]]
-    narratives: dict[str, str]
+    narratives: dict[str, str | None]
     metadata: dict[str, Any]
 
 
