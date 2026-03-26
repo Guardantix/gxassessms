@@ -164,7 +164,7 @@ class ToolRunResult(BaseModel):
     started_at: datetime
     completed_at: datetime
     status: AdapterRunStatus
-    finding_count: int
+    finding_count: int = Field(ge=0)
     error: str | None = None
 
     @field_validator("started_at", "completed_at")
@@ -233,3 +233,13 @@ class AuthContext(BaseModel):
     credential_refs: dict[str, str] = Field(default_factory=dict)
     expires_at: datetime | None = None
     extra: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("expires_at")
+    @classmethod
+    def expires_at_must_be_utc(cls, v: datetime | None) -> datetime | None:
+        """Reject naive datetimes; normalize non-UTC to UTC."""
+        if v is None:
+            return v
+        if v.tzinfo is None:
+            raise ValueError("expires_at must be timezone-aware (use UTC)")
+        return v.astimezone(UTC)

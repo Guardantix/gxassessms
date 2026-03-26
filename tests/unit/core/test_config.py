@@ -32,6 +32,14 @@ class TestToolConfig:
         with pytest.raises(ValidationError):
             ToolConfig(enabled=True, enbaled=True)  # type: ignore[call-arg]
 
+    def test_rejects_negative_timeout(self) -> None:
+        with pytest.raises(ValidationError):
+            ToolConfig(enabled=True, timeout=-1)
+
+    def test_rejects_zero_timeout(self) -> None:
+        with pytest.raises(ValidationError):
+            ToolConfig(enabled=True, timeout=0)
+
 
 class TestAuthConfig:
     def test_create_client_credential(self) -> None:
@@ -242,6 +250,7 @@ class TestLoadConfig:
         f.write_text(
             "client:\n  name: Test\n  tenant_id: t1\n"
             "auth:\n  method: client_credential\n  tenant_id: t1\n  client_id: c1\n"
+            "  client_secret_env: GX_SECRET\n"
             "tools:\n  scubagear: true\n  maester: false\n",
             encoding="utf-8",
         )
@@ -326,6 +335,35 @@ class TestValidateConfig:
         errors, _warnings = validate_config(cfg)
         assert any("auth.client_id" in e for e in errors)
 
+    def test_client_credential_without_secret_or_cert_is_error(self) -> None:
+        cfg = EngagementConfig(
+            client_name="Test",
+            tenant_id="00000000-0000-0000-0000-000000000001",
+            auth=AuthConfig(
+                method="client_credential",
+                tenant_id="00000000-0000-0000-0000-000000000001",
+                client_id="00000000-0000-0000-0000-000000000002",
+            ),
+            tools={},
+        )
+        errors, _warnings = validate_config(cfg)
+        assert any("client_secret_env" in e or "certificate_path" in e for e in errors)
+
+    def test_client_credential_with_secret_env_passes(self) -> None:
+        cfg = EngagementConfig(
+            client_name="Test",
+            tenant_id="00000000-0000-0000-0000-000000000001",
+            auth=AuthConfig(
+                method="client_credential",
+                tenant_id="00000000-0000-0000-0000-000000000001",
+                client_id="00000000-0000-0000-0000-000000000002",
+                client_secret_env="GX_SECRET",
+            ),
+            tools={},
+        )
+        errors, _warnings = validate_config(cfg)
+        assert not any("client_secret_env" in e for e in errors)
+
     def test_validate_collects_all_errors(self) -> None:
         """validate_config does not short-circuit -- all errors are collected."""
         cfg = EngagementConfig(
@@ -339,5 +377,5 @@ class TestValidateConfig:
             tools={},
         )
         errors, _warnings = validate_config(cfg)
-        # Exactly 4: tenant_id, client_name, auth.tenant_id, auth.client_id
-        assert len(errors) == 4
+        # tenant_id, client_name, auth.tenant_id, auth.client_id, missing credential
+        assert len(errors) == 5

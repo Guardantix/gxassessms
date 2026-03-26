@@ -400,6 +400,16 @@ class TestToolRunResult:
                 finding_count=0,
             )
 
+    def test_rejects_negative_finding_count(self) -> None:
+        with pytest.raises(ValidationError):
+            ToolRunResult(
+                tool=ToolSource.SCUBAGEAR,
+                started_at=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+                completed_at=datetime(2026, 3, 25, 10, 15, 0, tzinfo=UTC),
+                status=AdapterRunStatus.SUCCESS,
+                finding_count=-1,
+            )
+
 
 class TestRemediationPhase:
     def test_rejects_invalid_phase(self) -> None:
@@ -420,3 +430,14 @@ class TestAuthContext:
         assert isinstance(ctx.token, SecretStr)
         assert ctx.token.get_secret_value() == "my-secret-token"
         assert "my-secret-token" not in repr(ctx)
+
+    def test_rejects_naive_expires_at(self) -> None:
+        with pytest.raises(ValidationError, match="timezone-aware"):
+            AuthContext(expires_at=datetime(2026, 3, 25, 12, 0, 0))
+
+    def test_normalizes_expires_at_to_utc(self) -> None:
+        ist = timezone(timedelta(hours=5, minutes=30))
+        ctx = AuthContext(expires_at=datetime(2026, 3, 25, 17, 30, 0, tzinfo=ist))
+        assert ctx.expires_at is not None
+        assert ctx.expires_at.tzinfo == UTC
+        assert ctx.expires_at == datetime(2026, 3, 25, 12, 0, 0, tzinfo=UTC)

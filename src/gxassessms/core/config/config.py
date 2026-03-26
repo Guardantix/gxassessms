@@ -24,7 +24,7 @@ class ToolConfig(BaseModel):
 
     enabled: bool = False
     modules: list[str] = Field(default_factory=list)
-    timeout: int = 600
+    timeout: int = Field(default=600, gt=0)
     extra_args: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -191,6 +191,15 @@ def validate_config(config: EngagementConfig) -> tuple[list[str], list[str]]:
 
     if not config.auth.client_id:
         errors.append("auth.client_id is required")
+
+    if (
+        config.auth.method == "client_credential"
+        and not config.auth.client_secret_env
+        and not config.auth.certificate_path
+    ):
+        errors.append(
+            "auth: client_credential method requires client_secret_env or certificate_path"
+        )
 
     if not any(tc.enabled for tc in config.tools.values()):
         warnings.append("No tools are enabled -- pipeline will produce no findings")
