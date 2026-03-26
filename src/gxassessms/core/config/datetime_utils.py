@@ -13,12 +13,11 @@ import time as _time
 
 def _detect_local_tz() -> ZoneInfo | timezone:
     """Detect the system's local timezone."""
+    import subprocess
+
     try:
         local_name = _time.tzname[0]
         if local_name and local_name != "UTC":
-            # Try to get a proper ZoneInfo
-            import subprocess
-
             result = subprocess.run(
                 ["timedatectl", "show", "--property=Timezone", "--value"],
                 capture_output=True,
@@ -27,7 +26,7 @@ def _detect_local_tz() -> ZoneInfo | timezone:
             )
             if result.returncode == 0 and result.stdout.strip():
                 return ZoneInfo(result.stdout.strip())
-    except Exception:
+    except (OSError, KeyError, subprocess.SubprocessError, ValueError):
         pass
     # Fallback: use the system's UTC offset
     return timezone.utc
