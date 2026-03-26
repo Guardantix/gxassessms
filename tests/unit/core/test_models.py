@@ -1,6 +1,6 @@
 """Tests for Pydantic domain models."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
 from pydantic import SecretStr, ValidationError
@@ -238,6 +238,18 @@ class TestRawToolOutput:
                 execution_metadata={},
             )
 
+    def test_normalizes_non_utc_timestamp_to_utc(self) -> None:
+        ist = timezone(timedelta(hours=5, minutes=30))
+        rto = RawToolOutput(
+            tool=ToolSource.SCUBAGEAR,
+            schema_version="1.0.0",
+            timestamp=datetime(2026, 3, 25, 12, 30, 0, tzinfo=ist),
+            file_manifest={},
+            execution_metadata={},
+        )
+        assert rto.timestamp.tzinfo == UTC
+        assert rto.timestamp == datetime(2026, 3, 25, 7, 0, 0, tzinfo=UTC)
+
 
 class TestAdapterResult:
     def test_success_result_has_raw_output(self) -> None:
@@ -323,6 +335,19 @@ class TestToolRunResult:
                 status=AdapterRunStatus.SUCCESS,
                 finding_count=0,
             )
+
+    def test_normalizes_non_utc_timestamps_to_utc(self) -> None:
+        ist = timezone(timedelta(hours=5, minutes=30))
+        trr = ToolRunResult(
+            tool=ToolSource.SCUBAGEAR,
+            started_at=datetime(2026, 3, 25, 15, 30, 0, tzinfo=ist),
+            completed_at=datetime(2026, 3, 25, 15, 45, 0, tzinfo=ist),
+            status=AdapterRunStatus.SUCCESS,
+            finding_count=0,
+        )
+        assert trr.started_at.tzinfo == UTC
+        assert trr.started_at == datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC)
+        assert trr.completed_at == datetime(2026, 3, 25, 10, 15, 0, tzinfo=UTC)
 
 
 class TestRemediationPhase:

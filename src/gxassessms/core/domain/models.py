@@ -7,7 +7,7 @@ once and frozen.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field, SecretStr, field_validator
@@ -131,11 +131,11 @@ class RawToolOutput(BaseModel):
 
     @field_validator("timestamp")
     @classmethod
-    def timestamp_must_be_aware(cls, v: datetime) -> datetime:
-        """Reject naive datetimes -- all timestamps must carry timezone info."""
+    def timestamp_must_be_utc(cls, v: datetime) -> datetime:
+        """Reject naive datetimes; normalize non-UTC to UTC."""
         if v.tzinfo is None:
             raise ValueError("timestamp must be timezone-aware (use UTC)")
-        return v
+        return v.astimezone(UTC)
 
 
 class AdapterResult(BaseModel):
@@ -160,11 +160,11 @@ class ToolRunResult(BaseModel):
 
     @field_validator("started_at", "completed_at")
     @classmethod
-    def timestamps_must_be_aware(cls, v: datetime) -> datetime:
-        """Reject naive datetimes -- all timestamps must carry timezone info."""
+    def timestamps_must_be_utc(cls, v: datetime) -> datetime:
+        """Reject naive datetimes; normalize non-UTC to UTC."""
         if v.tzinfo is None:
             raise ValueError("timestamp must be timezone-aware (use UTC)")
-        return v
+        return v.astimezone(UTC)
 
 
 class RemediationPhase(BaseModel):

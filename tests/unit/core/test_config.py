@@ -153,6 +153,18 @@ class TestLoadConfig:
         with pytest.raises(ConfigError, match=r"Unknown config sections.*pipline"):
             load_config(f)
 
+    def test_load_non_string_key_raises(self, tmp_path: Path) -> None:
+        """YAML integer keys are reported cleanly, not as TypeError."""
+        f = tmp_path / "int_key.yaml"
+        f.write_text(
+            "client:\n  name: Test\n  tenant_id: t1\n"
+            "auth:\n  method: client_credential\n  tenant_id: t1\n  client_id: c1\n"
+            "42: oops\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigError, match=r"Unknown config sections.*42"):
+            load_config(f)
+
     def test_load_scalar_yaml_raises(self, tmp_path: Path) -> None:
         """True non-mapping YAML (scalar at root) raises ConfigError."""
         bad_file = tmp_path / "scalar.yaml"

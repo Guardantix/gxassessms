@@ -106,7 +106,7 @@ def _parse_raw_config(raw: dict[str, Any]) -> EngagementConfig:
     """Parse raw YAML dict into EngagementConfig."""
     unknown = set(raw.keys()) - _KNOWN_SECTIONS
     if unknown:
-        raise ConfigError(f"Unknown config sections: {', '.join(sorted(unknown))}")
+        raise ConfigError(f"Unknown config sections: {', '.join(sorted(str(k) for k in unknown))}")
 
     # Required sections
     for key in ("client", "auth"):
