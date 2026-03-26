@@ -5,40 +5,7 @@ Convention tests ban direct use of datetime.now(), datetime.utcnow(),
 and bare fromisoformat() outside this module.
 """
 
-from datetime import UTC, datetime, timezone
-from functools import lru_cache
-from zoneinfo import ZoneInfo
-
-
-@lru_cache(maxsize=1)
-def _detect_local_tz() -> ZoneInfo | timezone:
-    """Detect the system's local timezone. Cached after first call.
-
-    Strategy (portable, no subprocess):
-    1. Check TZ env var for a named IANA zone (e.g., "America/New_York").
-    2. Use datetime.now().astimezone() to get the system's current UTC offset
-       and build a fixed-offset timezone. Works on Linux, macOS, and Windows.
-    """
-    import os
-
-    # 1. Named zone from TZ env var (common in containers and server configs)
-    tz_env = os.environ.get("TZ", "").strip()
-    if tz_env and tz_env != "UTC":
-        try:
-            return ZoneInfo(tz_env)
-        except KeyError, ValueError:
-            pass  # Invalid zone name -- fall through to offset detection
-
-    # 2. Portable offset detection via the C library's localtime
-    try:
-        local_dt = datetime.now(UTC).astimezone()
-        offset = local_dt.utcoffset()
-        if offset is not None and offset.total_seconds() != 0:
-            return timezone(offset)
-    except OSError, ValueError, OverflowError:
-        pass
-
-    return UTC
+from datetime import UTC, datetime
 
 
 def utc_now() -> datetime:
@@ -70,7 +37,11 @@ def format_utc(dt: datetime) -> str:
 
 
 def utc_to_local(dt: datetime) -> datetime:
-    """Convert a UTC datetime to the system's local timezone. Display use only."""
+    """Convert a UTC datetime to the system's local timezone. Display use only.
+
+    Uses Python's built-in OS timezone support (no argument to astimezone()),
+    which correctly handles DST on all platforms including Windows.
+    """
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
-    return dt.astimezone(_detect_local_tz())
+    return dt.astimezone()
