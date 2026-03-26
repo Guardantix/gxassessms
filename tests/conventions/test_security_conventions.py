@@ -26,11 +26,7 @@ def test_no_innerhtml_in_web_files() -> None:
         content = filepath.read_text()
         for i, line in enumerate(content.splitlines(), 1):
             if "innerHTML" in line:
-                violations.append(
-                    f"{filepath}:{i}: innerHTML found -- use textContent instead"
-                )
+                violations.append(f"{filepath}:{i}: innerHTML found -- use textContent instead")
 
     if violations:
-        pytest.fail(
-            "innerHTML usage found:\n" + "\n".join(violations)
-        )
+        pytest.fail("innerHTML usage found:\n" + "\n".join(violations))

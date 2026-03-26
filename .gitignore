@@ -13,8 +13,14 @@ reports/
 # Python
 __pycache__/
 *.pyc
+*.egg-info/
 .venv/
 venv/
+
+# Testing / Coverage
+.coverage
+htmlcov/
+.pytest_cache/
 
 # Node
 node_modules/

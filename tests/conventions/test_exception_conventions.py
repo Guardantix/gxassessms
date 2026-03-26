@@ -60,6 +60,4 @@ def test_no_broad_except_clauses() -> None:
         all_violations.extend(_find_broad_except_clauses(pyfile))
 
     if all_violations:
-        pytest.fail(
-            "Broad except clauses found:\n" + "\n".join(all_violations)
-        )
+        pytest.fail("Broad except clauses found:\n" + "\n".join(all_violations))

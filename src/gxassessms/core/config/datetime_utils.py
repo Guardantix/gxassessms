@@ -27,7 +27,7 @@ def _detect_local_tz() -> ZoneInfo | timezone:
             )
             if result.returncode == 0 and result.stdout.strip():
                 return ZoneInfo(result.stdout.strip())
-    except (OSError, KeyError, subprocess.SubprocessError, ValueError):
+    except OSError, KeyError, subprocess.SubprocessError, ValueError:
         pass
     # Fallback: use the system's UTC offset
     return UTC

@@ -8,7 +8,7 @@ version = "0.1.0"
 description = "Microsoft Ecosystem Assessment Orchestrator"
 readme = "README.md"
 license = "MIT"
-requires-python = ">=3.11"
+requires-python = ">=3.14"
 authors = [
     { name = "Rick Passero", email = "rick@guardantix.com" },
 ]
@@ -69,7 +69,7 @@ exclude_lines = [
 ]
 
 [tool.ruff]
-target-version = "py311"
+target-version = "py314"
 line-length = 100
 src = ["src", "tests"]
 
