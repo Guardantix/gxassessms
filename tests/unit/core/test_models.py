@@ -288,6 +288,33 @@ class TestAdapterResult:
                 duration_seconds=5.0,
             )
 
+    def test_success_without_raw_output_raises(self) -> None:
+        with pytest.raises(ValidationError, match="requires raw_output"):
+            AdapterResult(
+                adapter_name="scubagear",
+                status=AdapterRunStatus.SUCCESS,
+                raw_output=None,
+                duration_seconds=120.5,
+            )
+
+    def test_failed_without_error_raises(self) -> None:
+        with pytest.raises(ValidationError, match="requires error"):
+            AdapterResult(
+                adapter_name="scubagear",
+                status=AdapterRunStatus.FAILED,
+                raw_output=None,
+                duration_seconds=5.0,
+            )
+
+    def test_timeout_without_error_raises(self) -> None:
+        with pytest.raises(ValidationError, match="requires error"):
+            AdapterResult(
+                adapter_name="scubagear",
+                status=AdapterRunStatus.TIMEOUT,
+                raw_output=None,
+                duration_seconds=600.0,
+            )
+
 
 class TestReportPayload:
     def test_default_schema_version(self) -> None:
@@ -348,6 +375,16 @@ class TestToolRunResult:
         assert trr.started_at.tzinfo == UTC
         assert trr.started_at == datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC)
         assert trr.completed_at == datetime(2026, 3, 25, 10, 15, 0, tzinfo=UTC)
+
+    def test_rejects_completed_before_started(self) -> None:
+        with pytest.raises(ValidationError, match=r"completed_at must be >= started_at"):
+            ToolRunResult(
+                tool=ToolSource.SCUBAGEAR,
+                started_at=datetime(2026, 3, 25, 10, 15, 0, tzinfo=UTC),
+                completed_at=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+                status=AdapterRunStatus.SUCCESS,
+                finding_count=0,
+            )
 
 
 class TestRemediationPhase:

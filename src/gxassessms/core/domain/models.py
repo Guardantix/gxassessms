@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, SecretStr, field_validator
+from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
 from gxassessms.core.domain.constants import ConfidenceProvenance, RemediationPhaseName
 from gxassessms.core.domain.enums import (
@@ -147,6 +147,15 @@ class AdapterResult(BaseModel):
     error: str | None = None
     duration_seconds: float
 
+    @model_validator(mode="after")
+    def status_payload_consistent(self) -> AdapterResult:
+        """Enforce that status matches the presence of raw_output/error."""
+        if self.status == AdapterRunStatus.SUCCESS and self.raw_output is None:
+            raise ValueError("SUCCESS status requires raw_output")
+        if self.status in (AdapterRunStatus.FAILED, AdapterRunStatus.TIMEOUT) and not self.error:
+            raise ValueError(f"{self.status} status requires error message")
+        return self
+
 
 class ToolRunResult(BaseModel):
     """Execution metadata for a single tool run."""
@@ -165,6 +174,13 @@ class ToolRunResult(BaseModel):
         if v.tzinfo is None:
             raise ValueError("timestamp must be timezone-aware (use UTC)")
         return v.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def completed_not_before_started(self) -> ToolRunResult:
+        """Reject impossible run records where completed_at < started_at."""
+        if self.completed_at < self.started_at:
+            raise ValueError("completed_at must be >= started_at")
+        return self
 
 
 class RemediationPhase(BaseModel):
