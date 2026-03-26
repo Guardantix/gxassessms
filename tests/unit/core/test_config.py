@@ -141,6 +141,18 @@ class TestLoadConfig:
         with pytest.raises(ConfigError, match=r"auth.*mapping"):
             load_config(bad_file)
 
+    def test_load_unknown_section_raises(self, tmp_path: Path) -> None:
+        """Misspelled top-level sections (e.g., pipline) must not be silently ignored."""
+        f = tmp_path / "unknown_section.yaml"
+        f.write_text(
+            "client:\n  name: Test\n  tenant_id: t1\n"
+            "auth:\n  method: client_credential\n  tenant_id: t1\n  client_id: c1\n"
+            "pipline:\n  max_parallel: 2\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigError, match=r"Unknown config sections.*pipline"):
+            load_config(f)
+
     def test_load_scalar_yaml_raises(self, tmp_path: Path) -> None:
         """True non-mapping YAML (scalar at root) raises ConfigError."""
         bad_file = tmp_path / "scalar.yaml"

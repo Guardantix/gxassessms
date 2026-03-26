@@ -99,8 +99,15 @@ def load_config(path: Path) -> EngagementConfig:
     return config
 
 
+_KNOWN_SECTIONS = frozenset({"client", "auth", "tools", "report", "pipeline"})
+
+
 def _parse_raw_config(raw: dict[str, Any]) -> EngagementConfig:
     """Parse raw YAML dict into EngagementConfig."""
+    unknown = set(raw.keys()) - _KNOWN_SECTIONS
+    if unknown:
+        raise ConfigError(f"Unknown config sections: {', '.join(sorted(unknown))}")
+
     # Required sections
     for key in ("client", "auth"):
         if key not in raw:
