@@ -5,10 +5,9 @@ Convention tests ban direct use of datetime.now(), datetime.utcnow(),
 and bare fromisoformat() outside this module.
 """
 
-from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
-
 import time as _time
+from datetime import UTC, datetime, timezone
+from zoneinfo import ZoneInfo
 
 
 def _detect_local_tz() -> ZoneInfo | timezone:
@@ -19,7 +18,7 @@ def _detect_local_tz() -> ZoneInfo | timezone:
         local_name = _time.tzname[0]
         if local_name and local_name != "UTC":
             result = subprocess.run(
-                ["timedatectl", "show", "--property=Timezone", "--value"],
+                ["timedatectl", "show", "--property=Timezone", "--value"],  # noqa: S607
                 capture_output=True,
                 text=True,
                 timeout=2,
@@ -29,7 +28,7 @@ def _detect_local_tz() -> ZoneInfo | timezone:
     except (OSError, KeyError, subprocess.SubprocessError, ValueError):
         pass
     # Fallback: use the system's UTC offset
-    return timezone.utc
+    return UTC
 
 
 # Detect local timezone at import time (no I/O, no side effects)
@@ -38,7 +37,7 @@ LOCAL_TZ: ZoneInfo | timezone = _detect_local_tz()
 
 def utc_now() -> datetime:
     """Current time in UTC. Use instead of datetime.now() or datetime.utcnow()."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def parse_utc(iso_string: str) -> datetime:
@@ -51,15 +50,15 @@ def parse_utc(iso_string: str) -> datetime:
     normalized = iso_string.replace("Z", "+00:00") if iso_string.endswith("Z") else iso_string
     dt = datetime.fromisoformat(normalized)
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def format_utc(dt: datetime) -> str:
     """Format a UTC datetime as ISO 8601 with Z suffix."""
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    utc_dt = dt.astimezone(timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
+    utc_dt = dt.astimezone(UTC)
     # Use isoformat and replace +00:00 with Z
     return utc_dt.isoformat().replace("+00:00", "Z")
 
@@ -67,5 +66,5 @@ def format_utc(dt: datetime) -> str:
 def utc_to_local(dt: datetime) -> datetime:
     """Convert a UTC datetime to the system's local timezone. Display use only."""
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
+        dt = dt.replace(tzinfo=UTC)
     return dt.astimezone(LOCAL_TZ)

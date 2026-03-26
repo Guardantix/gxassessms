@@ -1,9 +1,9 @@
 """Domain enums -- str-based for JSON serialization and human readability."""
 
-from enum import Enum
+from enum import StrEnum
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     CRITICAL = "CRITICAL"
     HIGH = "HIGH"
     MEDIUM = "MEDIUM"
@@ -11,16 +11,16 @@ class Severity(str, Enum):
     INFO = "INFO"
 
 
-class FindingStatus(str, Enum):
+class FindingStatus(StrEnum):
     FAIL = "FAIL"
-    PASS = "PASS"
+    PASS = "PASS"  # noqa: S105
     WARNING = "WARNING"
     ERROR = "ERROR"
     NOT_APPLICABLE = "N/A"
     MANUAL = "MANUAL"
 
 
-class Category(str, Enum):
+class Category(StrEnum):
     IDENTITY_ACCESS = "Identity & Access"
     DATA_PROTECTION = "Data Protection"
     DEVICE_MANAGEMENT = "Device Management"
@@ -34,7 +34,7 @@ class Category(str, Enum):
     APPLICATION_SECURITY = "Application Security"
 
 
-class ToolSource(str, Enum):
+class ToolSource(StrEnum):
     SCUBAGEAR = "ScubaGear"
     MAESTER = "Maester"
     MONKEY365 = "Monkey365"

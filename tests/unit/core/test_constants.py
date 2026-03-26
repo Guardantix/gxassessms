@@ -10,10 +10,6 @@ from gxassessms.core.domain.constants import (
     SEVERITIES,
     SEVERITY_COLORS,
     SEVERITY_ORDER,
-    AdapterCapability,
-    ConfidenceLabel,
-    RemediationPhase,
-    SeverityLevel,
 )
 
 

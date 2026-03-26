@@ -11,7 +11,7 @@ from gxassessms.core.config.config import (
     load_config,
     validate_config,
 )
-from gxassessms.core.contracts.errors import ConfigError, ConfigValidationError
+from gxassessms.core.contracts.errors import ConfigError
 
 
 @pytest.fixture
@@ -88,7 +88,7 @@ class TestLoadConfig:
 class TestValidateConfig:
     def test_valid_config_no_errors(self, fixtures_config_dir: Path) -> None:
         cfg = load_config(fixtures_config_dir / "minimal.yaml")
-        errors, warnings = validate_config(cfg)
+        errors, _warnings = validate_config(cfg)
         assert errors == []
 
     def test_missing_tenant_id_is_error(self) -> None:
@@ -103,7 +103,7 @@ class TestValidateConfig:
             ),
             tools={},
         )
-        errors, warnings = validate_config(cfg)
+        errors, _warnings = validate_config(cfg)
         assert any("tenant_id" in e for e in errors)
 
     def test_no_enabled_tools_is_warning(self) -> None:
@@ -118,5 +118,5 @@ class TestValidateConfig:
             ),
             tools={},
         )
-        errors, warnings = validate_config(cfg)
+        _errors, warnings = validate_config(cfg)
         assert any("tool" in w.lower() for w in warnings)

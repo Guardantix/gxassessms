@@ -5,7 +5,6 @@ from constants.py or enums.py, never as raw strings in application code.
 """
 
 import ast
-import re
 from pathlib import Path
 
 import pytest
@@ -40,7 +39,7 @@ def _find_raw_enum_literals(filepath: Path) -> list[str]:
             val = node.value
             if val in SEVERITY_LITERALS or val in STATUS_LITERALS:
                 # Allow in test files and type annotations
-                rel = filepath.relative_to(SRC_ROOT)
+                filepath.relative_to(SRC_ROOT)
                 violations.append(
                     f"{filepath}:{node.lineno}: raw enum literal '{val}' "
                     f"-- use Severity.{val} or FindingStatus.{val} from enums"
@@ -58,6 +57,4 @@ def test_no_raw_enum_literals_in_source() -> None:
         # Filter out false positives from docstrings, comments, and type annotations
         real_violations = [v for v in all_violations if "__pycache__" not in v]
         if real_violations:
-            pytest.fail(
-                "Raw enum literals found in source code:\n" + "\n".join(real_violations)
-            )
+            pytest.fail("Raw enum literals found in source code:\n" + "\n".join(real_violations))

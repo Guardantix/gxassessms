@@ -40,14 +40,13 @@ def _find_banned_datetime_calls(filepath: Path) -> list[str]:
                         f"{filepath}:{node.lineno}: {full_call}() -- {BANNED_CALLS[full_call]}"
                     )
             # Also catch datetime.datetime.now() pattern
-            if isinstance(attr.value, ast.Attribute):
-                if isinstance(attr.value.value, ast.Name):
-                    full_call = f"{attr.value.value.id}.{attr.value.attr}.{attr.attr}"
-                    short_call = f"{attr.value.attr}.{attr.attr}"
-                    if short_call in BANNED_CALLS:
-                        violations.append(
-                            f"{filepath}:{node.lineno}: {full_call}() -- {BANNED_CALLS[short_call]}"
-                        )
+            if isinstance(attr.value, ast.Attribute) and isinstance(attr.value.value, ast.Name):
+                full_call = f"{attr.value.value.id}.{attr.value.attr}.{attr.attr}"
+                short_call = f"{attr.value.attr}.{attr.attr}"
+                if short_call in BANNED_CALLS:
+                    violations.append(
+                        f"{filepath}:{node.lineno}: {full_call}() -- {BANNED_CALLS[short_call]}"
+                    )
     return violations
 
 
@@ -58,6 +57,4 @@ def test_no_banned_datetime_calls() -> None:
         all_violations.extend(_find_banned_datetime_calls(pyfile))
 
     if all_violations:
-        pytest.fail(
-            "Banned datetime calls found:\n" + "\n".join(all_violations)
-        )
+        pytest.fail("Banned datetime calls found:\n" + "\n".join(all_violations))

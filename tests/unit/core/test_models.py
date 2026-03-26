@@ -1,10 +1,11 @@
 """Tests for Pydantic domain models."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
 
+from gxassessms.core.contracts.types import AdapterRunStatus
 from gxassessms.core.domain.enums import (
     Category,
     FindingStatus,
@@ -13,20 +14,16 @@ from gxassessms.core.domain.enums import (
 )
 from gxassessms.core.domain.models import (
     AdapterResult,
-    AuthContext,
     ConfidenceScore,
     ConsolidatedFinding,
     CoverageRecord,
     Finding,
     RawToolOutput,
-    RemediationPhase,
-    ReportKeyStats,
     ReportPayload,
     SourceEvidence,
     ToolObservation,
     ToolRunResult,
 )
-from gxassessms.core.contracts.types import AdapterRunStatus
 
 
 class TestSourceEvidence:
@@ -155,7 +152,7 @@ class TestRawToolOutput:
         rto = RawToolOutput(
             tool=ToolSource.SCUBAGEAR,
             schema_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
             file_manifest={"TestResults.json": "utf-8"},
             execution_metadata={"exit_code": 0},
         )
@@ -168,7 +165,7 @@ class TestAdapterResult:
         rto = RawToolOutput(
             tool=ToolSource.SCUBAGEAR,
             schema_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=timezone.utc),
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
             file_manifest={},
             execution_metadata={},
         )
@@ -212,8 +209,8 @@ class TestToolRunResult:
     def test_create_tool_run_result(self) -> None:
         trr = ToolRunResult(
             tool=ToolSource.SCUBAGEAR,
-            started_at=datetime(2026, 3, 25, 10, 0, 0, tzinfo=timezone.utc),
-            completed_at=datetime(2026, 3, 25, 10, 15, 0, tzinfo=timezone.utc),
+            started_at=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            completed_at=datetime(2026, 3, 25, 10, 15, 0, tzinfo=UTC),
             status=AdapterRunStatus.SUCCESS,
             finding_count=42,
             error=None,

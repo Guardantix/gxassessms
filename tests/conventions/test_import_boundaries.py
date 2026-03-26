@@ -56,9 +56,7 @@ def _is_type_checking_block(node: ast.If) -> bool:
     if isinstance(test, ast.Name) and test.id == "TYPE_CHECKING":
         return True
     # Matches: if typing.TYPE_CHECKING:
-    if isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING":
-        return True
-    return False
+    return bool(isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING")
 
 
 def _get_imports(filepath: Path) -> list[tuple[int, str]]:
@@ -115,6 +113,4 @@ def test_import_boundaries() -> None:
         all_violations.extend(_check_file_boundaries(pyfile))
 
     if all_violations:
-        pytest.fail(
-            "Import boundary violations found:\n" + "\n".join(all_violations)
-        )
+        pytest.fail("Import boundary violations found:\n" + "\n".join(all_violations))

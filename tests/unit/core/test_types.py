@@ -1,24 +1,24 @@
 """Tests for Protocol definitions and type aliases."""
 
-from typing import runtime_checkable
-
 from gxassessms.core.contracts.types import (
+    AdapterRunStatus,
     ConsolidationRule,
+    Narratives,
+    PrerequisiteResult,
     QAResult,
     QAStrategy,
     ReportRenderer,
     ToolAdapter,
-    Narratives,
-    PrerequisiteResult,
-    AdapterRunStatus,
 )
 
 
 class TestProtocolsExist:
     def test_tool_adapter_is_protocol(self) -> None:
-        assert hasattr(ToolAdapter, "__protocol_attrs__") or hasattr(
-            ToolAdapter, "__abstractmethods__"
-        ) or ToolAdapter.__class__.__name__ in ("_ProtocolMeta",)
+        assert (
+            hasattr(ToolAdapter, "__protocol_attrs__")
+            or hasattr(ToolAdapter, "__abstractmethods__")
+            or ToolAdapter.__class__.__name__ in ("_ProtocolMeta",)
+        )
         # Just verify it's importable and has expected attributes
         assert hasattr(ToolAdapter, "tool_name")
 

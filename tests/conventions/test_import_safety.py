@@ -21,7 +21,7 @@ def _discover_modules() -> list[str]:
     package_root = src_root / "gxassessms"
     modules = []
 
-    for importer, modname, ispkg in pkgutil.walk_packages(
+    for _importer, modname, _ispkg in pkgutil.walk_packages(
         path=[str(package_root)],
         prefix="gxassessms.",
     ):
@@ -48,6 +48,4 @@ def test_import_has_no_side_effects(module_name: str) -> None:
 
     output = captured.getvalue()
     if output.strip():
-        pytest.fail(
-            f"Module {module_name} produced stdout output on import: {output!r}"
-        )
+        pytest.fail(f"Module {module_name} produced stdout output on import: {output!r}")

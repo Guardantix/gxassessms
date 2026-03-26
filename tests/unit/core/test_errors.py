@@ -111,5 +111,5 @@ class TestExceptionContext:
         assert err.timeout_seconds == 30.0
 
     def test_gxassess_error_is_catchable_as_exception(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="test"):
             raise GxAssessError("test")

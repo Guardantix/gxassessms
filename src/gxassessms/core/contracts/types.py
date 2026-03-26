@@ -7,7 +7,7 @@ and at type-check time by mypy).
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, TypedDict, runtime_checkable
 
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-class AdapterRunStatus(str, Enum):
+class AdapterRunStatus(StrEnum):
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
     SKIPPED = "SKIPPED"
@@ -85,9 +85,7 @@ class ReportRenderer(Protocol):
 
 @runtime_checkable
 class QAStrategy(Protocol):
-    def review_findings(
-        self, findings: list[ConsolidatedFinding]
-    ) -> list[QAResult]: ...
+    def review_findings(self, findings: list[ConsolidatedFinding]) -> list[QAResult]: ...
     def generate_narratives(
         self, findings: list[ConsolidatedFinding], config: EngagementConfig
     ) -> Narratives: ...

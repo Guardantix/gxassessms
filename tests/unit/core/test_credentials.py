@@ -1,6 +1,5 @@
 """Tests for CredentialProvider Protocol and EnvVarProvider."""
 
-import os
 from typing import runtime_checkable
 
 import pytest
