@@ -199,31 +199,34 @@ class FindingRepo:
         Optional: benchmark_refs, raw_data.
         """
         now = format_utc(utc_now())
+        records = [
+            (
+                f["finding_id"],
+                engagement_id,
+                f["observation_id"],
+                f["finding_key"],
+                f["tool_source"],
+                f["title"],
+                f["severity"],
+                f["status"],
+                f["category"],
+                f["description"],
+                json.dumps(f.get("dedup_keys", [])),
+                json.dumps(f.get("benchmark_refs", [])),
+                json.dumps(f.get("raw_data", {})),
+                now,
+            )
+            for f in findings
+        ]
         with self._db.connect() as conn:
-            for f in findings:
-                conn.execute(
-                    "INSERT INTO findings "
-                    "(finding_id, engagement_id, observation_id, finding_key, "
-                    "tool_source, title, severity, status, category, description, "
-                    "dedup_keys, benchmark_refs, raw_data, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        f["finding_id"],
-                        engagement_id,
-                        f["observation_id"],
-                        f["finding_key"],
-                        f["tool_source"],
-                        f["title"],
-                        f["severity"],
-                        f["status"],
-                        f["category"],
-                        f["description"],
-                        json.dumps(f.get("dedup_keys", [])),
-                        json.dumps(f.get("benchmark_refs", [])),
-                        json.dumps(f.get("raw_data", {})),
-                        now,
-                    ),
-                )
+            conn.executemany(
+                "INSERT INTO findings "
+                "(finding_id, engagement_id, observation_id, finding_key, "
+                "tool_source, title, severity, status, category, description, "
+                "dedup_keys, benchmark_refs, raw_data, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                records,
+            )
         logger.info(
             "Saved %d parsed findings for engagement %s",
             len(findings),
@@ -242,33 +245,36 @@ class FindingRepo:
         Optional: benchmark_refs, root_cause, remediation, narrative.
         """
         now = format_utc(utc_now())
+        records = [
+            (
+                f["finding_instance_id"],
+                engagement_id,
+                f["finding_key"],
+                f["title"],
+                f["severity"],
+                f["status"],
+                f["category"],
+                f["description"],
+                json.dumps(f["sources"]),
+                json.dumps(f["confidence"]),
+                json.dumps(f.get("benchmark_refs", [])),
+                f.get("root_cause"),
+                f.get("remediation"),
+                f.get("narrative"),
+                now,
+            )
+            for f in findings
+        ]
         with self._db.connect() as conn:
-            for f in findings:
-                conn.execute(
-                    "INSERT INTO consolidated_findings "
-                    "(finding_instance_id, engagement_id, finding_key, title, "
-                    "severity, status, category, description, sources, "
-                    "confidence, benchmark_refs, root_cause, remediation, "
-                    "narrative, created_at) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        f["finding_instance_id"],
-                        engagement_id,
-                        f["finding_key"],
-                        f["title"],
-                        f["severity"],
-                        f["status"],
-                        f["category"],
-                        f["description"],
-                        json.dumps(f["sources"]),
-                        json.dumps(f["confidence"]),
-                        json.dumps(f.get("benchmark_refs", [])),
-                        f.get("root_cause"),
-                        f.get("remediation"),
-                        f.get("narrative"),
-                        now,
-                    ),
-                )
+            conn.executemany(
+                "INSERT INTO consolidated_findings "
+                "(finding_instance_id, engagement_id, finding_key, title, "
+                "severity, status, category, description, sources, "
+                "confidence, benchmark_refs, root_cause, remediation, "
+                "narrative, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                records,
+            )
         logger.info(
             "Saved %d consolidated findings for engagement %s",
             len(findings),
@@ -305,20 +311,21 @@ class FindingRepo:
         """Override the severity of a consolidated finding and record it."""
         now = format_utc(utc_now())
         with self._db.connect() as conn:
-            # Get current severity
+            # Get current severity -- scoped to engagement to prevent cross-engagement mutation
             row = conn.execute(
-                "SELECT severity FROM consolidated_findings WHERE finding_instance_id = ?",
-                (finding_id,),
+                "SELECT severity FROM consolidated_findings "
+                "WHERE finding_instance_id = ? AND engagement_id = ?",
+                (finding_id, engagement_id),
             ).fetchone()
             if row is None:
                 raise PersistenceError(f"Consolidated finding not found: {finding_id}")
             old_severity = row["severity"]
 
-            # Update the finding
+            # Update the finding -- scoped to engagement
             conn.execute(
                 "UPDATE consolidated_findings SET severity = ?, updated_at = ? "
-                "WHERE finding_instance_id = ?",
-                (new_severity.value, now, finding_id),
+                "WHERE finding_instance_id = ? AND engagement_id = ?",
+                (new_severity.value, now, finding_id, engagement_id),
             )
 
             # Record the override

@@ -115,10 +115,9 @@ class EngagementLock:
                 f"Lock already held for engagement {engagement_id} in this process"
             )
 
+        lock_path = self._lock_path(engagement_id)  # validates ID format first
         eng_dir = self._engagements_root / engagement_id
         eng_dir.mkdir(parents=True, exist_ok=True)
-
-        lock_path = self._lock_path(engagement_id)
         lock = FileLock(str(lock_path))
         try:
             lock.acquire(timeout=timeout)
