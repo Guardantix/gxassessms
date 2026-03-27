@@ -31,13 +31,9 @@ def _sanitize_slug(name: str) -> str:
     """
     if not name:
         return "unnamed"
-    # Lowercase and replace spaces with hyphens
     slug = name.lower().replace(" ", "-")
-    # Remove anything that isn't alphanumeric or hyphen
     slug = re.sub(r"[^a-z0-9-]", "", slug)
-    # Collapse multiple hyphens
     slug = re.sub(r"-+", "-", slug).strip("-")
-    # Truncate
     slug = slug[:_MAX_SLUG_LENGTH]
     return slug or "unnamed"
 
@@ -121,17 +117,29 @@ class ArtifactManager:
             raise PersistenceError(f"No raw output to archive for engagement {engagement_id}")
 
         archive_path = eng_dir / "raw-output.tar.gz"
-        with tarfile.open(str(archive_path), "w:gz") as tar:
-            tar.add(str(raw_dir), arcname="raw-output")
+        if archive_path.exists():
+            raise PersistenceError(
+                f"Archive already exists for engagement {engagement_id}. "
+                "Restore or delete it before re-archiving."
+            )
 
-        # Verify archive integrity before removing source
-        with tarfile.open(str(archive_path), "r:gz") as verify_tar:
-            if not verify_tar.getmembers():
-                raise PersistenceError(
-                    f"Archive verification failed: tarball is empty for engagement {engagement_id}"
-                )
+        # Write and verify archive. Keep PersistenceError (empty-archive check) outside
+        # the TarError/OSError handler so it doesn't suppress archive_path cleanup.
+        try:
+            with tarfile.open(str(archive_path), "w:gz") as tar:
+                tar.add(str(raw_dir), arcname="raw-output")
+            with tarfile.open(str(archive_path), "r:gz") as verify_tar:
+                members = verify_tar.getmembers()
+        except (tarfile.TarError, OSError) as e:
+            archive_path.unlink(missing_ok=True)
+            raise PersistenceError(f"Failed to archive engagement {engagement_id}: {e}") from e
 
-        # Remove the raw output directory contents
+        if not members:
+            archive_path.unlink(missing_ok=True)
+            raise PersistenceError(
+                f"Archive verification failed: empty tarball for {engagement_id}"
+            )
+
         shutil.rmtree(raw_dir)
         raw_dir.mkdir()
 
@@ -145,28 +153,42 @@ class ArtifactManager:
     def restore(self, engagement_id: str) -> Path:
         """Restore raw output from a compressed tarball.
 
-        Extracts the archive back to the engagement directory.
+        Extracts to a staging directory first; only replaces raw-output/
+        after successful extraction and verification.
         Returns the raw-output directory path.
         """
         eng_dir = self.get_engagement_dir(engagement_id)
         archive_path = eng_dir / "raw-output.tar.gz"
-
         if not archive_path.exists():
             raise PersistenceError(f"No archive found for engagement {engagement_id}")
 
-        # Remove existing raw-output if it exists
         raw_dir = eng_dir / "raw-output"
-        if raw_dir.exists():
-            shutil.rmtree(raw_dir)
+        staging_dir = eng_dir / ".restore-staging"
+        try:
+            staging_dir.mkdir()
+            with tarfile.open(str(archive_path), "r:gz") as tar:
+                tar.extractall(path=str(staging_dir), filter="data")
+        except (tarfile.TarError, OSError) as e:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            raise PersistenceError(f"Failed to restore engagement {engagement_id}: {e}") from e
 
-        with tarfile.open(str(archive_path), "r:gz") as tar:
-            tar.extractall(path=str(eng_dir), filter="data")
+        # Verify extraction produced the expected directory
+        extracted_raw = staging_dir / "raw-output"
+        if not extracted_raw.exists():
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            raise PersistenceError(f"Archive for {engagement_id} contained no raw-output directory")
 
-        logger.info(
-            "Restored raw output for engagement %s from %s",
-            engagement_id,
-            archive_path,
-        )
+        # Atomically swap -- staging_dir cleanup in finally so it always runs
+        try:
+            if raw_dir.exists():
+                shutil.rmtree(raw_dir)
+            extracted_raw.rename(raw_dir)
+        except OSError as e:
+            raise PersistenceError(f"Failed to replace raw-output for {engagement_id}: {e}") from e
+        finally:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+        logger.info("Restored raw output for engagement %s from %s", engagement_id, archive_path)
         return raw_dir
 
     def purge(self, engagement_id: str, operator: str = "system") -> dict[str, Any]:
@@ -215,6 +237,7 @@ class ArtifactManager:
             shutil.rmtree(eng_dir)
         except OSError as e:
             manifest["rmtree_error"] = str(e)
+            manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
             logger.error("Failed to remove engagement directory %s: %s", eng_dir, e)
             raise PersistenceError(
                 f"Purge audit manifest written but directory removal failed: {e}"

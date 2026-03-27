@@ -37,12 +37,15 @@ class FindingExplanationService:
         """Return the lineage of a consolidated finding.
 
         Keys returned:
-        - sources: which ToolObservations contributed
-        - severity_basis: which policy rule applied, original severity, overrides
-        - dedup_history: which findings were merged and why
+        - sources: raw JSON from the sources column (not yet reconstructed
+          ToolObservation objects)
+        - severity_basis: current severity and override count only; policy
+          rule not yet tracked
+        - dedup_history: always empty -- consolidation events not populated
+          until Plan 3+
         - override_history: all overrides (who/when/why/what)
         - ai_modifications: which QA tasks modified or flagged this finding
-        - confidence_basis: breakdown of ConfidenceScore components
+        - confidence_basis: raw JSON from confidence column
         """
         with self._db.connect() as conn:
             finding_row = conn.execute(
@@ -70,7 +73,7 @@ class FindingExplanationService:
 
         return ExplanationResult(
             finding_instance_id=finding_id,
-            sources=json.loads(finding.get("sources", "[]")),
+            sources=json.loads(finding["sources"] or "[]"),
             severity_basis={
                 "current_severity": finding["severity"],
                 "override_count": len(overrides),
@@ -78,5 +81,5 @@ class FindingExplanationService:
             dedup_history=[],
             override_history=overrides,
             ai_modifications=[e for e in events if e.get("event_type") == "ai_modification"],
-            confidence_basis=json.loads(finding.get("confidence", "{}")),
+            confidence_basis=json.loads(finding["confidence"] or "{}"),
         )

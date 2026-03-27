@@ -15,6 +15,14 @@ from gxassessms.pipeline.state import (
 
 
 class TestEngagementState:
+    def test_is_terminal_for_terminal_states(self) -> None:
+        assert EngagementState.COMPLETE.is_terminal
+        assert EngagementState.FAILED.is_terminal
+
+    def test_is_terminal_for_non_terminal_state(self) -> None:
+        assert not EngagementState.CREATED.is_terminal
+        assert not EngagementState.RENDERING.is_terminal
+
     def test_all_states_exist(self) -> None:
         expected = {
             "CREATED",
@@ -109,33 +117,38 @@ class TestPipelineEvent:
         with pytest.raises(AttributeError):
             event.event_id = "changed"  # type: ignore[misc]
 
+    def test_payload_is_immutable(self) -> None:
+        event = PipelineEvent(
+            event_id="evt-imm",
+            engagement_id="eng-001",
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            event_type="state_transition",
+            actor="system",
+            payload={"key": "value"},
+        )
+        with pytest.raises(TypeError):
+            event.payload["key"] = "mutated"  # type: ignore[index]
+
 
 class TestEngagementLock:
     def test_acquire_and_release(self, tmp_path: Path) -> None:
-
-        eng_dir = tmp_path / "eng-001"
-        eng_dir.mkdir()
         lock = EngagementLock(engagements_root=tmp_path)
         lock.acquire("eng-001", timeout=5.0)
-        # Lock file should exist
-        assert (eng_dir / ".lock").exists()
+        assert (tmp_path / ".locks" / "eng-001.lock").exists()
         lock.release("eng-001")
 
     def test_context_manager(self, tmp_path: Path) -> None:
-
-        eng_dir = tmp_path / "eng-002"
-        eng_dir.mkdir()
         lock = EngagementLock(engagements_root=tmp_path)
         with lock.hold("eng-002", timeout=5.0):
-            assert (eng_dir / ".lock").exists()
+            assert (tmp_path / ".locks" / "eng-002.lock").exists()
 
     def test_lock_timeout_raises(self, tmp_path: Path) -> None:
         from filelock import FileLock
 
-        eng_dir = tmp_path / "eng-003"
-        eng_dir.mkdir()
+        locks_dir = tmp_path / ".locks"
+        locks_dir.mkdir()
         # Acquire the lock externally to simulate contention
-        external_lock = FileLock(str(eng_dir / ".lock"))
+        external_lock = FileLock(str(locks_dir / "eng-003.lock"))
         external_lock.acquire()
         try:
             lock = EngagementLock(engagements_root=tmp_path)
@@ -147,21 +160,17 @@ class TestEngagementLock:
             external_lock.release()
 
     def test_double_release_is_safe(self, tmp_path: Path) -> None:
-
-        eng_dir = tmp_path / "eng-004"
-        eng_dir.mkdir()
         lock = EngagementLock(engagements_root=tmp_path)
         lock.acquire("eng-004", timeout=5.0)
         lock.release("eng-004")
         # Second release should not raise
         lock.release("eng-004")
 
-    def test_acquire_creates_engagement_dir_if_missing(self, tmp_path: Path) -> None:
-
+    def test_acquire_creates_locks_dir_if_missing(self, tmp_path: Path) -> None:
         lock = EngagementLock(engagements_root=tmp_path)
-        # eng-005 directory does not exist yet
+        # .locks/ directory does not exist yet
         lock.acquire("eng-005", timeout=5.0)
-        assert (tmp_path / "eng-005" / ".lock").exists()
+        assert (tmp_path / ".locks" / "eng-005.lock").exists()
         lock.release("eng-005")
 
     def test_hold_releases_lock_on_exception(self, tmp_path: Path) -> None:
@@ -236,3 +245,19 @@ class TestEngagementStateTransitions:
         assert not EngagementState.can_transition_to(
             EngagementState.CREATED, EngagementState.PARSED
         )
+
+    def test_assert_can_transition_to_valid_does_not_raise(self) -> None:
+        # Should not raise for valid transition
+        EngagementState.assert_can_transition_to(
+            EngagementState.CREATED, EngagementState.COLLECTING
+        )
+
+    def test_assert_can_transition_to_invalid_raises_with_context(self) -> None:
+        from gxassessms.core.contracts.errors import InvalidTransitionError
+
+        with pytest.raises(InvalidTransitionError) as exc_info:
+            EngagementState.assert_can_transition_to(
+                EngagementState.CREATED, EngagementState.PARSED
+            )
+        assert exc_info.value.from_state == "CREATED"
+        assert exc_info.value.to_state == "PARSED"

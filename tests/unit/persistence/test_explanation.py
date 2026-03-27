@@ -7,8 +7,9 @@ import pytest
 from gxassessms.core.contracts.errors import PersistenceError
 from gxassessms.core.domain.enums import Severity
 from gxassessms.persistence.database import DatabaseManager
+from gxassessms.persistence.engagement_repo import EngagementRepo
 from gxassessms.persistence.explanation import FindingExplanationService
-from gxassessms.persistence.repositories import EngagementRepo, FindingRepo
+from gxassessms.persistence.finding_repo import FindingRepo
 
 
 @pytest.fixture

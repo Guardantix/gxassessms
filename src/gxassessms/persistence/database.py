@@ -1,9 +1,9 @@
 """Database connection management, WAL mode, and migrations runner.
 
 Manages SQLite connections with WAL mode for concurrent reads.
-Runs numbered SQL migration files on initialization. The migrations
-tracking table (_schema_migrations) records which migrations have
-been applied.
+Runs zero-padded numbered SQL migration files (e.g. 001_name.sql) on
+initialization. The migrations tracking table (_schema_migrations) records
+which migrations have been applied.
 """
 
 from __future__ import annotations
@@ -75,10 +75,7 @@ class DatabaseManager:
     def initialize(self) -> None:
         """Create DB, enable WAL mode, and run pending migrations."""
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
-
         with self.connect() as conn:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA foreign_keys=ON")
             self._ensure_migration_table(conn)
             self._run_pending_migrations(conn)
 
@@ -87,14 +84,14 @@ class DatabaseManager:
         """Open a connection with WAL mode, foreign keys, and Row factory."""
         conn = sqlite3.connect(str(self._db_path))
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA foreign_keys=ON")
         try:
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA foreign_keys=ON")
             yield conn
             conn.commit()
         except sqlite3.DatabaseError:
             conn.rollback()
-            logger.error("Database error during transaction, rolled back")
+            logger.error("Database error on %s, rolled back", self._db_path, exc_info=True)
             raise
         finally:
             conn.close()
@@ -106,7 +103,7 @@ class DatabaseManager:
             CREATE TABLE IF NOT EXISTS _schema_migrations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 filename TEXT NOT NULL UNIQUE,
-                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+                applied_at TEXT NOT NULL
             )
             """
         )

@@ -9,13 +9,11 @@ import pytest
 from gxassessms.core.config.datetime_utils import utc_now
 from gxassessms.core.contracts.errors import InvalidTransitionError, PersistenceError
 from gxassessms.core.domain.enums import Severity
+from gxassessms.persistence.coverage_repo import CoverageRepo
 from gxassessms.persistence.database import DatabaseManager
-from gxassessms.persistence.repositories import (
-    CoverageRepo,
-    EngagementRepo,
-    EventRepo,
-    FindingRepo,
-)
+from gxassessms.persistence.engagement_repo import EngagementRepo
+from gxassessms.persistence.event_repo import EventRepo
+from gxassessms.persistence.finding_repo import FindingRepo
 from gxassessms.pipeline.state import EngagementState, PipelineEvent
 
 
@@ -178,6 +176,10 @@ class TestEngagementRepoListAll:
 
 
 class TestEngagementRepoDelete:
+    def test_delete_nonexistent_engagement_raises(self, engagement_repo: EngagementRepo) -> None:
+        with pytest.raises(PersistenceError, match="not found"):
+            engagement_repo.delete("nonexistent-id")
+
     def test_delete_removes_engagement_and_related_records(
         self,
         engagement_repo: EngagementRepo,
@@ -272,7 +274,7 @@ class TestEventRepoAppend:
                 event_id=f"evt-{i:03d}",
                 engagement_id=eng_id,
                 timestamp=now,
-                event_type=f"event_{i}",
+                event_type="state_transition",
                 actor="system",
                 payload={"index": i},
             )
@@ -562,6 +564,39 @@ class TestFindingRepoOverrideSeverity:
                 engagement_id=eng_id,
             )
 
+    def test_override_severity_cross_engagement_isolation(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+    ) -> None:
+        """Finding from eng_a cannot be mutated via eng_b's engagement_id."""
+        eng_a = engagement_repo.create(client_name="EngA", tenant_id="t-a", config_snapshot={})
+        eng_b = engagement_repo.create(client_name="EngB", tenant_id="t-b", config_snapshot={})
+        finding_repo.save_consolidated(
+            eng_a,
+            [
+                {
+                    "finding_instance_id": "cf-cross-001",
+                    "finding_key": "test-key",
+                    "title": "Test Finding",
+                    "severity": "MEDIUM",
+                    "status": "FAIL",
+                    "category": "Identity",
+                    "description": "Test description",
+                    "sources": [],
+                    "confidence": {},
+                }
+            ],
+        )
+        with pytest.raises(PersistenceError):
+            finding_repo.override_severity(
+                finding_id="cf-cross-001",
+                new_severity=Severity.HIGH,
+                reason="cross-engagement attack",
+                actor="attacker",
+                engagement_id=eng_b,  # wrong engagement
+            )
+
 
 class TestFindingRepoManualFinding:
     def test_add_manual_finding(
@@ -650,6 +685,15 @@ class TestCoverageRepoSave:
         coverage_repo.save(eng_id, records)
         result = coverage_repo.get_for_engagement(eng_id)
         assert len(result) == 2
+
+    def test_save_empty_list_is_no_op(
+        self,
+        engagement_repo: EngagementRepo,
+        coverage_repo: CoverageRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(client_name="Test", tenant_id="t-001", config_snapshot={})
+        coverage_repo.save(eng_id, [])  # executemany with empty list must not raise
+        assert coverage_repo.get_for_engagement(eng_id) == []
 
     def test_coverage_invalid_status_raises(
         self,

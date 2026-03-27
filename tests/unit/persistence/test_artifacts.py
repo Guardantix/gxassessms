@@ -163,6 +163,19 @@ class TestArtifactManagerArchive:
         with pytest.raises(PersistenceError, match="archive"):
             populated_artifact_mgr.restore("eng-no-archive")
 
+    def test_archive_raises_if_archive_already_exists(
+        self, populated_artifact_mgr: ArtifactManager
+    ) -> None:
+        # First archive succeeds and leaves .tar.gz on disk.
+        populated_artifact_mgr.archive("eng-archive")
+        # Second attempt (after re-populating raw-output) must raise.
+        eng_dir = populated_artifact_mgr.get_engagement_dir("eng-archive")
+        raw_sub = eng_dir / "raw-output" / "scubagear"
+        raw_sub.mkdir(parents=True, exist_ok=True)
+        (raw_sub / "results.json").write_text("{}")
+        with pytest.raises(PersistenceError, match="already exists"):
+            populated_artifact_mgr.archive("eng-archive")
+
 
 class TestArtifactManagerPurge:
     @pytest.fixture
@@ -211,6 +224,42 @@ class TestArtifactManagerPurge:
         # Audit directory should still exist and contain the manifest
         assert purge_mgr._audit_dir.exists()
         assert len(list(purge_mgr._audit_dir.iterdir())) > 0
+
+    def test_purge_writes_manifest_before_deletion(self, tmp_path: Path) -> None:
+        """Audit manifest must exist on disk even if rmtree fails."""
+        import shutil as shutil_mod
+        from unittest.mock import patch
+
+        engagements_root = tmp_path / "engagements"
+        engagements_root.mkdir()
+        audit_dir = tmp_path / "audit"
+        mgr = ArtifactManager(engagements_root=engagements_root, audit_dir=audit_dir)
+        eng_dir = mgr.create_engagement_dir("eng-fail-purge", "Test")
+        (eng_dir / "raw-output" / "data.json").write_text("{}", encoding="utf-8")
+
+        with (
+            patch.object(shutil_mod, "rmtree", side_effect=OSError("disk full")),
+            pytest.raises(PersistenceError),
+        ):
+            mgr.purge("eng-fail-purge", operator="rick")
+
+        # Manifest must exist despite rmtree failure
+        manifests = list(audit_dir.glob("purge-eng-fail-purge-*.json"))
+        assert len(manifests) == 1
+        data = json.loads(manifests[0].read_text())
+        assert "rmtree_error" in data
+
+    def test_purge_gdpr_order_manifest_written_before_deletion(
+        self, purge_mgr: ArtifactManager
+    ) -> None:
+        """Verify manifest records pre-deletion inventory."""
+        manifest = purge_mgr.purge("eng-purge", operator="rick")
+        # Engagement dir gone
+        with pytest.raises(PersistenceError):
+            purge_mgr.get_engagement_dir("eng-purge")
+        # Manifest records the pre-deletion inventory
+        assert manifest["file_count"] > 0
+        assert len(manifest["files_deleted"]) == manifest["file_count"]
 
     def test_purge_directory_with_only_subdirs_raises(self, tmp_path: Path) -> None:
         engagements_root = tmp_path / "engagements"

@@ -192,3 +192,14 @@ class TestDatabaseManager:
         mgr = DatabaseManager(db_path=db_path, migrations_dir=migrations_dir)
         mgr.initialize()
         assert db_path.exists()
+
+    def test_split_sql_statements_trailing_comment(self) -> None:
+        sql = "CREATE TABLE foo (id INTEGER);\n-- trailing comment"
+        stmts = DatabaseManager._split_sql_statements(sql)
+        assert len(stmts) == 1
+        assert "CREATE TABLE foo" in stmts[0]
+
+    def test_split_sql_statements_comment_only_segment(self) -> None:
+        sql = "-- header comment\nCREATE TABLE foo (id INTEGER);\n-- trailing"
+        stmts = DatabaseManager._split_sql_statements(sql)
+        assert len(stmts) == 1
