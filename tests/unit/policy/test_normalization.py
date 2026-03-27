@@ -874,3 +874,70 @@ class TestDefaultNormalizationPolicy:
             adapter_dedup_keys={},
         )
         assert findings[0].severity == Severity.CRITICAL
+
+    def test_non_mapping_severity_map_entry_raises(self, sample_rules: dict) -> None:
+        """A default_severity_map entry that is not a dict (e.g., scalar from YAML merge)
+        raises ValueError with 'malformed' -- exercises the TypeError branch."""
+        rules = {
+            **sample_rules,
+            "default_severity_map": ["not_a_dict"],
+        }
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.99.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.99.1v1",
+            title="Unmapped check",
+            native_severity="UnknownLevel",  # misses adapter map, hits default_severity_map
+            native_status="Fail",
+            description="Some check.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        with pytest.raises(ValueError, match="malformed"):
+            policy.normalize(
+                observations=[obs],
+                adapter_severity_map={},
+                adapter_category_map={},
+                adapter_dedup_keys={},
+            )
+
+    def test_empty_fallback_dedup_pattern_raises(self, sample_rules: dict) -> None:
+        """An empty dedup_key_fallback_pattern produces a blank key; must raise ValueError."""
+        rules = {**sample_rules, "dedup_key_fallback_pattern": ""}
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.1.1v1",
+            title="Test",
+            native_severity="Shall",
+            native_status="Fail",
+            description="Test.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        with pytest.raises(ValueError, match="empty"):
+            policy.normalize(
+                observations=[obs],
+                adapter_severity_map={},
+                adapter_category_map={},
+                adapter_dedup_keys={},
+            )
+
+    def test_whitespace_fallback_dedup_pattern_raises(self, sample_rules: dict) -> None:
+        """A whitespace-only dedup_key_fallback_pattern must also raise ValueError."""
+        rules = {**sample_rules, "dedup_key_fallback_pattern": "   "}
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.1.1v1",
+            title="Test",
+            native_severity="Shall",
+            native_status="Fail",
+            description="Test.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        with pytest.raises(ValueError, match="empty"):
+            policy.normalize(
+                observations=[obs],
+                adapter_severity_map={},
+                adapter_category_map={},
+                adapter_dedup_keys={},
+            )

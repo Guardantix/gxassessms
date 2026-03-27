@@ -131,7 +131,7 @@ class DefaultNormalizationPolicy:
             try:
                 if entry["requirement"] == obs.native_severity and entry["status"] == _mapped:
                     return Severity(entry["severity"])
-            except (KeyError, ValueError) as exc:
+            except (KeyError, TypeError, ValueError) as exc:
                 raise ValueError(
                     f"default_severity_map entry {entry!r} is malformed or contains "
                     f"invalid severity. Valid values: {[s.value for s in Severity]}."
@@ -238,7 +238,7 @@ class DefaultNormalizationPolicy:
             obs.tool,
         )
         try:
-            return pattern.format(
+            result = pattern.format(
                 tool=obs.tool.value,
                 native_check_id=obs.native_check_id,
             )
@@ -247,6 +247,13 @@ class DefaultNormalizationPolicy:
                 f"dedup_key_fallback_pattern {pattern!r} is invalid or contains unknown "
                 f"placeholders. Only {{tool}} and {{native_check_id}} are supported."
             ) from exc
+        if not result.strip():
+            raise ValueError(
+                f"dedup_key_fallback_pattern {pattern!r} produced an empty/blank finding key "
+                f"for native_check_id={obs.native_check_id!r}. "
+                f"Finding keys must be non-empty."
+            )
+        return result
 
     @staticmethod
     def _extract_module_prefix(native_check_id: str) -> str | None:
