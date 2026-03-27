@@ -212,6 +212,16 @@ class TestDefaultConsolidationPolicy:
         result = policy.consolidate([f1, f2])
         assert result[0].description == "First description. | Second description."
 
+    def test_description_order_invariant(self, sample_rules: dict) -> None:
+        """Input order of findings must not affect the merged description string."""
+        f1 = _make_finding(description="Zebra issue.")
+        f2 = _make_finding(tool=ToolSource.MAESTER, description="Alpha issue.")
+        policy = DefaultConsolidationPolicy(rules=sample_rules)
+        result_ab = policy.consolidate([f1, f2])
+        result_ba = policy.consolidate([f2, f1])
+        assert result_ab[0].description == result_ba[0].description
+        assert result_ab[0].description == "Alpha issue. | Zebra issue."
+
     def test_status_reconcile_with_empty_priority_list_raises(self, sample_rules: dict) -> None:
         """G2: Empty status_priority list produces a clear error, not a bare min() ValueError."""
         rules_empty_priority = {

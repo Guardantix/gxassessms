@@ -167,14 +167,14 @@ class DefaultConsolidationPolicy:
         return highest.title
 
     def _reconcile_description(self, group: list[Finding]) -> str:
-        """Concatenate unique descriptions from all sources."""
+        """Concatenate unique descriptions from all sources, sorted for stability."""
         seen: set[str] = set()
         descriptions: list[str] = []
         for finding in group:
             if finding.description not in seen:
                 seen.add(finding.description)
                 descriptions.append(finding.description)
-        return " | ".join(descriptions)
+        return " | ".join(sorted(descriptions))
 
     @staticmethod
     def _build_sources(group: list[Finding]) -> list[SourceEvidence]:
