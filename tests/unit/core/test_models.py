@@ -481,6 +481,16 @@ class TestToolRunResult:
                 finding_count=0,
             )
 
+    def test_rejects_bool_finding_count(self) -> None:
+        with pytest.raises(ValidationError):
+            ToolRunResult(
+                tool=ToolSource.SCUBAGEAR,
+                started_at=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+                completed_at=datetime(2026, 3, 25, 10, 15, 0, tzinfo=UTC),
+                status=AdapterRunStatus.SUCCESS,
+                finding_count=True,  # type: ignore[arg-type]
+            )
+
     def test_success_with_error_raises(self) -> None:
         with pytest.raises(ValidationError, match="must not carry an error"):
             ToolRunResult(

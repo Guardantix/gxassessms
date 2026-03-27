@@ -174,6 +174,13 @@ class ToolRunResult(BaseModel):
     finding_count: int = Field(ge=0)
     error: str | None = None
 
+    @field_validator("finding_count", mode="before")
+    @classmethod
+    def reject_bool_finding_count(cls, v: Any) -> Any:
+        if isinstance(v, bool):
+            raise ValueError("finding_count must be an integer, not a boolean")
+        return v
+
     @field_validator("started_at", "completed_at")
     @classmethod
     def timestamps_must_be_utc(cls, v: datetime) -> datetime:
