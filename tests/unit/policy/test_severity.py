@@ -157,6 +157,30 @@ class TestEscalationCheck:
         result = policy.check_escalation(cf)
         assert result is False
 
+    def test_escalation_triggered_by_global_downgrade_threshold(self, sample_rules: dict) -> None:
+        """check_escalation must apply the global downgrade floor, not just per-severity."""
+        # HIGH escalation_threshold = 0.5; downgrade_threshold = 0.3
+        # HIGH at 0.80: 0.80 >= max(0.5, 0.3) -> False (no escalation)
+        # But if we set downgrade_threshold = 0.9, then:
+        # HIGH at 0.80: 0.80 < max(0.5, 0.9) = 0.9 -> True (escalation triggered)
+        rules = {
+            **sample_rules,
+            "confidence_adjustments": {
+                **sample_rules["confidence_adjustments"],
+                "downgrade_threshold": 0.9,
+            },
+        }
+        cf = _make_consolidated(severity=Severity.HIGH, confidence_overall=0.80)
+        policy = DefaultSeverityPolicy(rules=rules)
+        assert policy.check_escalation(cf) is True
+
+    def test_no_escalation_when_above_both_thresholds(self, sample_rules: dict) -> None:
+        """check_escalation returns False when above the stricter of both thresholds."""
+        # HIGH = 0.5; downgrade_threshold = 0.3; 0.80 >= max(0.5, 0.3) -> False
+        cf = _make_consolidated(severity=Severity.HIGH, confidence_overall=0.80)
+        policy = DefaultSeverityPolicy(rules=sample_rules)
+        assert policy.check_escalation(cf) is False
+
 
 class TestOverrideSuggestions:
     def test_suggest_rule_change_above_threshold(self, sample_rules: dict) -> None:

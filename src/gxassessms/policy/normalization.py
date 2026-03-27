@@ -130,18 +130,29 @@ class DefaultNormalizationPolicy:
         obs: ToolObservation,
         adapter_category_map: dict[str, str],
     ) -> Category:
-        """Resolve category from check ID prefix using adapter map, then default rules."""
+        """Resolve category using adapter map, then default rules.
+
+        Lookup order:
+          1. Adapter map by module prefix (MS.AAD -> aad, m365.iam -> iam)
+          2. Adapter map by full native_check_id (MT.1003 direct key)
+          3. Default rules map by module prefix
+          4. Default rules map by full native_check_id
+          5. Fallback category from rules (default: COMPLIANCE)
+        """
         prefix = self._extract_module_prefix(obs.native_check_id)
 
-        # Try adapter-specific category map
+        # Try adapter-specific category map (prefix first, then direct check ID)
         if prefix and prefix in adapter_category_map:
-            category_key = adapter_category_map[prefix]
-            return self._category_key_to_enum(category_key)
+            return self._category_key_to_enum(adapter_category_map[prefix])
+        if obs.native_check_id in adapter_category_map:
+            return self._category_key_to_enum(adapter_category_map[obs.native_check_id])
 
-        # Try default category map from rules
+        # Try default category map from rules (prefix first, then direct check ID)
         default_map = self._rules.get("default_category_map", {})
         if prefix and prefix in default_map:
             return self._category_key_to_enum(default_map[prefix])
+        if obs.native_check_id in default_map:
+            return self._category_key_to_enum(default_map[obs.native_check_id])
 
         # Fallback category
         fallback = self._rules.get("fallback_category", "COMPLIANCE")
@@ -220,7 +231,8 @@ class DefaultNormalizationPolicy:
         Examples:
             MS.AAD.3.1v1 -> aad
             MS.EXO.4.1v1 -> exo
-            MT.1003 -> None  # Maester pattern not yet handled; add elif to support
+            MT.1003 -> None  # prefix is not extracted; callers fall back to
+                             # direct native_check_id lookup in adapter and default maps
             m365.iam.mfa_admins -> iam
         """
         # ScubaGear pattern: MS.{MODULE}.x.y

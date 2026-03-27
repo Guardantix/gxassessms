@@ -595,3 +595,100 @@ class TestDefaultNormalizationPolicy:
             adapter_dedup_keys={},
         )
         assert findings[0].category == Category.COMPLIANCE
+
+    def test_category_from_direct_check_id_in_adapter_map(self, sample_rules: dict) -> None:
+        """MT.1003 prefix is None; full check ID in adapter_category_map is consulted."""
+        obs = ToolObservation(
+            observation_id="maester:MT.1003",
+            tool=ToolSource.MAESTER,
+            native_check_id="MT.1003",
+            title="Maester check",
+            native_severity="Should",
+            native_status="Fail",
+            description="Maester check failed.",
+        )
+        policy = DefaultNormalizationPolicy(rules=sample_rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={"MT.1003": "IDENTITY_ACCESS"},
+            adapter_dedup_keys={},
+        )
+        assert findings[0].category == Category.IDENTITY_ACCESS
+
+    def test_category_from_direct_check_id_in_default_map(self, sample_rules: dict) -> None:
+        """MT.1003 prefix is None; full check ID in default_category_map is consulted."""
+        rules = {**sample_rules, "default_category_map": {"MT.1003": "IDENTITY_ACCESS"}}
+        obs = ToolObservation(
+            observation_id="maester:MT.1003",
+            tool=ToolSource.MAESTER,
+            native_check_id="MT.1003",
+            title="Maester check",
+            native_severity="Should",
+            native_status="Fail",
+            description="Maester check failed.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={},
+            adapter_dedup_keys={},
+        )
+        assert findings[0].category == Category.IDENTITY_ACCESS
+
+    def test_prefix_takes_precedence_over_direct_check_id_in_adapter_map(
+        self, sample_rules: dict
+    ) -> None:
+        """When a prefix match exists, it wins; direct check ID is not consulted."""
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.1.1v1",
+            title="AAD check",
+            native_severity="Shall",
+            native_status="Fail",
+            description="AAD check.",
+        )
+        policy = DefaultNormalizationPolicy(rules=sample_rules)
+        # prefix "aad" -> COMPLIANCE; direct key -> IDENTITY_ACCESS; prefix must win
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={"aad": "COMPLIANCE", "MS.AAD.1.1v1": "IDENTITY_ACCESS"},
+            adapter_dedup_keys={},
+        )
+        assert findings[0].category == Category.COMPLIANCE
+
+    def test_prefix_takes_precedence_over_direct_check_id_in_default_map(
+        self, sample_rules: dict
+    ) -> None:
+        """G4: When a prefix match exists in default_category_map, it wins over the
+        direct check ID key in the same map (step 3 beats step 4)."""
+        # "MS.AAD.1.1v1" extracts prefix "aad"; both "aad" and "MS.AAD.1.1v1" are in
+        # the default_category_map pointing to different categories.
+        rules = {
+            **sample_rules,
+            "default_category_map": {
+                "aad": "COMPLIANCE",
+                "MS.AAD.1.1v1": "IDENTITY_ACCESS",
+            },
+        }
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.1.1v1",
+            title="AAD check",
+            native_severity="Shall",
+            native_status="Fail",
+            description="AAD check.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={},  # empty: forces use of default_category_map
+            adapter_dedup_keys={},
+        )
+        # prefix "aad" -> COMPLIANCE must win over direct key -> IDENTITY_ACCESS
+        assert findings[0].category == Category.COMPLIANCE

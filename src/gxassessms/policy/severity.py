@@ -43,7 +43,17 @@ class SeverityPolicy(Protocol):
         self, findings: list[ConsolidatedFinding]
     ) -> list[SeverityAdjustment]: ...
 
-    def check_escalation(self, finding: ConsolidatedFinding) -> bool: ...
+    def check_escalation(self, finding: ConsolidatedFinding) -> bool:
+        """Return True if the finding's confidence is below its effective downgrade threshold.
+
+        The effective threshold is the stricter of two values:
+        ``max(escalation_thresholds[severity], confidence_adjustments.downgrade_threshold)``.
+        A result of True means the finding should be reviewed for potential downgrade.
+        Implementations must apply both the per-severity threshold and the global floor;
+        using only ``escalation_thresholds`` will diverge from DefaultSeverityPolicy when
+        ``downgrade_threshold`` is set higher than the per-severity value.
+        """
+        ...
 
     def suggest_rule_changes(
         self, override_history: dict[str, dict[str, Any]]
@@ -71,20 +81,16 @@ class DefaultSeverityPolicy:
         upgrade_threshold, suggest upgrading by one level (ceiling: maximum_severity).
         """
         adjustments: list[SeverityAdjustment] = []
-        thresholds = self._rules.get("escalation_thresholds", {})
         ca = self._rules.get("confidence_adjustments", {})
         min_sev_str = ca.get("minimum_severity")
         min_sev = Severity(min_sev_str) if min_sev_str else None
         max_sev_str = ca.get("maximum_severity")
         max_sev = Severity(max_sev_str) if max_sev_str else None
         upgrade_threshold = ca.get("upgrade_threshold")
-        downgrade_threshold_global: float = ca.get("downgrade_threshold", 0.0)
 
         for finding in findings:
             # Downgrade path: low confidence -> suggest lower severity.
-            # Use the stricter of per-severity escalation threshold and global
-            # downgrade_threshold so custom policy configs can tighten the floor.
-            threshold = max(thresholds.get(finding.severity.value, 0.0), downgrade_threshold_global)
+            threshold = self._effective_downgrade_threshold(finding)
             if finding.confidence.overall < threshold:
                 suggested = self._downgrade(finding.severity)
                 if suggested != finding.severity and (
@@ -133,13 +139,12 @@ class DefaultSeverityPolicy:
         return adjustments
 
     def check_escalation(self, finding: ConsolidatedFinding) -> bool:
-        """Check if a finding's confidence is below its escalation threshold.
+        """Check if a finding's confidence is below its effective downgrade threshold.
 
+        Effective threshold = max(per-severity escalation_threshold, global downgrade_threshold).
         Returns True if the finding should be reviewed for potential downgrade.
         """
-        thresholds = self._rules.get("escalation_thresholds", {})
-        threshold = thresholds.get(finding.severity.value, 0.0)
-        return finding.confidence.overall < threshold
+        return finding.confidence.overall < self._effective_downgrade_threshold(finding)
 
     def suggest_rule_changes(
         self, override_history: dict[str, dict[str, Any]]
@@ -171,6 +176,13 @@ class DefaultSeverityPolicy:
                 )
 
         return suggestions
+
+    def _effective_downgrade_threshold(self, finding: ConsolidatedFinding) -> float:
+        """Return the stricter of per-severity escalation threshold and global floor."""
+        thresholds = self._rules.get("escalation_thresholds", {})
+        ca = self._rules.get("confidence_adjustments", {})
+        downgrade_threshold_global: float = ca.get("downgrade_threshold", 0.0)
+        return max(thresholds.get(finding.severity.value, 0.0), downgrade_threshold_global)
 
     def _downgrade(self, severity: Severity) -> Severity:
         """Downgrade severity by one level using the downgrade map."""

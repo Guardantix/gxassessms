@@ -271,3 +271,29 @@ class TestDefaultConsolidationPolicy:
         source = consolidated[0].sources[0]
         assert source.check_id == "MS.AAD.3.1v1"
         assert source.check_id != "scubagear:run-abc123"
+
+    def test_finding_instance_id_stable_across_reruns(self, sample_rules: dict) -> None:
+        """Same inputs must produce the same finding_instance_id on each run."""
+        f1 = _make_finding(observation_id="scubagear:abc123")
+        f2 = _make_finding(tool=ToolSource.MAESTER, observation_id="maester:def456")
+        policy = DefaultConsolidationPolicy(rules=sample_rules)
+        result1 = policy.consolidate([f1, f2])
+        result2 = policy.consolidate([f1, f2])
+        assert result1[0].finding_instance_id == result2[0].finding_instance_id
+
+    def test_finding_instance_id_order_invariant(self, sample_rules: dict) -> None:
+        """Input order of findings must not affect the resulting instance ID."""
+        f1 = _make_finding(observation_id="scubagear:abc123")
+        f2 = _make_finding(tool=ToolSource.MAESTER, observation_id="maester:def456")
+        policy = DefaultConsolidationPolicy(rules=sample_rules)
+        result_ab = policy.consolidate([f1, f2])
+        result_ba = policy.consolidate([f2, f1])
+        assert result_ab[0].finding_instance_id == result_ba[0].finding_instance_id
+
+    def test_different_findings_produce_different_instance_ids(self, sample_rules: dict) -> None:
+        """Different finding_keys must not collide to the same instance ID."""
+        f1 = _make_finding(finding_key="cis:m365:1.1.1", observation_id="scubagear:aaa")
+        f2 = _make_finding(finding_key="cis:m365:2.1.1", observation_id="scubagear:bbb")
+        policy = DefaultConsolidationPolicy(rules=sample_rules)
+        result = policy.consolidate([f1, f2])
+        assert result[0].finding_instance_id != result[1].finding_instance_id

@@ -9,6 +9,7 @@ as plain dicts.
 
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from collections import defaultdict
@@ -81,8 +82,15 @@ class DefaultConsolidationPolicy:
             key=lambda f: (SEVERITY_ORDER.get(f.severity.value, 0), f.category.name),
         ).category
 
+        # Build a deterministic name from the finding key and its source observation IDs.
+        # sorted() ensures input order does not affect the result.
+        stable_name = json.dumps(
+            [finding_key, sorted(f.observation_id for f in group)], separators=(",", ":")
+        )
+        finding_instance_id = str(uuid.uuid5(uuid.NAMESPACE_OID, stable_name))
+
         return ConsolidatedFinding(
-            finding_instance_id=str(uuid.uuid4()),
+            finding_instance_id=finding_instance_id,
             finding_key=finding_key,
             title=title,
             severity=severity,
