@@ -151,7 +151,7 @@ class DefaultConsolidationPolicy:
 
         return min(
             (f.status for f in group),
-            key=lambda s: priority_map.get(s.value, len(status_priority)),
+            key=lambda s: (priority_map.get(s.value, len(status_priority)), s.value),
         )
 
     def _reconcile_title(self, group: list[Finding]) -> str:

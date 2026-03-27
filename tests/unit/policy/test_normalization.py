@@ -488,6 +488,30 @@ class TestDefaultNormalizationPolicy:
                 adapter_dedup_keys={},  # empty -> triggers fallback -> bad pattern
             )
 
+    def test_empty_adapter_dedup_key_raises(self, sample_rules: dict) -> None:
+        """An empty string value in adapter_dedup_keys must raise ValueError.
+
+        An empty finding_key causes consolidation to merge unrelated observations
+        into the same group, corrupting severity/status/confidence.
+        """
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.1.1v1",
+            title="Test",
+            native_severity="Shall",
+            native_status="Fail",
+            description="Test.",
+        )
+        policy = DefaultNormalizationPolicy(rules=sample_rules)
+        with pytest.raises(ValueError, match="empty string"):
+            policy.normalize(
+                observations=[obs],
+                adapter_severity_map={},
+                adapter_category_map={},
+                adapter_dedup_keys={"MS.AAD.1.1v1": ""},
+            )
+
     def test_invalid_fallback_severity_in_rules_raises(self, sample_rules: dict) -> None:
         """G5: Invalid fallback_severity in rules raises ValueError with message
         containing 'fallback_severity' -- exercises the new try/except added in this diff."""

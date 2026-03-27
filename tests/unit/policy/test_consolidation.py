@@ -227,6 +227,24 @@ class TestDefaultConsolidationPolicy:
         with pytest.raises(ValueError, match="status_priority"):
             policy.consolidate([f1, f2])
 
+    def test_unmapped_status_tie_break_is_deterministic(self, sample_rules: dict) -> None:
+        """Unmapped statuses share the fallback rank; result must be stable across input orders."""
+        # Use a custom priority list that omits ERROR and MANUAL so they get fallback rank.
+        rules = {
+            **sample_rules,
+            "merge_strategy": {
+                **sample_rules["merge_strategy"],
+                "status_priority": ["FAIL", "WARNING", "PASS", "N/A"],
+            },
+        }
+        # Two findings with unmapped statuses: ERROR and MANUAL both get fallback rank.
+        f1 = _make_finding(tool=ToolSource.SCUBAGEAR, status=FindingStatus.ERROR)
+        f2 = _make_finding(tool=ToolSource.MAESTER, status=FindingStatus.MANUAL)
+        policy = DefaultConsolidationPolicy(rules=rules)
+        result_ab = policy.consolidate([f1, f2])
+        result_ba = policy.consolidate([f2, f1])
+        assert result_ab[0].status == result_ba[0].status
+
     def test_corroboration_uses_conservative_default_when_no_tier_applies(
         self, sample_rules: dict
     ) -> None:
