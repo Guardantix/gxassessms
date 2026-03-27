@@ -8,16 +8,35 @@
 
 Rick Passero (rick@guardantix.com) -- GitHub org: `Guardantix`
 
+## Architecture
+
+This is the **public half** of an open-core system. Defines Protocol-based extension points for adapters, renderers, QA strategies, and policies. The private package (`gxassessms-guardantix`) registers Guardantix-specific implementations via entry points.
+
+**Critical rule:** `gxassessms-guardantix` depends on this package. This package never imports from `gxassessms-guardantix`.
+
+Design spec: `../gxassessms-guardantix/docs/specs/2026-03-25-gxassessms-architecture-design.md`
+
 ## Tech Stack
 
-TBD -- early project scaffolding phase.
+- Python >=3.14, Pydantic, Click, Rich, httpx
+- Node.js for report renderers (guardantix-docx-kit, guardantix-pptx-kit)
+- SQLite (WAL mode) + filesystem for persistence
 
 ## Conventions
 
 - Follow workspace-wide standards from `/home/guardantix/Claude/CLAUDE.md`
 - Security-first: this tool handles client tenant data -- treat all assessment output as confidential
 - No hardcoded credentials or tenant identifiers in source
-- Branded deliverables use guardantix-docx-kit and guardantix-pptx-kit
+- All datetime operations via centralized `core/config/datetime_utils.py`
+- All domain constants via `core/domain/constants.py` (Literal + frozenset pattern)
+- Fail-closed error handling: typed exceptions, narrow catches, no silent fallbacks
+- <=400 lines per file target
+
+## Workspace
+
+Both GxAssessMS packages live in `~/Claude/gxassessms-workspace/`:
+- `gxassessms/` -- this repo
+- `gxassessms-guardantix/` -- private Guardantix extension (sibling directory)
 
 ## Related Repos
 

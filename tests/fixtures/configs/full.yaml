@@ -1,0 +1,30 @@
+client:
+  name: "Acme Healthcare"
+  tenant_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+auth:
+  method: "client_credential"
+  tenant_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+  client_id: "11111111-2222-3333-4444-555555555555"
+  client_secret_env: "GX_CLIENT_SECRET"
+
+tools:
+  scubagear:
+    enabled: true
+    modules: ["aad", "exo", "sharepoint", "teams"]
+    timeout: 1200
+  maester:
+    enabled: true
+    timeout: 600
+  monkey365:
+    enabled: false
+
+report:
+  formats: ["docx", "pptx"]
+  theme: "guardantix"
+  logo_path: "assets/logo.png"
+
+pipeline:
+  max_parallel: 3
+  qa_model: "claude-sonnet-4-6"
+  qa_token_budget: 100000
