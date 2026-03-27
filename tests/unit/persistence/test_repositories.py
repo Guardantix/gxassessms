@@ -237,3 +237,428 @@ class TestEventRepoGetByType:
         assert len(transitions) == 2
         overrides = event_repo.get_events_by_type(eng_id, "override")
         assert len(overrides) == 1
+
+
+# ── FindingRepo ────────────────────────────────────────────────────────
+
+
+class TestFindingRepoSaveParsed:
+    def test_save_and_retrieve_parsed_findings(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(
+            client_name="Test",
+            tenant_id="t-001",
+            config_snapshot={},
+        )
+        findings = [
+            {
+                "finding_id": "f-001",
+                "observation_id": "scubagear:MS.AAD.3.1v1",
+                "finding_key": "cis:m365:1.1.1",
+                "tool_source": "ScubaGear",
+                "title": "MFA for privileged roles",
+                "severity": "CRITICAL",
+                "status": "FAIL",
+                "category": "Identity & Access",
+                "description": "MFA not enabled.",
+                "dedup_keys": ["cis:m365:1.1.1"],
+                "benchmark_refs": ["CIS M365 1.1.1"],
+            },
+            {
+                "finding_id": "f-002",
+                "observation_id": "maester:MT.1001",
+                "finding_key": "cis:m365:2.1.1",
+                "tool_source": "Maester",
+                "title": "Conditional access baseline",
+                "severity": "HIGH",
+                "status": "FAIL",
+                "category": "Identity & Access",
+                "description": "No baseline policy.",
+                "dedup_keys": ["cis:m365:2.1.1"],
+            },
+        ]
+        finding_repo.save_parsed(eng_id, findings)
+        result = finding_repo.get_parsed(eng_id)
+        assert len(result) == 2
+
+    def test_save_parsed_stores_json_fields(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(
+            client_name="Test",
+            tenant_id="t-001",
+            config_snapshot={},
+        )
+        findings = [
+            {
+                "finding_id": "f-001",
+                "observation_id": "scubagear:MS.AAD.3.1v1",
+                "finding_key": "cis:m365:1.1.1",
+                "tool_source": "ScubaGear",
+                "title": "Test",
+                "severity": "CRITICAL",
+                "status": "FAIL",
+                "category": "Identity & Access",
+                "description": "Test",
+                "dedup_keys": ["key1", "key2"],
+                "benchmark_refs": ["CIS 1.1"],
+                "raw_data": {"extra": "data"},
+            },
+        ]
+        finding_repo.save_parsed(eng_id, findings)
+        result = finding_repo.get_parsed(eng_id)
+        assert json.loads(result[0]["dedup_keys"]) == ["key1", "key2"]
+        assert json.loads(result[0]["benchmark_refs"]) == ["CIS 1.1"]
+        assert json.loads(result[0]["raw_data"]) == {"extra": "data"}
+
+
+class TestFindingRepoSaveConsolidated:
+    def test_save_and_retrieve_consolidated(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(
+            client_name="Test",
+            tenant_id="t-001",
+            config_snapshot={},
+        )
+        consolidated = [
+            {
+                "finding_instance_id": "cf-001",
+                "finding_key": "cis:m365:1.1.1",
+                "title": "MFA for privileged roles",
+                "severity": "CRITICAL",
+                "status": "FAIL",
+                "category": "Identity & Access",
+                "description": "MFA not enabled.",
+                "sources": [
+                    {"tool": "ScubaGear", "check_id": "MS.AAD.3.1v1", "raw_data": {}},
+                ],
+                "confidence": {
+                    "evidence_strength": 0.9,
+                    "corroborating_tools": 2,
+                    "data_freshness": 0.95,
+                    "provenance": "system-generated",
+                    "overall": 0.88,
+                },
+                "benchmark_refs": ["CIS M365 1.1.1"],
+                "root_cause": "No MFA policy configured",
+                "remediation": "Enable MFA for all privileged roles",
+            },
+        ]
+        finding_repo.save_consolidated(eng_id, consolidated)
+        result = finding_repo.get_consolidated(eng_id)
+        assert len(result) == 1
+        assert result[0]["finding_instance_id"] == "cf-001"
+        sources = json.loads(result[0]["sources"])
+        assert len(sources) == 1
+        assert sources[0]["tool"] == "ScubaGear"
+
+
+class TestFindingRepoOverrideSeverity:
+    def test_override_severity_updates_finding(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(
+            client_name="Test",
+            tenant_id="t-001",
+            config_snapshot={},
+        )
+        finding_repo.save_consolidated(
+            eng_id,
+            [
+                {
+                    "finding_instance_id": "cf-001",
+                    "finding_key": "cis:m365:1.1.1",
+                    "title": "Test",
+                    "severity": "MEDIUM",
+                    "status": "FAIL",
+                    "category": "Identity & Access",
+                    "description": "Test",
+                    "sources": [],
+                    "confidence": {
+                        "evidence_strength": 0.5,
+                        "corroborating_tools": 1,
+                        "data_freshness": 0.9,
+                        "provenance": "system-generated",
+                        "overall": 0.7,
+                    },
+                },
+            ],
+        )
+        finding_repo.override_severity(
+            finding_id="cf-001",
+            new_severity="HIGH",
+            reason="Client-specific risk",
+            actor="human:rick",
+            engagement_id=eng_id,
+        )
+        result = finding_repo.get_consolidated(eng_id)
+        assert result[0]["severity"] == "HIGH"
+
+    def test_override_severity_records_override(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+        db_manager: DatabaseManager,
+    ) -> None:
+        eng_id = engagement_repo.create(
+            client_name="Test",
+            tenant_id="t-001",
+            config_snapshot={},
+        )
+        finding_repo.save_consolidated(
+            eng_id,
+            [
+                {
+                    "finding_instance_id": "cf-001",
+                    "finding_key": "cis:m365:1.1.1",
+                    "title": "Test",
+                    "severity": "LOW",
+                    "status": "FAIL",
+                    "category": "Identity & Access",
+                    "description": "Test",
+                    "sources": [],
+                    "confidence": {
+                        "evidence_strength": 0.5,
+                        "corroborating_tools": 1,
+                        "data_freshness": 0.9,
+                        "provenance": "system-generated",
+                        "overall": 0.7,
+                    },
+                },
+            ],
+        )
+        finding_repo.override_severity(
+            finding_id="cf-001",
+            new_severity="CRITICAL",
+            reason="Regulatory requirement",
+            actor="human:rick",
+            engagement_id=eng_id,
+        )
+        with db_manager.connect() as conn:
+            overrides = conn.execute(
+                "SELECT * FROM overrides WHERE finding_id = ?", ("cf-001",)
+            ).fetchall()
+        assert len(overrides) == 1
+        ovr = dict(overrides[0])
+        assert ovr["old_value"] == "LOW"
+        assert ovr["new_value"] == "CRITICAL"
+        assert ovr["reason"] == "Regulatory requirement"
+        assert ovr["actor"] == "human:rick"
+
+    def test_override_nonexistent_finding_raises(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(
+            client_name="Test",
+            tenant_id="t-001",
+            config_snapshot={},
+        )
+        with pytest.raises(PersistenceError):
+            finding_repo.override_severity(
+                finding_id="nonexistent",
+                new_severity="HIGH",
+                reason="test",
+                actor="system",
+                engagement_id=eng_id,
+            )
+
+
+class TestFindingRepoManualFinding:
+    def test_add_manual_finding(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(
+            client_name="Test",
+            tenant_id="t-001",
+            config_snapshot={},
+        )
+        finding_id = finding_repo.add_manual_finding(
+            eng_id,
+            {
+                "title": "Custom finding",
+                "severity": "HIGH",
+                "category": "Identity & Access",
+                "description": "Manually identified issue",
+            },
+        )
+        assert isinstance(finding_id, str)
+        results = finding_repo.get_parsed(eng_id)
+        assert len(results) == 1
+        assert results[0]["tool_source"] == "Manual"
+
+    def test_delete_for_engagement(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(
+            client_name="Test",
+            tenant_id="t-001",
+            config_snapshot={},
+        )
+        finding_repo.save_parsed(
+            eng_id,
+            [
+                {
+                    "finding_id": "f-001",
+                    "observation_id": "obs-001",
+                    "finding_key": "key-001",
+                    "tool_source": "ScubaGear",
+                    "title": "Test",
+                    "severity": "LOW",
+                    "status": "PASS",
+                    "category": "Identity & Access",
+                    "description": "Test",
+                    "dedup_keys": ["key-001"],
+                },
+            ],
+        )
+        count = finding_repo.delete_for_engagement(eng_id)
+        assert count == 1
+        assert finding_repo.get_parsed(eng_id) == []
+
+
+# ── CoverageRepo ──────────────────────────────────────────────────────
+
+
+class TestCoverageRepoSave:
+    def test_save_and_retrieve_coverage(
+        self,
+        engagement_repo: EngagementRepo,
+        coverage_repo: CoverageRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(
+            client_name="Test",
+            tenant_id="t-001",
+            config_snapshot={},
+        )
+        records = [
+            {
+                "control_id": "CIS M365 1.1.1",
+                "tool_source": "ScubaGear",
+                "status": "assessed",
+            },
+            {
+                "control_id": "CIS M365 1.2.1",
+                "tool_source": "ScubaGear",
+                "status": "not_assessed",
+                "reason": "Not applicable to license tier",
+            },
+        ]
+        coverage_repo.save(eng_id, records)
+        result = coverage_repo.get_for_engagement(eng_id)
+        assert len(result) == 2
+
+    def test_coverage_invalid_status_raises(
+        self,
+        engagement_repo: EngagementRepo,
+        coverage_repo: CoverageRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(
+            client_name="Test",
+            tenant_id="t-001",
+            config_snapshot={},
+        )
+        import sqlite3
+
+        with pytest.raises(sqlite3.IntegrityError):
+            coverage_repo.save(
+                eng_id,
+                [
+                    {
+                        "control_id": "CIS M365 1.1.1",
+                        "tool_source": "ScubaGear",
+                        "status": "invalid_status",
+                    },
+                ],
+            )
+
+    def test_delete_for_engagement(
+        self,
+        engagement_repo: EngagementRepo,
+        coverage_repo: CoverageRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(
+            client_name="Test",
+            tenant_id="t-001",
+            config_snapshot={},
+        )
+        coverage_repo.save(
+            eng_id,
+            [
+                {"control_id": "c-1", "tool_source": "ScubaGear", "status": "assessed"},
+            ],
+        )
+        count = coverage_repo.delete_for_engagement(eng_id)
+        assert count == 1
+        assert coverage_repo.get_for_engagement(eng_id) == []
+
+
+# ── FindingExplanationService ─────────────────────────────────────────
+
+
+class TestFindingExplanationService:
+    def test_explain_returns_stub_structure(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+        db_manager: DatabaseManager,
+    ) -> None:
+        from gxassessms.persistence.repositories import FindingExplanationService
+
+        eng_id = engagement_repo.create(
+            client_name="Test",
+            tenant_id="t-001",
+            config_snapshot={},
+        )
+        finding_repo.save_consolidated(
+            eng_id,
+            [
+                {
+                    "finding_instance_id": "cf-explain-001",
+                    "finding_key": "cis:m365:1.1.1",
+                    "title": "Test finding",
+                    "severity": "HIGH",
+                    "status": "FAIL",
+                    "category": "Identity & Access",
+                    "description": "Test",
+                    "sources": [{"tool": "ScubaGear", "check_id": "MS.AAD.3.1v1", "raw_data": {}}],
+                    "confidence": {
+                        "evidence_strength": 0.9,
+                        "corroborating_tools": 2,
+                        "data_freshness": 0.95,
+                        "provenance": "system-generated",
+                        "overall": 0.88,
+                    },
+                },
+            ],
+        )
+        svc = FindingExplanationService(db_manager)
+        explanation = svc.explain("cf-explain-001")
+        assert explanation["finding_instance_id"] == "cf-explain-001"
+        assert "sources" in explanation
+        assert "severity_basis" in explanation
+        assert "override_history" in explanation
+        assert "ai_modifications" in explanation
+        assert "confidence_basis" in explanation
+
+    def test_explain_nonexistent_finding_raises(self, db_manager: DatabaseManager) -> None:
+        from gxassessms.persistence.repositories import FindingExplanationService
+
+        svc = FindingExplanationService(db_manager)
+        with pytest.raises(PersistenceError):
+            svc.explain("nonexistent-finding")
