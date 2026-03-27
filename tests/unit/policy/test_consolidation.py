@@ -319,15 +319,39 @@ class TestDefaultConsolidationPolicy:
         # 2 tools -> tier 2 -> corroboration 0.7 (same as int-keyed config)
         assert result[0].confidence.corroborating_tools == 2
 
-    def test_corroboration_non_numeric_key_raises(self, sample_rules: dict) -> None:
-        """A non-numeric corroboration tier key must raise ValueError."""
+    def test_corroboration_string_values_coerced_to_float(self, sample_rules: dict) -> None:
+        """YAML quoted values (strings) must be coerced to float without error."""
+        rules = {
+            **sample_rules,
+            "corroboration_scores": {"1": "0.4", "2": "0.7"},
+        }
+        f1 = _make_finding(tool=ToolSource.SCUBAGEAR)
+        f2 = _make_finding(tool=ToolSource.MAESTER)
+        policy = DefaultConsolidationPolicy(rules=rules)
+        result = policy.consolidate([f1, f2])
+        assert len(result) == 1
+        assert result[0].confidence.corroborating_tools == 2
+
+    def test_corroboration_non_numeric_entry_raises(self, sample_rules: dict) -> None:
+        """A non-numeric corroboration key or value must raise ValueError."""
         rules = {
             **sample_rules,
             "corroboration_scores": {"many": 0.9},
         }
         f1 = _make_finding(tool=ToolSource.SCUBAGEAR)
         policy = DefaultConsolidationPolicy(rules=rules)
-        with pytest.raises(ValueError, match="integers"):
+        with pytest.raises(ValueError, match="integer"):
+            policy.consolidate([f1])
+
+    def test_corroboration_non_numeric_value_raises(self, sample_rules: dict) -> None:
+        """A non-numeric corroboration score value must raise ValueError."""
+        rules = {
+            **sample_rules,
+            "corroboration_scores": {1: "high"},
+        }
+        f1 = _make_finding(tool=ToolSource.SCUBAGEAR)
+        policy = DefaultConsolidationPolicy(rules=rules)
+        with pytest.raises(ValueError, match="numeric"):
             policy.consolidate([f1])
 
     def test_category_tie_resolved_deterministically(self, sample_rules: dict) -> None:
@@ -353,54 +377,18 @@ class TestDefaultConsolidationPolicy:
         assert source.check_id == "MS.AAD.3.1v1"
         assert source.check_id != "scubagear:run-abc123"
 
-    def test_finding_instance_id_stable_across_reruns(self, sample_rules: dict) -> None:
-        """Same inputs must produce the same finding_instance_id on each run.
+    def test_finding_instance_id_unique_across_calls(self, sample_rules: dict) -> None:
+        """finding_instance_id must be unique per consolidation call (engagement-scoped).
 
-        observation_id is an ingestion-time synthetic ID (e.g. scubagear:run-abc123) and
-        is intentionally excluded from the hash; native_check_id is the stable identifier.
+        Per spec: finding_instance_id is engagement-specific and never reused across
+        engagements, even for the same finding_key.  The persistence layer handles
+        within-engagement dedup via (engagement_id, finding_key).
         """
-        f1 = _make_finding(native_check_id="MS.AAD.3.1v1", observation_id="scubagear:run-001")
-        f2 = _make_finding(
-            tool=ToolSource.MAESTER, native_check_id="MT.1003", observation_id="maester:run-001"
-        )
+        f1 = _make_finding()
         policy = DefaultConsolidationPolicy(rules=sample_rules)
-        result1 = policy.consolidate([f1, f2])
-        result2 = policy.consolidate([f1, f2])
-        assert result1[0].finding_instance_id == result2[0].finding_instance_id
-
-    def test_finding_instance_id_order_invariant(self, sample_rules: dict) -> None:
-        """Input order of findings must not affect the resulting instance ID."""
-        f1 = _make_finding(native_check_id="MS.AAD.3.1v1", observation_id="scubagear:run-001")
-        f2 = _make_finding(
-            tool=ToolSource.MAESTER, native_check_id="MT.1003", observation_id="maester:run-001"
-        )
-        policy = DefaultConsolidationPolicy(rules=sample_rules)
-        result_ab = policy.consolidate([f1, f2])
-        result_ba = policy.consolidate([f2, f1])
-        assert result_ab[0].finding_instance_id == result_ba[0].finding_instance_id
-
-    def test_different_findings_produce_different_instance_ids(self, sample_rules: dict) -> None:
-        """Different finding_keys must not collide to the same instance ID."""
-        f1 = _make_finding(finding_key="cis:m365:1.1.1", native_check_id="MS.AAD.3.1v1")
-        f2 = _make_finding(finding_key="cis:m365:2.1.1", native_check_id="MS.EXO.4.1v1")
-        policy = DefaultConsolidationPolicy(rules=sample_rules)
-        result = policy.consolidate([f1, f2])
-        assert result[0].finding_instance_id != result[1].finding_instance_id
-
-    def test_finding_instance_id_stable_with_per_resource_duplicates(
-        self, sample_rules: dict
-    ) -> None:
-        """Same check run against multiple resources (duplicate native_check_id) must
-        produce the same instance ID regardless of how many per-resource observations
-        exist -- set() dedup ensures the hash input is stable across re-runs."""
-        # Simulate a per-resource check: same native_check_id, two different observation_ids
-        f1 = _make_finding(native_check_id="MS.AAD.1.1v1", observation_id="scubagear:run-A")
-        f2 = _make_finding(native_check_id="MS.AAD.1.1v1", observation_id="scubagear:run-B")
-        policy = DefaultConsolidationPolicy(rules=sample_rules)
-        result1 = policy.consolidate([f1, f2])
-        # Same inputs in reversed order -- ID must be identical
-        result2 = policy.consolidate([f2, f1])
-        assert result1[0].finding_instance_id == result2[0].finding_instance_id
+        result1 = policy.consolidate([f1])
+        result2 = policy.consolidate([f1])
+        assert result1[0].finding_instance_id != result2[0].finding_instance_id
 
     def test_reconcile_title_deterministic_with_equal_severity_and_tool(
         self, sample_rules: dict

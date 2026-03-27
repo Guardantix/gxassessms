@@ -9,7 +9,6 @@ as plain dicts.
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from collections import defaultdict
@@ -82,15 +81,10 @@ class DefaultConsolidationPolicy:
             key=lambda f: (SEVERITY_ORDER.get(f.severity.value, 0), f.category.name),
         ).category
 
-        # Build a deterministic name from the finding key and its source check IDs.
-        # native_check_id is tool-native and stable across runs; observation_id is an
-        # ingestion-time synthetic ID and must not be used here.
-        # set() deduplicates per-resource duplicates (same check, multiple tenants/resources);
-        # sorted() ensures input order does not affect the result.
-        stable_name = json.dumps(
-            [finding_key, sorted({f.native_check_id for f in group})], separators=(",", ":")
-        )
-        finding_instance_id = str(uuid.uuid5(uuid.NAMESPACE_OID, stable_name))
+        # Per spec: finding_instance_id is engagement-specific and never reused across
+        # engagements, even for the same finding_key.  The persistence layer handles
+        # within-engagement dedup via (engagement_id, finding_key).
+        finding_instance_id = str(uuid.uuid4())
 
         return ConsolidatedFinding(
             finding_instance_id=finding_instance_id,
@@ -224,11 +218,13 @@ class DefaultConsolidationPolicy:
         if corroboration_scores_raw:
             # Coerce keys to int so YAML quoted keys ("1") don't cause TypeError.
             try:
-                corroboration_scores = {int(k): v for k, v in corroboration_scores_raw.items()}
+                corroboration_scores = {
+                    int(k): float(v) for k, v in corroboration_scores_raw.items()
+                }
             except (TypeError, ValueError) as exc:
                 raise ValueError(
-                    f"corroboration_scores keys must be integers, got: "
-                    f"{list(corroboration_scores_raw.keys())}"
+                    f"corroboration_scores entries must have integer keys and numeric values, "
+                    f"got: {dict(corroboration_scores_raw)}"
                 ) from exc
             # Floor lookup: highest tier <= distinct_tools. When no tier qualifies
             # (all configured tiers exceed distinct_tools), use the conservative 0.4
