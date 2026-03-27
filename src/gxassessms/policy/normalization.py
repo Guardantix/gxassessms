@@ -110,8 +110,10 @@ class DefaultNormalizationPolicy:
         except ValueError:
             pass
 
-        # Try adapter-specific severity map
-        key = (obs.native_severity, obs.native_status)
+        # Try adapter-specific severity map.
+        # Use _mapped so aliases ("FAIL", "Failed") resolve identically to their
+        # canonical form ("FAIL") -- consistent with how _resolve_status() canonicalizes.
+        key = (obs.native_severity, _mapped)
         adapter_result = adapter_severity_map.get(key)
         if adapter_result is not None:
             try:
@@ -122,14 +124,12 @@ class DefaultNormalizationPolicy:
                     f"Severity. Valid values: {[s.value for s in Severity]}."
                 ) from exc
 
-        # Try default severity map from rules
+        # Try default severity map from rules.
+        # Entries must use domain status values ("FAIL", "WARNING") to match _mapped.
         default_map = self._rules.get("default_severity_map", [])
         for entry in default_map:
             try:
-                if (
-                    entry["requirement"] == obs.native_severity
-                    and entry["status"] == obs.native_status
-                ):
+                if entry["requirement"] == obs.native_severity and entry["status"] == _mapped:
                     return Severity(entry["severity"])
             except (KeyError, ValueError) as exc:
                 raise ValueError(

@@ -149,7 +149,10 @@ class DefaultSeverityPolicy:
         A downgrade is actionable when the downgrade_map produces a lower severity AND the
         result is at or above confidence_adjustments.minimum_severity. This mirrors the
         suppression logic in suggest_adjustments() so the two methods never contradict each other.
+        PASS and NOT_APPLICABLE findings are always non-actionable (mirrors suggest_adjustments()).
         """
+        if finding.status in (FindingStatus.PASS, FindingStatus.NOT_APPLICABLE):
+            return False
         if finding.confidence.overall >= self._effective_downgrade_threshold(finding):
             return False
         # No-op downgrade (e.g., INFO -> INFO): not actionable.

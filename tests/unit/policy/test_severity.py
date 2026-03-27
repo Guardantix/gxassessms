@@ -359,3 +359,24 @@ class TestCheckEscalationMinimumSeverityFloor:
         cf = _make_consolidated(severity=Severity.MEDIUM, confidence_overall=0.25)
         policy = DefaultSeverityPolicy(rules=sample_rules)
         assert policy.check_escalation(cf) is True
+
+    def test_no_escalation_for_pass_with_non_info_severity(self, sample_rules: dict) -> None:
+        """PASS findings must return False from check_escalation even when severity is non-INFO.
+
+        Persisted or manually edited data can produce status=PASS with a non-INFO severity.
+        check_escalation() must mirror suggest_adjustments() and treat these as non-actionable.
+        """
+        # HIGH severity + PASS status: simulates a persisted/edited finding
+        cf = _make_consolidated(severity=Severity.HIGH, confidence_overall=0.1)
+        cf = cf.model_copy(update={"status": FindingStatus.PASS})
+        policy = DefaultSeverityPolicy(rules=sample_rules)
+        assert policy.check_escalation(cf) is False
+
+    def test_no_escalation_for_not_applicable_with_non_info_severity(
+        self, sample_rules: dict
+    ) -> None:
+        """NOT_APPLICABLE findings must return False from check_escalation."""
+        cf = _make_consolidated(severity=Severity.HIGH, confidence_overall=0.1)
+        cf = cf.model_copy(update={"status": FindingStatus.NOT_APPLICABLE})
+        policy = DefaultSeverityPolicy(rules=sample_rules)
+        assert policy.check_escalation(cf) is False

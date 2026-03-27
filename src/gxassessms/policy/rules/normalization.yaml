@@ -7,22 +7,22 @@
 # This table is the fallback for adapters that don't define their own mapping.
 default_severity_map:
   - requirement: "Shall"
-    status: "Fail"
+    status: "FAIL"
     severity: "CRITICAL"
   - requirement: "Shall"
-    status: "Warning"
+    status: "WARNING"
     severity: "HIGH"
   - requirement: "Should"
-    status: "Fail"
+    status: "FAIL"
     severity: "HIGH"
   - requirement: "Should"
-    status: "Warning"
+    status: "WARNING"
     severity: "MEDIUM"
   - requirement: "May"
-    status: "Fail"
+    status: "FAIL"
     severity: "LOW"
   - requirement: "May"
-    status: "Warning"
+    status: "WARNING"
     severity: "LOW"
 
 # Fallback severity when no mapping matches

@@ -22,11 +22,11 @@ def sample_rules() -> dict:
     """Minimal normalization rules for testing."""
     return {
         "default_severity_map": [
-            {"requirement": "Shall", "status": "Fail", "severity": "CRITICAL"},
-            {"requirement": "Shall", "status": "Warning", "severity": "HIGH"},
-            {"requirement": "Should", "status": "Fail", "severity": "HIGH"},
-            {"requirement": "Should", "status": "Warning", "severity": "MEDIUM"},
-            {"requirement": "May", "status": "Fail", "severity": "LOW"},
+            {"requirement": "Shall", "status": "FAIL", "severity": "CRITICAL"},
+            {"requirement": "Shall", "status": "WARNING", "severity": "HIGH"},
+            {"requirement": "Should", "status": "FAIL", "severity": "HIGH"},
+            {"requirement": "Should", "status": "WARNING", "severity": "MEDIUM"},
+            {"requirement": "May", "status": "FAIL", "severity": "LOW"},
         ],
         "fallback_severity": "MEDIUM",
         "default_category_map": {
@@ -49,13 +49,18 @@ def sample_rules() -> dict:
 
 @pytest.fixture
 def adapter_severity_map() -> dict:
-    """ScubaGear-style adapter-specific severity map."""
+    """ScubaGear-style adapter-specific severity map.
+
+    Keys use domain status values (FAIL/WARNING) because _resolve_severity() now
+    normalises native_status through the status_map before lookup, so aliases
+    like 'Fail', 'FAIL', or 'Failed' all resolve to 'FAIL' before the key is built.
+    """
     return {
-        ("Shall", "Fail"): "CRITICAL",
-        ("Shall", "Warning"): "HIGH",
-        ("Should", "Fail"): "HIGH",
-        ("Should", "Warning"): "MEDIUM",
-        ("May", "Fail"): "LOW",
+        ("Shall", "FAIL"): "CRITICAL",
+        ("Shall", "WARNING"): "HIGH",
+        ("Should", "FAIL"): "HIGH",
+        ("Should", "WARNING"): "MEDIUM",
+        ("May", "FAIL"): "LOW",
     }
 
 
@@ -167,6 +172,53 @@ class TestDefaultNormalizationPolicy:
             adapter_dedup_keys={},
         )
         assert findings[0].severity == Severity.MEDIUM
+
+    def test_enum_value_fail_status_resolves_severity_via_mapped_value(
+        self, sample_rules: dict
+    ) -> None:
+        """native_status 'FAIL' (domain enum spelling, not in status_map keys) must
+        reach the default_severity_map via _mapped and return CRITICAL, not fallback MEDIUM."""
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.1.1v1",
+            title="Test check",
+            native_severity="Shall",
+            native_status="FAIL",  # enum-value spelling; status_map has "Fail" not "FAIL"
+            description="Test.",
+        )
+        policy = DefaultNormalizationPolicy(rules=sample_rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={},
+            adapter_dedup_keys={},
+        )
+        assert findings[0].severity == Severity.CRITICAL
+
+    def test_custom_status_alias_resolves_severity_via_status_map(self, sample_rules: dict) -> None:
+        """A custom status_map alias (Failed -> FAIL) must propagate into the severity lookup."""
+        rules = {
+            **sample_rules,
+            "default_status_map": {**sample_rules["default_status_map"], "Failed": "FAIL"},
+        }
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.1.1v1",
+            title="Test check",
+            native_severity="Shall",
+            native_status="Failed",  # custom alias; maps to "FAIL" via status_map
+            description="Test.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={},
+            adapter_dedup_keys={},
+        )
+        assert findings[0].severity == Severity.CRITICAL
 
     def test_category_from_check_id_prefix(
         self,
@@ -411,7 +463,7 @@ class TestDefaultNormalizationPolicy:
         with pytest.raises(ValueError, match="Adapter severity map"):
             policy.normalize(
                 observations=[obs],
-                adapter_severity_map={("Shall", "Fail"): "BADVALUE"},
+                adapter_severity_map={("Shall", "FAIL"): "BADVALUE"},
                 adapter_category_map={},
                 adapter_dedup_keys={},
             )
@@ -466,7 +518,7 @@ class TestDefaultNormalizationPolicy:
         rules = {
             **sample_rules,
             "default_severity_map": [
-                {"requirement": "Shall", "status": "Fail"},  # missing "severity" key
+                {"requirement": "Shall", "status": "FAIL"},  # missing "severity" key
             ],
         }
         obs = ToolObservation(
