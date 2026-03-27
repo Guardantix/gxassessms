@@ -1,0 +1,63 @@
+# Normalization policy reference tables.
+# Loaded by config/ and injected into NormalizationPolicy as a plain dict.
+# These are defaults; adapter-specific mappings.py files provide per-tool overrides.
+
+# Default severity mapping: maps (requirement_level, status) -> domain severity.
+# Adapter-specific severity maps in each adapter's mappings.py take precedence.
+# This table is the fallback for adapters that don't define their own mapping.
+default_severity_map:
+  - requirement: "Shall"
+    status: "Fail"
+    severity: "CRITICAL"
+  - requirement: "Shall"
+    status: "Warning"
+    severity: "HIGH"
+  - requirement: "Should"
+    status: "Fail"
+    severity: "HIGH"
+  - requirement: "Should"
+    status: "Warning"
+    severity: "MEDIUM"
+  - requirement: "May"
+    status: "Fail"
+    severity: "LOW"
+  - requirement: "May"
+    status: "Warning"
+    severity: "LOW"
+
+# Fallback severity when no mapping matches
+fallback_severity: "MEDIUM"
+
+# Default category mapping: maps tool module prefix -> domain category.
+# Adapter-specific category maps take precedence.
+default_category_map:
+  aad: "IDENTITY_ACCESS"
+  entra: "IDENTITY_ACCESS"
+  exo: "EMAIL_COLLABORATION"
+  sharepoint: "DATA_PROTECTION"
+  teams: "EMAIL_COLLABORATION"
+  defender: "EMAIL_COLLABORATION"
+  powerplatform: "APPLICATION_SECURITY"
+  intune: "DEVICE_MANAGEMENT"
+  azure: "INFRASTRUCTURE_SECURITY"
+  network: "NETWORK_SECURITY"
+
+# Fallback category when no mapping matches
+fallback_category: "COMPLIANCE"
+
+# Dedup key namespace defaults: how to construct finding_key from observation data.
+# Format: {namespace}:{control_id}
+# The primary source is the cross-reference YAMLs in mappings/; this provides
+# fallback patterns when no cross-reference entry exists.
+dedup_key_fallback_pattern: "{tool}:{native_check_id}"
+
+# Status mapping: maps tool-native status strings to domain FindingStatus values
+default_status_map:
+  "Fail": "FAIL"
+  "Pass": "PASS"
+  "Warning": "WARNING"
+  "Error": "ERROR"
+  "N/A": "N/A"
+  "Manual": "MANUAL"
+  "Not Applicable": "N/A"
+  "Informational": "PASS"
