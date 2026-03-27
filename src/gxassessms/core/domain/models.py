@@ -12,7 +12,11 @@ from typing import Any
 
 from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
 
-from gxassessms.core.domain.constants import ConfidenceProvenance, RemediationPhaseName
+from gxassessms.core.domain.constants import (
+    ConfidenceProvenance,
+    FileEncoding,
+    RemediationPhaseName,
+)
 from gxassessms.core.domain.enums import (
     AdapterRunStatus,
     Category,
@@ -126,7 +130,7 @@ class RawToolOutput(BaseModel):
     tool: ToolSource
     schema_version: str
     timestamp: datetime
-    file_manifest: dict[str, str]  # filename -> encoding ("utf-8" or "binary")
+    file_manifest: dict[str, FileEncoding]
     execution_metadata: dict[str, Any]
 
     @field_validator("timestamp")
@@ -219,16 +223,16 @@ class RemediationPhase(BaseModel):
 class ReportKeyStats(BaseModel):
     """Summary statistics for report header."""
 
-    total_findings: int
-    critical_count: int
-    high_count: int
-    medium_count: int
-    low_count: int
-    info_count: int
-    tools_run: int
-    tools_failed: int
-    controls_assessed: int
-    controls_not_assessed: int
+    total_findings: int = Field(ge=0)
+    critical_count: int = Field(ge=0)
+    high_count: int = Field(ge=0)
+    medium_count: int = Field(ge=0)
+    low_count: int = Field(ge=0)
+    info_count: int = Field(ge=0)
+    tools_run: int = Field(ge=0)
+    tools_failed: int = Field(ge=0)
+    controls_assessed: int = Field(ge=0)
+    controls_not_assessed: int = Field(ge=0)
 
 
 class ReportPayload(BaseModel):

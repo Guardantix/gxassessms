@@ -34,6 +34,9 @@ from gxassessms.core.domain.constants import (
     ConfidenceProvenance as ConfidenceProvenance,
 )
 from gxassessms.core.domain.constants import (
+    FileEncoding as FileEncoding,
+)
+from gxassessms.core.domain.constants import (
     RemediationPhaseName as RemediationPhaseName,
 )
 from gxassessms.core.domain.enums import (

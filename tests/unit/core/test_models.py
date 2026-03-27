@@ -22,6 +22,7 @@ from gxassessms.core.domain.models import (
     Finding,
     RawToolOutput,
     RemediationPhase,
+    ReportKeyStats,
     ReportPayload,
     SourceEvidence,
     ToolObservation,
@@ -250,6 +251,26 @@ class TestRawToolOutput:
         assert rto.timestamp.tzinfo == UTC
         assert rto.timestamp == datetime(2026, 3, 25, 7, 0, 0, tzinfo=UTC)
 
+    def test_rejects_invalid_file_manifest_encoding(self) -> None:
+        with pytest.raises(ValidationError):
+            RawToolOutput(
+                tool=ToolSource.SCUBAGEAR,
+                schema_version="1.0.0",
+                timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+                file_manifest={"TestResults.json": "utf8"},  # type: ignore[dict-item]
+                execution_metadata={},
+            )
+
+    def test_accepts_binary_file_manifest_encoding(self) -> None:
+        rto = RawToolOutput(
+            tool=ToolSource.SCUBAGEAR,
+            schema_version="1.0.0",
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            file_manifest={"report.zip": "binary", "results.json": "utf-8"},
+            execution_metadata={},
+        )
+        assert rto.file_manifest["report.zip"] == "binary"
+
 
 class TestAdapterResult:
     def test_success_result_has_raw_output(self) -> None:
@@ -394,6 +415,38 @@ class TestReportPayload:
             metadata={},
         )
         assert rp.narratives["findings_narrative"] is None
+
+
+class TestReportKeyStats:
+    def test_rejects_negative_total_findings(self) -> None:
+        with pytest.raises(ValidationError):
+            ReportKeyStats(
+                total_findings=-1,
+                critical_count=0,
+                high_count=0,
+                medium_count=0,
+                low_count=0,
+                info_count=0,
+                tools_run=1,
+                tools_failed=0,
+                controls_assessed=10,
+                controls_not_assessed=0,
+            )
+
+    def test_rejects_negative_tools_failed(self) -> None:
+        with pytest.raises(ValidationError):
+            ReportKeyStats(
+                total_findings=0,
+                critical_count=0,
+                high_count=0,
+                medium_count=0,
+                low_count=0,
+                info_count=0,
+                tools_run=1,
+                tools_failed=-3,
+                controls_assessed=10,
+                controls_not_assessed=0,
+            )
 
 
 class TestToolRunResult:

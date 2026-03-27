@@ -86,6 +86,12 @@ ConfidenceProvenance = Literal["system-generated", "human-overridden", "AI-adjus
 AuthMethod = Literal["client_credential", "device_code", "interactive"]
 
 # ---------------------------------------------------------------------------
+# File Encoding (RawToolOutput file_manifest values)
+# ---------------------------------------------------------------------------
+
+FileEncoding = Literal["utf-8", "binary"]
+
+# ---------------------------------------------------------------------------
 # Adapter Capabilities
 # ---------------------------------------------------------------------------
 
