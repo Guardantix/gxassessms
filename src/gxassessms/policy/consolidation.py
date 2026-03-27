@@ -82,10 +82,12 @@ class DefaultConsolidationPolicy:
             key=lambda f: (SEVERITY_ORDER.get(f.severity.value, 0), f.category.name),
         ).category
 
-        # Build a deterministic name from the finding key and its source observation IDs.
+        # Build a deterministic name from the finding key and its source check IDs.
+        # native_check_id is tool-native and stable across runs; observation_id is an
+        # ingestion-time synthetic ID and must not be used here.
         # sorted() ensures input order does not affect the result.
         stable_name = json.dumps(
-            [finding_key, sorted(f.observation_id for f in group)], separators=(",", ":")
+            [finding_key, sorted(f.native_check_id for f in group)], separators=(",", ":")
         )
         finding_instance_id = str(uuid.uuid5(uuid.NAMESPACE_OID, stable_name))
 
@@ -152,10 +154,10 @@ class DefaultConsolidationPolicy:
         )
 
     def _reconcile_title(self, group: list[Finding]) -> str:
-        """Use the title from the highest-severity finding."""
+        """Use the title from the highest-severity finding, with tool name as tie-break."""
         highest = max(
             group,
-            key=lambda f: SEVERITY_ORDER.get(f.severity.value, 0),
+            key=lambda f: (SEVERITY_ORDER.get(f.severity.value, 0), f.tool.value),
         )
         return highest.title
 
@@ -209,13 +211,17 @@ class DefaultConsolidationPolicy:
         # Evidence strength: direct observations score high
         evidence_strength = min(1.0, 0.6 + (distinct_tools * 0.1))
 
-        # Corroboration score from rules
+        # Corroboration score from rules.
+        # Use the highest configured tier that does not exceed distinct_tools (floor lookup).
+        # An exact-key lookup with fallback would under-score multi-tool findings when the
+        # config omits intermediate tiers (e.g. {1: 0.4, 2: 0.7, 4: 0.95} with 3 tools).
         corroboration_scores = self._rules.get("corroboration_scores", {})
-        # Use the highest applicable corroboration level
-        corroboration_key = (
-            min(distinct_tools, max(corroboration_scores.keys())) if corroboration_scores else 1
-        )
-        corroboration = corroboration_scores.get(corroboration_key, 0.4)
+        if corroboration_scores:
+            applicable = [k for k in corroboration_scores if k <= distinct_tools]
+            corroboration_key = max(applicable) if applicable else min(corroboration_scores)
+            corroboration = corroboration_scores[corroboration_key]
+        else:
+            corroboration = 0.4
 
         # Data freshness: default to 1.0 (fresh) -- actual staleness
         # is computed by the pipeline stage that has access to timestamps
