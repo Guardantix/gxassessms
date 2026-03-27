@@ -50,7 +50,7 @@ def sample_rules() -> dict:
         "provenance_scores": {
             "human-overridden": 1.0,
             "system-generated": 0.7,
-            "ai-adjusted": 0.5,
+            "AI-adjusted": 0.5,
         },
     }
 
@@ -62,6 +62,7 @@ def _make_finding(
     severity: Severity = Severity.CRITICAL,
     status: FindingStatus = FindingStatus.FAIL,
     title: str = "MFA for admins",
+    description: str | None = None,
     observation_id: str | None = None,
 ) -> Finding:
     if observation_id is None:
@@ -74,7 +75,7 @@ def _make_finding(
         severity=severity,
         status=status,
         category=Category.IDENTITY_ACCESS,
-        description=f"Finding from {tool.value}",
+        description=description if description is not None else f"Finding from {tool.value}",
         dedup_keys=[finding_key],
         benchmark_refs=["CIS M365 1.1.1"],
     )
@@ -193,3 +194,55 @@ class TestDefaultConsolidationPolicy:
         consolidated = policy.consolidate(findings=[finding])
         assert consolidated[0].finding_instance_id
         assert len(consolidated[0].finding_instance_id) > 0
+
+    def test_duplicate_descriptions_deduplicated(self, sample_rules: dict) -> None:
+        f1 = _make_finding(description="Same description.")
+        f2 = _make_finding(tool=ToolSource.MAESTER, description="Same description.")
+        policy = DefaultConsolidationPolicy(rules=sample_rules)
+        result = policy.consolidate([f1, f2])
+        assert len(result) == 1
+        assert result[0].description == "Same description."
+
+    def test_distinct_descriptions_joined(self, sample_rules: dict) -> None:
+        f1 = _make_finding(description="First description.")
+        f2 = _make_finding(tool=ToolSource.MAESTER, description="Second description.")
+        policy = DefaultConsolidationPolicy(rules=sample_rules)
+        result = policy.consolidate([f1, f2])
+        assert result[0].description == "First description. | Second description."
+
+    def test_status_reconcile_with_empty_priority_list_raises(self, sample_rules: dict) -> None:
+        """G2: Empty status_priority list produces a clear error, not a bare min() ValueError."""
+        rules_empty_priority = {
+            **sample_rules,
+            "merge_strategy": {
+                **sample_rules["merge_strategy"],
+                "status_priority": [],
+            },
+        }
+        f1 = _make_finding(tool=ToolSource.SCUBAGEAR, status=FindingStatus.FAIL)
+        f2 = _make_finding(tool=ToolSource.MAESTER, status=FindingStatus.PASS)
+        policy = DefaultConsolidationPolicy(rules=rules_empty_priority)
+        with pytest.raises(ValueError, match="status_priority"):
+            policy.consolidate([f1, f2])
+
+    def test_confidence_computed_when_corroboration_scores_empty(self, sample_rules: dict) -> None:
+        """G3: Empty corroboration_scores dict does not raise; overall confidence is
+        in [0.0, 1.0] and the 0.4 fallback corroboration is used."""
+        rules_no_corroboration = {
+            **sample_rules,
+            "corroboration_scores": {},
+        }
+        f1 = _make_finding(tool=ToolSource.SCUBAGEAR)
+        f2 = _make_finding(tool=ToolSource.MAESTER)
+        policy = DefaultConsolidationPolicy(rules=rules_no_corroboration)
+        result = policy.consolidate([f1, f2])
+        assert len(result) == 1
+        cf = result[0]
+        assert 0.0 <= cf.confidence.overall <= 1.0
+        # With empty corroboration_scores the fallback corroboration=0.4 is used.
+        # evidence_strength = min(1.0, 0.6 + 2*0.1) = 0.8
+        # corroboration = 0.4 (fallback)
+        # data_freshness = 1.0
+        # provenance_score = 0.7 (system-generated)
+        # overall = 0.8*0.30 + 0.4*0.35 + 1.0*0.20 + 0.7*0.15 = 0.24+0.14+0.20+0.105 = 0.685
+        assert cf.confidence.overall == pytest.approx(0.685, abs=1e-3)

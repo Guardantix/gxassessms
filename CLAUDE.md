@@ -18,7 +18,7 @@ Design spec: `../gxassessms-guardantix/docs/specs/2026-03-25-gxassessms-architec
 
 ## Tech Stack
 
-- Python >=3.11, Pydantic, Click, Rich, httpx
+- Python >=3.14, Pydantic, Click, Rich, httpx
 - Node.js for report renderers (guardantix-docx-kit, guardantix-pptx-kit)
 - SQLite (WAL mode) + filesystem for persistence
 

@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, runtime_checkable
 
 from gxassessms.core.domain.models import ConsolidatedFinding
 
 logger = logging.getLogger(__name__)
+
+PhaseLabel = Literal["IMMEDIATE", "SHORT_TERM", "MEDIUM_TERM", "LONG_TERM"]
 
 
 @dataclass(frozen=True)
@@ -24,7 +26,7 @@ class RoadmapAssignment:
 
     finding_instance_id: str
     finding_key: str
-    phase: str
+    phase: PhaseLabel
     timeline: str
     priority_score: float
 
@@ -70,14 +72,22 @@ class DefaultRoadmapPolicy:
 
         return assignments
 
-    def _determine_phase(self, finding: ConsolidatedFinding) -> str:
-        """Determine the remediation phase from severity."""
+    def _determine_phase(self, finding: ConsolidatedFinding) -> PhaseLabel:
+        """Determine the remediation phase from severity.
+
+        Falls back to 'MEDIUM_TERM' if the severity is not present in the rules dict.
+        """
         severity_to_phase = self._rules.get("severity_to_phase", {})
         phase = severity_to_phase.get(finding.severity.value)
-        if phase is not None:
-            return phase
-        # Fallback: MEDIUM_TERM
-        return "MEDIUM_TERM"
+        if phase is None:
+            logger.warning(
+                "No phase mapping for severity %r; defaulting to MEDIUM_TERM. "
+                "Add this severity to severity_to_phase in roadmap rules.",
+                finding.severity.value,
+            )
+            logger.debug("Unmapped phase detail: finding_key=%r", finding.finding_key)
+            return "MEDIUM_TERM"
+        return phase
 
     def _get_timeline(self, phase: str) -> str:
         """Get the timeline string for a phase."""

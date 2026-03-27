@@ -1,5 +1,7 @@
 """Tests for ReportingPolicy -- suppression, filtering, audience thresholds."""
 
+import logging
+
 import pytest
 
 from gxassessms.core.domain.enums import (
@@ -210,6 +212,51 @@ class TestAudienceFiltering:
         policy = DefaultReportingPolicy(rules=sample_rules)
         filtered = policy.filter_for_audience(findings=[cf], audience="unknown_audience")
         assert len(filtered) == 1
+
+    def test_unknown_audience_logs_warning(
+        self,
+        sample_rules: dict,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """G10: Unknown audience name triggers a WARNING log that includes the audience
+        string -- added as a new log call in this diff."""
+        policy = DefaultReportingPolicy(rules=sample_rules)
+        cf = _make_finding()
+
+        with caplog.at_level(logging.WARNING, logger="gxassessms.policy.reporting"):
+            result = policy.filter_for_audience(findings=[cf], audience="mystery_audience")
+
+        assert len(result) == 1  # returns all unfiltered
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("mystery_audience" in msg for msg in warning_messages), (
+            "Warning must name the unrecognized audience for operator diagnosis"
+        )
+
+    def test_filter_for_audience_sorted_by_severity_desc(self, sample_rules: dict) -> None:
+        findings = [
+            _make_finding(
+                severity=Severity.LOW,
+                confidence_overall=0.9,
+                instance_id="uuid-001",
+                finding_key="cis:m365:3.1.1",
+            ),
+            _make_finding(
+                severity=Severity.CRITICAL,
+                confidence_overall=0.9,
+                instance_id="uuid-002",
+                finding_key="cis:m365:1.1.1",
+            ),
+            _make_finding(
+                severity=Severity.MEDIUM,
+                confidence_overall=0.9,
+                instance_id="uuid-003",
+                finding_key="cis:m365:2.1.1",
+            ),
+        ]
+        policy = DefaultReportingPolicy(rules=sample_rules)
+        result = policy.filter_for_audience(findings, "technical")
+        assert result[0].severity == Severity.CRITICAL
+        assert result[-1].severity == Severity.LOW
 
 
 class TestAudienceSections:

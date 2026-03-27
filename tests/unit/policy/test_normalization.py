@@ -1,5 +1,7 @@
 """Tests for NormalizationPolicy -- maps ToolObservation -> Finding."""
 
+import logging
+
 import pytest
 
 from gxassessms.core.domain.enums import (
@@ -315,3 +317,253 @@ class TestDefaultNormalizationPolicy:
             adapter_dedup_keys={},
         )
         assert findings == []
+
+    def test_status_fallback_to_error_for_unmapped_native_status(self, sample_rules: dict) -> None:
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.1.1v1",
+            title="Unknown status check",
+            native_severity="Shall",
+            native_status="Indeterminate",
+            description="Some check.",
+        )
+        policy = DefaultNormalizationPolicy(rules=sample_rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={},
+            adapter_dedup_keys={},
+        )
+        assert findings[0].status == FindingStatus.ERROR
+
+    def test_category_from_display_name_value(self, sample_rules: dict) -> None:
+        rules = {**sample_rules, "default_category_map": {"aad": "Identity & Access"}}
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.1.1v1",
+            title="Identity check",
+            native_severity="Shall",
+            native_status="Fail",
+            description="Something.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={},
+            adapter_dedup_keys={},
+        )
+        assert findings[0].category == Category.IDENTITY_ACCESS
+
+    def test_category_from_monkey365_check_id(self, sample_rules: dict) -> None:
+        rules = {**sample_rules, "default_category_map": {"iam": "IDENTITY_ACCESS"}}
+        obs = ToolObservation(
+            observation_id="monkey365:m365.iam.mfa_admins",
+            tool=ToolSource.MONKEY365,
+            native_check_id="m365.iam.mfa_admins",
+            title="MFA for admins",
+            native_severity="Should",
+            native_status="Fail",
+            description="MFA not enabled.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={},
+            adapter_dedup_keys={},
+        )
+        assert findings[0].category == Category.IDENTITY_ACCESS
+
+    def test_invalid_status_map_value_raises(self, sample_rules: dict) -> None:
+        rules = {**sample_rules, "default_status_map": {"Fail": "FAILED"}}  # "FAILED" not valid
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.1.1v1",
+            title="Test",
+            native_severity="Shall",
+            native_status="Fail",
+            description="Test.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        with pytest.raises(ValueError, match="default_status_map"):
+            policy.normalize(
+                observations=[obs],
+                adapter_severity_map={},
+                adapter_category_map={},
+                adapter_dedup_keys={},
+            )
+
+    def test_invalid_adapter_severity_value_raises(self, sample_rules: dict) -> None:
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.1.1v1",
+            title="Test",
+            native_severity="Shall",
+            native_status="Fail",
+            description="Test.",
+        )
+        policy = DefaultNormalizationPolicy(rules=sample_rules)
+        with pytest.raises(ValueError, match="Adapter severity map"):
+            policy.normalize(
+                observations=[obs],
+                adapter_severity_map={("Shall", "Fail"): "BADVALUE"},
+                adapter_category_map={},
+                adapter_dedup_keys={},
+            )
+
+    def test_invalid_dedup_key_pattern_raises(self, sample_rules: dict) -> None:
+        rules = {**sample_rules, "dedup_key_fallback_pattern": "{tool}:{undefined_field}"}
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.1.1v1",
+            title="Test",
+            native_severity="Shall",
+            native_status="Fail",
+            description="Test.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        with pytest.raises(ValueError, match="dedup_key_fallback_pattern"):
+            policy.normalize(
+                observations=[obs],
+                adapter_severity_map={},
+                adapter_category_map={},
+                adapter_dedup_keys={},  # empty -> triggers fallback -> bad pattern
+            )
+
+    def test_invalid_fallback_severity_in_rules_raises(self, sample_rules: dict) -> None:
+        """G5: Invalid fallback_severity in rules raises ValueError with message
+        containing 'fallback_severity' -- exercises the new try/except added in this diff."""
+        rules = {**sample_rules, "fallback_severity": "NOT_A_SEVERITY"}
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.99.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.99.1v1",
+            title="Unmapped check",
+            native_severity="UnknownLevel",  # will miss both maps, hit fallback
+            native_status="Fail",
+            description="Some check.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        with pytest.raises(ValueError, match="fallback_severity"):
+            policy.normalize(
+                observations=[obs],
+                adapter_severity_map={},
+                adapter_category_map={},
+                adapter_dedup_keys={},
+            )
+
+    def test_malformed_default_severity_map_entry_missing_key_raises(
+        self, sample_rules: dict
+    ) -> None:
+        """G6: A default_severity_map entry missing the 'severity' key raises ValueError
+        with message containing 'malformed' -- exercises the KeyError branch added in diff."""
+        rules = {
+            **sample_rules,
+            "default_severity_map": [
+                {"requirement": "Shall", "status": "Fail"},  # missing "severity" key
+            ],
+        }
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.1.1v1",
+            title="Test",
+            native_severity="Shall",
+            native_status="Fail",
+            description="Test.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        with pytest.raises(ValueError, match="malformed"):
+            policy.normalize(
+                observations=[obs],
+                adapter_severity_map={},
+                adapter_category_map={},
+                adapter_dedup_keys={},
+            )
+
+    def test_extract_module_prefix_ms_with_only_two_parts_returns_none(
+        self, sample_rules: dict
+    ) -> None:
+        """G8: A ScubaGear-style check ID with only 2 dot-separated parts returns None
+        from _extract_module_prefix, triggering the fallback category path."""
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD",  # only 2 parts, not >= 3
+            title="Malformed check ID",
+            native_severity="Shall",
+            native_status="Fail",
+            description="Check with malformed ID.",
+        )
+        policy = DefaultNormalizationPolicy(rules=sample_rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={},
+            adapter_dedup_keys={},
+        )
+        # No prefix extractable -> falls back to COMPLIANCE
+        assert findings[0].category == Category.COMPLIANCE
+
+    def test_unknown_category_key_in_adapter_map_logs_warning(
+        self,
+        sample_rules: dict,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """G9: An unrecognized category key in the default_category_map triggers a warning
+        that includes the bad key value."""
+        bad_key = "TOTALLY_UNKNOWN_CAT"
+        rules = {**sample_rules, "default_category_map": {"unknown": bad_key}}
+        obs = ToolObservation(
+            observation_id="scubagear:MS.UNKNOWN.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.UNKNOWN.1v1",
+            title="Unknown category check",
+            native_severity="Should",
+            native_status="Fail",
+            description="Something.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+
+        with caplog.at_level(logging.WARNING, logger="gxassessms.policy.normalization"):
+            findings = policy.normalize(
+                observations=[obs],
+                adapter_severity_map={},
+                adapter_category_map={"unknown": bad_key},
+                adapter_dedup_keys={},
+            )
+
+        assert findings[0].category == Category.COMPLIANCE
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any(bad_key in msg for msg in warning_messages), (
+            "Warning must include the unrecognized category key value"
+        )
+
+    def test_extract_module_prefix_empty_string_returns_none(self, sample_rules: dict) -> None:
+        """G12: An empty native_check_id extracts no prefix and falls back to COMPLIANCE.
+        Tests via the public normalize() path using the fallback dedup pattern."""
+        # Use a custom tool with an empty check id; if Pydantic rejects empty native_check_id
+        # this test documents that boundary -- in practice the fallback pattern handles it.
+        obs = ToolObservation(
+            observation_id="custom:unknown",
+            tool=ToolSource.CUSTOM,
+            native_check_id="",
+            title="Custom check with empty ID",
+            native_severity="Should",
+            native_status="Fail",
+            description="No check ID.",
+        )
+        policy = DefaultNormalizationPolicy(rules=sample_rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={},
+            adapter_dedup_keys={},
+        )
+        assert findings[0].category == Category.COMPLIANCE

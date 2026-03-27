@@ -75,7 +75,11 @@ class DefaultReportingPolicy:
         audience_config = audiences.get(audience)
 
         if audience_config is None:
-            # Unknown audience: return all findings unfiltered
+            logger.warning(
+                "Unknown audience %r; no audience config found. "
+                "Returning all findings unfiltered. Check reporting rules configuration.",
+                audience,
+            )
             return list(findings)
 
         min_severity_str = audience_config.get("minimum_severity", Severity.INFO.value)

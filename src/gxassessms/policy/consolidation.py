@@ -76,7 +76,7 @@ class DefaultConsolidationPolicy:
         sources = self._build_sources(group)
         benchmark_refs = self._merge_benchmark_refs(group)
         confidence = self._compute_confidence(group)
-        category = group[0].category  # All in same group, take first
+        category = group[0].category
 
         return ConsolidatedFinding(
             finding_instance_id=str(uuid.uuid4()),
@@ -99,7 +99,11 @@ class DefaultConsolidationPolicy:
         )
 
     def _reconcile_status(self, group: list[Finding]) -> FindingStatus:
-        """Take the highest-priority status (FAIL wins over PASS, etc.)."""
+        """Take the highest-priority status (FAIL wins over PASS, etc.).
+
+        Status priority is an ordered list (lower index = higher priority).
+        min() selects the element with the lowest index, i.e., the highest-priority status.
+        """
         merge_strategy = self._rules.get("merge_strategy", {})
         status_priority = merge_strategy.get(
             "status_priority",
@@ -112,7 +116,24 @@ class DefaultConsolidationPolicy:
                 FindingStatus.NOT_APPLICABLE.value,
             ],
         )
+        if not status_priority:
+            raise ValueError(
+                "merge_strategy.status_priority must not be empty; "
+                "cannot reconcile finding status without a priority list."
+            )
+
         priority_map = {s: i for i, s in enumerate(status_priority)}
+
+        known = set(status_priority)
+        warned: set[str] = set()
+        for f in group:
+            if f.status.value not in known and f.status.value not in warned:
+                warned.add(f.status.value)
+                logger.warning(
+                    "FindingStatus %r is not in configured status_priority list; "
+                    "it will be treated as lowest priority.",
+                    f.status.value,
+                )
 
         return min(
             (f.status for f in group),
@@ -164,7 +185,7 @@ class DefaultConsolidationPolicy:
         return merged
 
     def _compute_confidence(self, group: list[Finding]) -> ConfidenceScore:
-        """Compute confidence score from corroborating sources and rules."""
+        """Compute confidence from tool count, evidence weights, and corroboration rules."""
         weights = self._rules.get("confidence_weights", {})
         w_evidence = weights.get("evidence_strength", 0.30)
         w_corroboration = weights.get("corroboration", 0.35)
@@ -180,7 +201,9 @@ class DefaultConsolidationPolicy:
         # Corroboration score from rules
         corroboration_scores = self._rules.get("corroboration_scores", {})
         # Use the highest applicable corroboration level
-        corroboration_key = min(distinct_tools, max(corroboration_scores.keys()))
+        corroboration_key = (
+            min(distinct_tools, max(corroboration_scores.keys())) if corroboration_scores else 1
+        )
         corroboration = corroboration_scores.get(corroboration_key, 0.4)
 
         # Data freshness: default to 1.0 (fresh) -- actual staleness

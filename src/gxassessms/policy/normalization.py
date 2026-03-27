@@ -91,17 +91,35 @@ class DefaultNormalizationPolicy:
         key = (obs.native_severity, obs.native_status)
         adapter_result = adapter_severity_map.get(key)
         if adapter_result is not None:
-            return Severity(adapter_result)
+            try:
+                return Severity(adapter_result)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Adapter severity map {key!r} -> {adapter_result!r} is not a valid "
+                    f"Severity. Valid values: {[s.value for s in Severity]}."
+                ) from exc
 
         # Try default severity map from rules
         default_map = self._rules.get("default_severity_map", [])
         for entry in default_map:
             if entry["requirement"] == obs.native_severity and entry["status"] == obs.native_status:
-                return Severity(entry["severity"])
+                try:
+                    return Severity(entry["severity"])
+                except (KeyError, ValueError) as exc:
+                    raise ValueError(
+                        f"default_severity_map entry {entry!r} is malformed or contains "
+                        f"invalid severity. Valid values: {[s.value for s in Severity]}."
+                    ) from exc
 
         # Fallback severity
         fallback = self._rules.get("fallback_severity", Severity.MEDIUM.value)
-        return Severity(fallback)
+        try:
+            return Severity(fallback)
+        except ValueError as exc:
+            raise ValueError(
+                f"fallback_severity {fallback!r} in normalization rules is not a valid "
+                f"Severity. Valid values: {[s.value for s in Severity]}."
+            ) from exc
 
     def _resolve_category(
         self,
@@ -130,9 +148,30 @@ class DefaultNormalizationPolicy:
         status_map = self._rules.get("default_status_map", {})
         mapped = status_map.get(obs.native_status)
         if mapped is not None:
-            return FindingStatus(mapped)
+            try:
+                return FindingStatus(mapped)
+            except ValueError as exc:
+                raise ValueError(
+                    f"default_status_map entry {obs.native_status!r} -> {mapped!r} is not "
+                    f"a valid FindingStatus. Valid values: {[s.value for s in FindingStatus]}."
+                ) from exc
         # If no mapping, try direct conversion
-        return FindingStatus(obs.native_status)
+        try:
+            return FindingStatus(obs.native_status)
+        except ValueError:
+            logger.warning(
+                "Could not map native_status=%r to FindingStatus (tool=%s). "
+                "Defaulting to ERROR. "
+                "Add this status to default_status_map in normalization rules.",
+                obs.native_status,
+                obs.tool,
+            )
+            logger.debug(
+                "Unmapped status detail: observation_id=%r, check_id=%r",
+                obs.observation_id,
+                obs.native_check_id,
+            )
+            return FindingStatus.ERROR
 
     def _resolve_finding_key(
         self,
@@ -151,19 +190,33 @@ class DefaultNormalizationPolicy:
 
         # Fallback: use the pattern from rules
         pattern = self._rules.get("dedup_key_fallback_pattern", "{tool}:{native_check_id}")
-        return pattern.format(
-            tool=obs.tool.value,
-            native_check_id=obs.native_check_id,
+        logger.debug(
+            "No adapter dedup key for native_check_id=%r (tool=%s); using fallback pattern.",
+            obs.native_check_id,
+            obs.tool,
         )
+        try:
+            return pattern.format(
+                tool=obs.tool.value,
+                native_check_id=obs.native_check_id,
+            )
+        except (KeyError, ValueError) as exc:
+            raise ValueError(
+                f"dedup_key_fallback_pattern {pattern!r} is invalid or contains unknown "
+                f"placeholders. Only {{tool}} and {{native_check_id}} are supported."
+            ) from exc
 
     @staticmethod
     def _extract_module_prefix(native_check_id: str) -> str | None:
         """Extract the module prefix from a tool-native check ID.
 
+        Only ScubaGear (MS.) and Monkey365 (m365.) prefixes are handled.
+        All other patterns return None.
+
         Examples:
             MS.AAD.3.1v1 -> aad
             MS.EXO.4.1v1 -> exo
-            MT.1003 -> (no prefix extractable, returns None)
+            MT.1003 -> None  # Maester pattern not yet handled; add elif to support
             m365.iam.mfa_admins -> iam
         """
         # ScubaGear pattern: MS.{MODULE}.x.y
@@ -199,4 +252,9 @@ class DefaultNormalizationPolicy:
                 return cat
 
         # Fallback to COMPLIANCE
+        logger.warning(
+            "Category key %r is not a known enum name or display value; "
+            "falling back to COMPLIANCE. Check adapter category map configuration.",
+            key,
+        )
         return Category.COMPLIANCE

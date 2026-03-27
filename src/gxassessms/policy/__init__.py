@@ -10,27 +10,6 @@ Three policy tiers:
 3. Policy recommendations (AI/analytics) -- never auto-applied (separate plans)
 """
 
-from gxassessms.policy.consolidation import (
-    ConsolidationPolicy,
-    DefaultConsolidationPolicy,
-)
-from gxassessms.policy.normalization import (
-    DefaultNormalizationPolicy,
-    NormalizationPolicy,
-)
-from gxassessms.policy.reporting import (
-    DefaultReportingPolicy,
-    ReportingPolicy,
-)
-from gxassessms.policy.roadmap import (
-    DefaultRoadmapPolicy,
-    RoadmapPolicy,
-)
-from gxassessms.policy.severity import (
-    DefaultSeverityPolicy,
-    SeverityPolicy,
-)
-
 __all__ = [
     "ConsolidationPolicy",
     "DefaultConsolidationPolicy",
@@ -43,3 +22,34 @@ __all__ = [
     "RoadmapPolicy",
     "SeverityPolicy",
 ]
+
+from gxassessms.policy.consolidation import (
+    ConsolidationPolicy as ConsolidationPolicy,
+)
+from gxassessms.policy.consolidation import (
+    DefaultConsolidationPolicy as DefaultConsolidationPolicy,
+)
+from gxassessms.policy.normalization import (
+    DefaultNormalizationPolicy as DefaultNormalizationPolicy,
+)
+from gxassessms.policy.normalization import (
+    NormalizationPolicy as NormalizationPolicy,
+)
+from gxassessms.policy.reporting import (
+    DefaultReportingPolicy as DefaultReportingPolicy,
+)
+from gxassessms.policy.reporting import (
+    ReportingPolicy as ReportingPolicy,
+)
+from gxassessms.policy.roadmap import (
+    DefaultRoadmapPolicy as DefaultRoadmapPolicy,
+)
+from gxassessms.policy.roadmap import (
+    RoadmapPolicy as RoadmapPolicy,
+)
+from gxassessms.policy.severity import (
+    DefaultSeverityPolicy as DefaultSeverityPolicy,
+)
+from gxassessms.policy.severity import (
+    SeverityPolicy as SeverityPolicy,
+)

@@ -1,5 +1,7 @@
 """Tests for RoadmapPolicy -- phase assignment, priority scoring, timeline estimation."""
 
+import logging
+
 import pytest
 
 from gxassessms.core.domain.enums import (
@@ -186,6 +188,38 @@ class TestPriorityScoring:
         identity_assign = next(a for a in assignments if a.finding_instance_id == "uuid-001")
         cost_assign = next(a for a in assignments if a.finding_instance_id == "uuid-002")
         assert identity_assign.priority_score > cost_assign.priority_score
+
+
+class TestPhaseAssignmentFallback:
+    def test_unmapped_severity_defaults_to_medium_term_and_logs_warning(
+        self,
+        sample_rules: dict,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """G11: A severity value absent from severity_to_phase falls back to MEDIUM_TERM
+        and emits a WARNING that names the severity value. (finding_key is at DEBUG level
+        after S2 fix and must NOT appear in the WARNING message.)"""
+        rules_no_info_phase = {
+            **sample_rules,
+            "severity_to_phase": {
+                # Intentionally omit "INFO" so it hits the fallback
+                "CRITICAL": "IMMEDIATE",
+                "HIGH": "SHORT_TERM",
+                "MEDIUM": "MEDIUM_TERM",
+                "LOW": "LONG_TERM",
+            },
+        }
+        cf = _make_consolidated(severity=Severity.INFO, finding_key="cis:m365:9.9.9")
+        policy = DefaultRoadmapPolicy(rules=rules_no_info_phase)
+
+        with caplog.at_level(logging.WARNING, logger="gxassessms.policy.roadmap"):
+            assignments = policy.assign_phases(findings=[cf])
+
+        assert assignments[0].phase == "MEDIUM_TERM"
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("INFO" in msg for msg in warning_messages), (
+            "Warning must include the severity value"
+        )
 
 
 class TestEmptyInput:
