@@ -13,6 +13,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
+from gxassessms.core.domain.constants import SEVERITY_ORDER
 from gxassessms.core.domain.enums import Severity
 from gxassessms.core.domain.models import ConsolidatedFinding
 
@@ -68,25 +69,33 @@ class DefaultSeverityPolicy:
         """
         adjustments: list[SeverityAdjustment] = []
         thresholds = self._rules.get("escalation_thresholds", {})
+        ca = self._rules.get("confidence_adjustments", {})
+        min_sev_str = ca.get("minimum_severity")
+        min_sev = Severity(min_sev_str) if min_sev_str else None
 
         for finding in findings:
             threshold = thresholds.get(finding.severity.value, 0.0)
             if finding.confidence.overall < threshold:
                 suggested = self._downgrade(finding.severity)
-                if suggested != finding.severity:
-                    adjustments.append(
-                        SeverityAdjustment(
-                            finding_instance_id=finding.finding_instance_id,
-                            finding_key=finding.finding_key,
-                            current_severity=finding.severity,
-                            suggested_severity=suggested,
-                            reason=(
-                                f"Confidence {finding.confidence.overall:.2f} "
-                                f"is below threshold {threshold:.2f} for "
-                                f"{finding.severity.value}"
-                            ),
-                        )
+                if suggested == finding.severity:
+                    continue
+                if min_sev is not None and SEVERITY_ORDER.get(
+                    suggested.value, 0
+                ) < SEVERITY_ORDER.get(min_sev.value, 0):
+                    continue
+                adjustments.append(
+                    SeverityAdjustment(
+                        finding_instance_id=finding.finding_instance_id,
+                        finding_key=finding.finding_key,
+                        current_severity=finding.severity,
+                        suggested_severity=suggested,
+                        reason=(
+                            f"Confidence {finding.confidence.overall:.2f} "
+                            f"is below threshold {threshold:.2f} for "
+                            f"{finding.severity.value}"
+                        ),
                     )
+                )
 
         return adjustments
 

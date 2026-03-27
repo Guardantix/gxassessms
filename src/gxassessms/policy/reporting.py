@@ -137,7 +137,10 @@ class DefaultReportingPolicy:
             if (
                 (field == "status" and finding.status.value == value)
                 or (field == "severity" and finding.severity.value == value)
-                or (field == "category" and finding.category.value == value)
+                or (
+                    field == "category"
+                    and (finding.category.value == value or finding.category.name == value)
+                )
             ):
                 return True
 

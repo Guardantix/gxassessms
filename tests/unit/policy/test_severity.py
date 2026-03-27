@@ -188,3 +188,26 @@ class TestOverrideSuggestions:
         policy = DefaultSeverityPolicy(rules=sample_rules)
         suggestions = policy.suggest_rule_changes({})
         assert len(suggestions) == 0
+
+
+class TestMinimumSeverityFloor:
+    def test_downgrade_blocked_by_minimum_severity(self, sample_rules: dict) -> None:
+        # Set LOW threshold > 0 so LOW findings qualify for downgrade,
+        # but minimum_severity = "LOW" should block LOW -> INFO.
+        rules = {
+            **sample_rules,
+            "escalation_thresholds": {**sample_rules["escalation_thresholds"], "LOW": 0.9},
+            "confidence_adjustments": {"minimum_severity": "LOW"},
+        }
+        cf = _make_consolidated(severity=Severity.LOW, confidence_overall=0.1)
+        policy = DefaultSeverityPolicy(rules=rules)
+        adjustments = policy.suggest_adjustments(findings=[cf])
+        assert len(adjustments) == 0
+
+    def test_downgrade_allowed_above_minimum_severity(self, sample_rules: dict) -> None:
+        # MEDIUM can still downgrade to LOW when minimum_severity = "LOW".
+        cf = _make_consolidated(severity=Severity.MEDIUM, confidence_overall=0.2)
+        policy = DefaultSeverityPolicy(rules=sample_rules)
+        adjustments = policy.suggest_adjustments(findings=[cf])
+        assert len(adjustments) == 1
+        assert adjustments[0].suggested_severity == Severity.LOW

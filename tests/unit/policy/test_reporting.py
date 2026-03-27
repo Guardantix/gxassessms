@@ -134,6 +134,26 @@ class TestSuppression:
         filtered = policy.apply_suppression(findings=[cf])
         assert len(filtered) == 1
 
+    def test_category_suppression_by_enum_name(self, sample_rules: dict) -> None:
+        rules = {
+            **sample_rules,
+            "suppression_rules": [{"field": "category", "value": "COMPLIANCE"}],
+        }
+        cf = _make_finding(category=Category.COMPLIANCE)
+        policy = DefaultReportingPolicy(rules=rules)
+        filtered = policy.apply_suppression(findings=[cf])
+        assert len(filtered) == 0
+
+    def test_category_suppression_by_display_value(self, sample_rules: dict) -> None:
+        rules = {
+            **sample_rules,
+            "suppression_rules": [{"field": "category", "value": Category.COMPLIANCE.value}],
+        }
+        cf = _make_finding(category=Category.COMPLIANCE)
+        policy = DefaultReportingPolicy(rules=rules)
+        filtered = policy.apply_suppression(findings=[cf])
+        assert len(filtered) == 0
+
 
 class TestAudienceFiltering:
     def test_executive_filters_below_high(self, sample_rules: dict) -> None:
