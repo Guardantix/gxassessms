@@ -309,3 +309,53 @@ class TestDowngradeThreshold:
         adjustments = policy.suggest_adjustments(findings=[cf])
         assert len(adjustments) == 1
         assert adjustments[0].suggested_severity == Severity.HIGH
+
+
+class TestPassNotApplicableExclusion:
+    def test_no_upgrade_for_pass_finding(self, sample_rules: dict) -> None:
+        """PASS findings must never receive upgrade suggestions regardless of confidence."""
+        # INFO severity, confidence 0.95 >= upgrade_threshold 0.9 -- would normally upgrade to LOW.
+        cf = _make_consolidated(severity=Severity.INFO, confidence_overall=0.95)
+        cf = cf.model_copy(update={"status": FindingStatus.PASS})
+        policy = DefaultSeverityPolicy(rules=sample_rules)
+        assert policy.suggest_adjustments([cf]) == []
+
+    def test_no_upgrade_for_not_applicable_finding(self, sample_rules: dict) -> None:
+        """NOT_APPLICABLE findings must never receive upgrade suggestions."""
+        cf = _make_consolidated(severity=Severity.INFO, confidence_overall=0.95)
+        cf = cf.model_copy(update={"status": FindingStatus.NOT_APPLICABLE})
+        policy = DefaultSeverityPolicy(rules=sample_rules)
+        assert policy.suggest_adjustments([cf]) == []
+
+    def test_no_downgrade_for_pass_finding(self, sample_rules: dict) -> None:
+        """PASS findings must never receive downgrade suggestions regardless of confidence."""
+        cf = _make_consolidated(severity=Severity.INFO, confidence_overall=0.0)
+        cf = cf.model_copy(update={"status": FindingStatus.PASS})
+        policy = DefaultSeverityPolicy(rules=sample_rules)
+        assert policy.suggest_adjustments([cf]) == []
+
+
+class TestCheckEscalationMinimumSeverityFloor:
+    def test_no_escalation_when_downgrade_below_minimum_severity(self, sample_rules: dict) -> None:
+        """check_escalation must return False when downgrade target is below minimum_severity.
+
+        sample_rules has minimum_severity=LOW. LOW -> INFO (order 0) < LOW (order 1).
+        Confidence 0.25 < effective_threshold 0.3, but no actionable downgrade -> False.
+        """
+        cf = _make_consolidated(severity=Severity.LOW, confidence_overall=0.25)
+        policy = DefaultSeverityPolicy(rules=sample_rules)
+        assert policy.check_escalation(cf) is False
+
+    def test_no_escalation_at_downgrade_map_floor(self, sample_rules: dict) -> None:
+        """check_escalation must return False when downgrade_map returns the same severity."""
+        # INFO -> INFO in downgrade_map; no actionable downgrade possible.
+        cf = _make_consolidated(severity=Severity.INFO, confidence_overall=0.0)
+        policy = DefaultSeverityPolicy(rules=sample_rules)
+        assert policy.check_escalation(cf) is False
+
+    def test_escalation_actionable_above_minimum_severity(self, sample_rules: dict) -> None:
+        """check_escalation returns True when downgrade is both possible and above the floor."""
+        # MEDIUM -> LOW (order 1) >= minimum_severity=LOW (order 1). Confidence 0.25 < 0.3.
+        cf = _make_consolidated(severity=Severity.MEDIUM, confidence_overall=0.25)
+        policy = DefaultSeverityPolicy(rules=sample_rules)
+        assert policy.check_escalation(cf) is True

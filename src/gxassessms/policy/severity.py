@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 from gxassessms.core.domain.constants import SEVERITY_ORDER
-from gxassessms.core.domain.enums import Severity
+from gxassessms.core.domain.enums import FindingStatus, Severity
 from gxassessms.core.domain.models import ConsolidatedFinding
 
 logger = logging.getLogger(__name__)
@@ -89,6 +89,10 @@ class DefaultSeverityPolicy:
         upgrade_threshold = ca.get("upgrade_threshold")
 
         for finding in findings:
+            # Skip PASS and NOT_APPLICABLE -- they are non-actionable regardless of confidence.
+            if finding.status in (FindingStatus.PASS, FindingStatus.NOT_APPLICABLE):
+                continue
+
             # Downgrade path: low confidence -> suggest lower severity.
             threshold = self._effective_downgrade_threshold(finding)
             if finding.confidence.overall < threshold:
@@ -139,12 +143,25 @@ class DefaultSeverityPolicy:
         return adjustments
 
     def check_escalation(self, finding: ConsolidatedFinding) -> bool:
-        """Check if a finding's confidence is below its effective downgrade threshold.
+        """Return True only when confidence is below threshold AND a downgrade is actionable.
 
         Effective threshold = max(per-severity escalation_threshold, global downgrade_threshold).
-        Returns True if the finding should be reviewed for potential downgrade.
+        A downgrade is actionable when the downgrade_map produces a lower severity AND the
+        result is at or above confidence_adjustments.minimum_severity. This mirrors the
+        suppression logic in suggest_adjustments() so the two methods never contradict each other.
         """
-        return finding.confidence.overall < self._effective_downgrade_threshold(finding)
+        if finding.confidence.overall >= self._effective_downgrade_threshold(finding):
+            return False
+        # No-op downgrade (e.g., INFO -> INFO): not actionable.
+        suggested = self._downgrade(finding.severity)
+        if suggested == finding.severity:
+            return False
+        # Downgrade target below minimum_severity floor: not actionable.
+        ca = self._rules.get("confidence_adjustments", {})
+        min_sev_str = ca.get("minimum_severity")
+        return min_sev_str is None or SEVERITY_ORDER.get(suggested.value, 0) >= SEVERITY_ORDER.get(
+            Severity(min_sev_str).value, 0
+        )
 
     def suggest_rule_changes(
         self, override_history: dict[str, dict[str, Any]]
