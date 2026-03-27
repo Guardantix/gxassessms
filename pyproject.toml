@@ -40,6 +40,13 @@ env_var = "gxassessms.core.contracts.credentials:EnvVarProvider"
 # [project.entry-points."gxassessms.qa_strategies"]
 # noop = "gxassessms.qa.noop:NoOpQAStrategy"  # TODO: uncomment when qa module exists
 
+[project.entry-points."gxassessms.policies"]
+normalization = "gxassessms.policy.normalization:DefaultNormalizationPolicy"
+consolidation = "gxassessms.policy.consolidation:DefaultConsolidationPolicy"
+severity = "gxassessms.policy.severity:DefaultSeverityPolicy"
+roadmap = "gxassessms.policy.roadmap:DefaultRoadmapPolicy"
+reporting = "gxassessms.policy.reporting:DefaultReportingPolicy"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/gxassessms"]
 
