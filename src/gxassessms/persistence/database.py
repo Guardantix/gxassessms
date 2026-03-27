@@ -81,17 +81,32 @@ class DatabaseManager:
 
     @contextmanager
     def connect(self) -> Generator[sqlite3.Connection]:
-        """Open a connection with WAL mode, foreign keys, and Row factory."""
+        """Open a connection with WAL mode, foreign keys, and Row factory.
+
+        WAL mode is set before switching to PEP 249 autocommit=False mode,
+        because PRAGMA journal_mode cannot be changed inside a transaction.
+        autocommit=False (Python >=3.12) ensures DDL statements participate in
+        the same transaction as DML, preventing partial migration commits when
+        a multi-statement migration fails mid-way.
+        """
         conn = sqlite3.connect(str(self._db_path))
         conn.row_factory = sqlite3.Row
+        # Both PRAGMAs must run outside a transaction: journal_mode=WAL cannot
+        # be changed inside a transaction, and foreign_keys is a no-op inside
+        # one. Execute them in legacy (default) mode, then switch to PEP 249
+        # non-autocommit so all subsequent DDL participates in transactions.
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.autocommit = False  # DDL is now transactional; requires Python >=3.12
         try:
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA foreign_keys=ON")
             yield conn
             conn.commit()
         except sqlite3.DatabaseError:
             conn.rollback()
             logger.error("Database error on %s, rolled back", self._db_path, exc_info=True)
+            raise
+        except MigrationError:
+            conn.rollback()
             raise
         finally:
             conn.close()
