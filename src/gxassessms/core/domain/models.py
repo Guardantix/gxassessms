@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, SecretStr, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from gxassessms.core.domain.constants import (
     ConfidenceProvenance,
@@ -88,6 +88,15 @@ class ConfidenceScore(BaseModel):
     data_freshness: float = Field(ge=0.0, le=1.0)
     provenance: ConfidenceProvenance
     overall: float = Field(ge=0.0, le=1.0)
+
+    @field_validator(
+        "evidence_strength", "data_freshness", "overall", "corroborating_tools", mode="before"
+    )
+    @classmethod
+    def reject_bool_numerics(cls, v: Any) -> Any:
+        if isinstance(v, bool):
+            raise ValueError("numeric fields must not be booleans")
+        return v
 
 
 class ConsolidatedFinding(BaseModel):
@@ -248,6 +257,8 @@ class ReportPayload(BaseModel):
     The dict[str, Any] fields are intentional -- the JSON schema is shared
     across the Python/Node.js language boundary for report generation.
     """
+
+    model_config = ConfigDict(extra="forbid")
 
     schema_version: str = "1.0.0"
     engagement_id: str

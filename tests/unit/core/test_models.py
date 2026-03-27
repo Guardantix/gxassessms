@@ -149,6 +149,26 @@ class TestConfidenceScore:
                 overall=0.88,
             )
 
+    def test_rejects_bool_overall(self) -> None:
+        with pytest.raises(ValidationError):
+            ConfidenceScore(
+                evidence_strength=0.9,
+                corroborating_tools=1,
+                data_freshness=0.95,
+                provenance="system-generated",
+                overall=True,  # type: ignore[arg-type]
+            )
+
+    def test_rejects_bool_corroborating_tools(self) -> None:
+        with pytest.raises(ValidationError):
+            ConfidenceScore(
+                evidence_strength=0.9,
+                corroborating_tools=True,  # type: ignore[arg-type]
+                data_freshness=0.95,
+                provenance="system-generated",
+                overall=0.88,
+            )
+
 
 class TestConsolidatedFinding:
     def _make_source(self) -> SourceEvidence:
@@ -424,6 +444,20 @@ class TestReportPayload:
             metadata={},
         )
         assert rp.narratives["findings_narrative"] is None
+
+    def test_rejects_unknown_fields(self) -> None:
+        with pytest.raises(ValidationError):
+            ReportPayload(
+                schema_verison="2.0.0",  # type: ignore[call-arg]
+                engagement_id="eng-001",
+                tenant_name="Acme Healthcare",
+                assessment_date="2026-03-25",
+                tool_sources=["ScubaGear"],
+                findings=[],
+                coverage=[],
+                narratives={},
+                metadata={},
+            )
 
 
 class TestReportKeyStats:
