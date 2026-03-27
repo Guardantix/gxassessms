@@ -85,9 +85,10 @@ class DefaultConsolidationPolicy:
         # Build a deterministic name from the finding key and its source check IDs.
         # native_check_id is tool-native and stable across runs; observation_id is an
         # ingestion-time synthetic ID and must not be used here.
+        # set() deduplicates per-resource duplicates (same check, multiple tenants/resources);
         # sorted() ensures input order does not affect the result.
         stable_name = json.dumps(
-            [finding_key, sorted(f.native_check_id for f in group)], separators=(",", ":")
+            [finding_key, sorted({f.native_check_id for f in group})], separators=(",", ":")
         )
         finding_instance_id = str(uuid.uuid5(uuid.NAMESPACE_OID, stable_name))
 

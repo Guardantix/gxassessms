@@ -305,3 +305,18 @@ class TestDefaultConsolidationPolicy:
         policy = DefaultConsolidationPolicy(rules=sample_rules)
         result = policy.consolidate([f1, f2])
         assert result[0].finding_instance_id != result[1].finding_instance_id
+
+    def test_finding_instance_id_stable_with_per_resource_duplicates(
+        self, sample_rules: dict
+    ) -> None:
+        """Same check run against multiple resources (duplicate native_check_id) must
+        produce the same instance ID regardless of how many per-resource observations
+        exist -- set() dedup ensures the hash input is stable across re-runs."""
+        # Simulate a per-resource check: same native_check_id, two different observation_ids
+        f1 = _make_finding(native_check_id="MS.AAD.1.1v1", observation_id="scubagear:run-A")
+        f2 = _make_finding(native_check_id="MS.AAD.1.1v1", observation_id="scubagear:run-B")
+        policy = DefaultConsolidationPolicy(rules=sample_rules)
+        result1 = policy.consolidate([f1, f2])
+        # Same inputs in reversed order -- ID must be identical
+        result2 = policy.consolidate([f2, f1])
+        assert result1[0].finding_instance_id == result2[0].finding_instance_id

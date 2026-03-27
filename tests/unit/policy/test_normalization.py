@@ -692,3 +692,89 @@ class TestDefaultNormalizationPolicy:
         )
         # prefix "aad" -> COMPLIANCE must win over direct key -> IDENTITY_ACCESS
         assert findings[0].category == Category.COMPLIANCE
+
+    def test_passing_status_maps_to_info_severity(self, sample_rules: dict) -> None:
+        """Observations with native_status in passing_statuses return INFO severity."""
+        rules = {**sample_rules, "passing_statuses": ["Pass", "N/A"]}
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.3.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.3.1v1",
+            title="MFA check",
+            native_severity="Shall",
+            native_status="Pass",
+            description="MFA enabled.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={},
+            adapter_dedup_keys={},
+        )
+        assert findings[0].severity == Severity.INFO
+
+    def test_not_applicable_status_maps_to_info_severity(self, sample_rules: dict) -> None:
+        """N/A observations return INFO severity, not the MEDIUM fallback."""
+        rules = {**sample_rules, "passing_statuses": ["Pass", "N/A", "Not Applicable"]}
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.3.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.3.1v1",
+            title="MFA check",
+            native_severity="Shall",
+            native_status="N/A",
+            description="Control not applicable.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={},
+            adapter_dedup_keys={},
+        )
+        assert findings[0].severity == Severity.INFO
+
+    def test_passing_status_check_skips_adapter_severity_map(self, sample_rules: dict) -> None:
+        """passing_statuses short-circuit fires before adapter severity map is consulted."""
+        rules = {**sample_rules, "passing_statuses": ["Pass"]}
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.3.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.3.1v1",
+            title="MFA check",
+            native_severity="Shall",
+            native_status="Pass",
+            description="MFA enabled.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        # Adapter map would map ("Shall", "Pass") to CRITICAL if consulted --
+        # the passing_statuses guard must return INFO instead.
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={("Shall", "Pass"): "CRITICAL"},
+            adapter_category_map={},
+            adapter_dedup_keys={},
+        )
+        assert findings[0].severity == Severity.INFO
+
+    def test_failing_status_not_affected_by_passing_statuses(self, sample_rules: dict) -> None:
+        """Observations with Fail status are unaffected by the passing_statuses list."""
+        rules = {**sample_rules, "passing_statuses": ["Pass", "N/A"]}
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.3.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.3.1v1",
+            title="MFA check",
+            native_severity="Shall",
+            native_status="Fail",
+            description="MFA not enabled.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={},
+            adapter_dedup_keys={},
+        )
+        assert findings[0].severity == Severity.CRITICAL

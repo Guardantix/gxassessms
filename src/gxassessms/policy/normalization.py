@@ -87,7 +87,17 @@ class DefaultNormalizationPolicy:
         obs: ToolObservation,
         adapter_severity_map: dict[tuple[str, str], str],
     ) -> Severity:
-        """Resolve severity: adapter-specific map first, then default rules, then fallback."""
+        """Resolve severity: adapter-specific map first, then default rules, then fallback.
+
+        Observations with a native_status in the configured passing_statuses list
+        (e.g. Pass, N/A) are mapped to INFO before consulting any severity table,
+        because a passing or not-applicable control has no actionable severity.
+        """
+        # Passing / non-applicable observations have no actionable severity.
+        passing_statuses: list[str] = self._rules.get("passing_statuses", [])
+        if obs.native_status in passing_statuses:
+            return Severity.INFO
+
         # Try adapter-specific severity map
         key = (obs.native_severity, obs.native_status)
         adapter_result = adapter_severity_map.get(key)
