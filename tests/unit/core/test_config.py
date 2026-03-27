@@ -44,6 +44,14 @@ class TestToolConfig:
         with pytest.raises(ValidationError):
             ToolConfig(enabled=True, timeout=True)  # type: ignore[arg-type]
 
+    def test_rejects_string_enabled(self) -> None:
+        with pytest.raises(ValidationError):
+            ToolConfig(enabled="false")  # type: ignore[arg-type]
+
+    def test_rejects_int_enabled(self) -> None:
+        with pytest.raises(ValidationError):
+            ToolConfig(enabled=0)  # type: ignore[arg-type]
+
 
 class TestAuthConfig:
     def test_create_client_credential(self) -> None:

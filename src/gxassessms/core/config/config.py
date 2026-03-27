@@ -27,6 +27,13 @@ class ToolConfig(BaseModel):
     timeout: int = Field(default=600, gt=0)
     extra_args: dict[str, Any] = Field(default_factory=dict)
 
+    @field_validator("enabled", mode="before")
+    @classmethod
+    def reject_non_bool_enabled(cls, v: Any) -> Any:
+        if not isinstance(v, bool):
+            raise ValueError(f"enabled must be a boolean, got {type(v).__name__}")
+        return v
+
     @field_validator("timeout", mode="before")
     @classmethod
     def reject_bool_timeout(cls, v: Any) -> Any:
