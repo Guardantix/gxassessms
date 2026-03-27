@@ -249,6 +249,18 @@ class TestDefaultConsolidationPolicy:
         # overall = 0.8*0.30 + 0.4*0.35 + 1.0*0.20 + 0.7*0.15 = 0.24+0.14+0.20+0.105 = 0.685
         assert cf.confidence.overall == pytest.approx(0.685, abs=1e-3)
 
+    def test_category_tie_resolved_deterministically(self, sample_rules: dict) -> None:
+        # Both findings have equal severity (CRITICAL). f2 has category that sorts
+        # later alphabetically (IDENTITY_ACCESS > COMPLIANCE). Regardless of input
+        # order, the result should always be the same (no flip-flopping).
+        f1 = _make_finding(tool=ToolSource.SCUBAGEAR)
+        f2 = _make_finding(tool=ToolSource.MAESTER)
+        f2 = f2.model_copy(update={"category": Category.COMPLIANCE})
+        policy = DefaultConsolidationPolicy(rules=sample_rules)
+        result_ab = policy.consolidate([f1, f2])
+        result_ba = policy.consolidate([f2, f1])
+        assert result_ab[0].category == result_ba[0].category
+
     def test_source_evidence_check_id_uses_native_check_id(self, sample_rules: dict) -> None:
         finding = _make_finding(
             observation_id="scubagear:run-abc123",  # synthetic ingestion ID

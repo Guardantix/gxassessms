@@ -103,14 +103,17 @@ class DefaultNormalizationPolicy:
         # Try default severity map from rules
         default_map = self._rules.get("default_severity_map", [])
         for entry in default_map:
-            if entry["requirement"] == obs.native_severity and entry["status"] == obs.native_status:
-                try:
+            try:
+                if (
+                    entry["requirement"] == obs.native_severity
+                    and entry["status"] == obs.native_status
+                ):
                     return Severity(entry["severity"])
-                except (KeyError, ValueError) as exc:
-                    raise ValueError(
-                        f"default_severity_map entry {entry!r} is malformed or contains "
-                        f"invalid severity. Valid values: {[s.value for s in Severity]}."
-                    ) from exc
+            except (KeyError, ValueError) as exc:
+                raise ValueError(
+                    f"default_severity_map entry {entry!r} is malformed or contains "
+                    f"invalid severity. Valid values: {[s.value for s in Severity]}."
+                ) from exc
 
         # Fallback severity
         fallback = self._rules.get("fallback_severity", Severity.MEDIUM.value)

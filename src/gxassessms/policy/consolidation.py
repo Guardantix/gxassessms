@@ -76,7 +76,10 @@ class DefaultConsolidationPolicy:
         sources = self._build_sources(group)
         benchmark_refs = self._merge_benchmark_refs(group)
         confidence = self._compute_confidence(group)
-        category = max(group, key=lambda f: SEVERITY_ORDER.get(f.severity.value, 0)).category
+        category = max(
+            group,
+            key=lambda f: (SEVERITY_ORDER.get(f.severity.value, 0), f.category.name),
+        ).category
 
         return ConsolidatedFinding(
             finding_instance_id=str(uuid.uuid4()),

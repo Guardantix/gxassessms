@@ -487,6 +487,34 @@ class TestDefaultNormalizationPolicy:
                 adapter_dedup_keys={},
             )
 
+    def test_malformed_default_severity_map_entry_missing_requirement_raises(
+        self, sample_rules: dict
+    ) -> None:
+        """Entry missing 'requirement' key raises ValueError before reaching severity lookup."""
+        rules = {
+            **sample_rules,
+            "default_severity_map": [
+                {"status": "Fail", "severity": "HIGH"},  # missing "requirement" key
+            ],
+        }
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.1.1v1",
+            title="Test",
+            native_severity="Shall",
+            native_status="Fail",
+            description="Test.",
+        )
+        policy = DefaultNormalizationPolicy(rules=rules)
+        with pytest.raises(ValueError, match="malformed"):
+            policy.normalize(
+                observations=[obs],
+                adapter_severity_map={},
+                adapter_category_map={},
+                adapter_dedup_keys={},
+            )
+
     def test_extract_module_prefix_ms_with_only_two_parts_returns_none(
         self, sample_rules: dict
     ) -> None:
