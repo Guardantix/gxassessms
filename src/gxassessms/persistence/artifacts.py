@@ -200,7 +200,7 @@ class ArtifactManager:
         self._audit_dir.mkdir(parents=True, exist_ok=True)
         timestamp_slug = format_utc(now).replace(":", "-").replace(".", "-")
         manifest_path = self._audit_dir / f"purge-{engagement_id}-{timestamp_slug}.json"
-        manifest_path.write_text(json.dumps(manifest, indent=2))
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         logger.info("Wrote purge audit manifest to %s", manifest_path)
 
         # Now delete the engagement directory

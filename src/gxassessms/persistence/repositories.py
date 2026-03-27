@@ -13,6 +13,7 @@ from typing import Any
 
 from gxassessms.core.config.datetime_utils import format_utc, utc_now
 from gxassessms.core.contracts.errors import PersistenceError
+from gxassessms.core.domain.enums import FindingStatus
 from gxassessms.persistence.database import DatabaseManager
 from gxassessms.pipeline.state import EngagementState, PipelineEvent
 
@@ -356,7 +357,7 @@ class FindingRepo:
                     "Manual",
                     finding["title"],
                     finding["severity"],
-                    finding.get("status", "FAIL"),
+                    finding.get("status", FindingStatus.FAIL),
                     finding["category"],
                     finding["description"],
                     json.dumps(finding.get("dedup_keys", [f"manual:{finding_id}"])),

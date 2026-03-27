@@ -128,7 +128,7 @@ class DatabaseManager:
     def _apply_migration(self, conn: sqlite3.Connection, migration_file: Path) -> None:
         """Apply a single migration file."""
         logger.info("Applying migration: %s", migration_file.name)
-        sql = migration_file.read_text()
+        sql = migration_file.read_text(encoding="utf-8")
         try:
             conn.executescript(sql)
         except sqlite3.OperationalError as e:
