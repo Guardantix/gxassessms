@@ -150,10 +150,17 @@ class AdapterResult(BaseModel):
     @model_validator(mode="after")
     def status_payload_consistent(self) -> AdapterResult:
         """Enforce that status matches the presence of raw_output/error."""
-        if self.status == AdapterRunStatus.SUCCESS and self.raw_output is None:
-            raise ValueError("SUCCESS status requires raw_output")
-        if self.status in (AdapterRunStatus.FAILED, AdapterRunStatus.TIMEOUT) and not self.error:
-            raise ValueError(f"{self.status} status requires error message")
+        if self.status == AdapterRunStatus.SUCCESS:
+            if self.raw_output is None:
+                raise ValueError("SUCCESS status requires raw_output")
+            if self.error is not None:
+                raise ValueError("SUCCESS status must not carry an error")
+        elif self.status in (AdapterRunStatus.FAILED, AdapterRunStatus.TIMEOUT):
+            if not self.error:
+                raise ValueError(f"{self.status} status requires error message")
+        elif self.status == AdapterRunStatus.SKIPPED:
+            if self.raw_output is not None:
+                raise ValueError("SKIPPED status must not carry raw_output")
         return self
 
 
@@ -180,6 +187,15 @@ class ToolRunResult(BaseModel):
         """Reject impossible run records where completed_at < started_at."""
         if self.completed_at < self.started_at:
             raise ValueError("completed_at must be >= started_at")
+        return self
+
+    @model_validator(mode="after")
+    def status_requires_context(self) -> ToolRunResult:
+        """Enforce status-dependent invariants on error field."""
+        if self.status in (AdapterRunStatus.FAILED, AdapterRunStatus.TIMEOUT) and not self.error:
+            raise ValueError(f"{self.status} status requires error message")
+        if self.status == AdapterRunStatus.SUCCESS and self.error is not None:
+            raise ValueError("SUCCESS status must not carry an error")
         return self
 
 

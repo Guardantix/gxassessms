@@ -40,6 +40,10 @@ class TestToolConfig:
         with pytest.raises(ValidationError):
             ToolConfig(enabled=True, timeout=0)
 
+    def test_rejects_bool_timeout(self) -> None:
+        with pytest.raises(ValidationError):
+            ToolConfig(enabled=True, timeout=True)  # type: ignore[arg-type]
+
 
 class TestAuthConfig:
     def test_create_client_credential(self) -> None:
@@ -76,6 +80,62 @@ class TestEngagementConfig:
         )
         assert cfg.client_name == "Test"
         assert cfg.max_parallel == 4
+
+    def test_rejects_unknown_fields(self) -> None:
+        with pytest.raises(ValidationError):
+            EngagementConfig(
+                client_name="Test",
+                tenant_id="00000000-0000-0000-0000-000000000001",
+                auth=AuthConfig(
+                    method="client_credential",
+                    tenant_id="00000000-0000-0000-0000-000000000001",
+                    client_id="00000000-0000-0000-0000-000000000002",
+                ),
+                tools={},
+                max_paralel=2,  # type: ignore[call-arg]
+            )
+
+    def test_rejects_bool_max_parallel(self) -> None:
+        with pytest.raises(ValidationError):
+            EngagementConfig(
+                client_name="Test",
+                tenant_id="00000000-0000-0000-0000-000000000001",
+                auth=AuthConfig(
+                    method="client_credential",
+                    tenant_id="00000000-0000-0000-0000-000000000001",
+                    client_id="00000000-0000-0000-0000-000000000002",
+                ),
+                tools={},
+                max_parallel=True,  # type: ignore[arg-type]
+            )
+
+    def test_rejects_zero_max_parallel(self) -> None:
+        with pytest.raises(ValidationError):
+            EngagementConfig(
+                client_name="Test",
+                tenant_id="00000000-0000-0000-0000-000000000001",
+                auth=AuthConfig(
+                    method="client_credential",
+                    tenant_id="00000000-0000-0000-0000-000000000001",
+                    client_id="00000000-0000-0000-0000-000000000002",
+                ),
+                tools={},
+                max_parallel=0,
+            )
+
+    def test_rejects_negative_max_parallel(self) -> None:
+        with pytest.raises(ValidationError):
+            EngagementConfig(
+                client_name="Test",
+                tenant_id="00000000-0000-0000-0000-000000000001",
+                auth=AuthConfig(
+                    method="client_credential",
+                    tenant_id="00000000-0000-0000-0000-000000000001",
+                    client_id="00000000-0000-0000-0000-000000000002",
+                ),
+                tools={},
+                max_parallel=-1,
+            )
 
     def test_frozen_config_rejects_mutation(self) -> None:
         cfg = EngagementConfig(

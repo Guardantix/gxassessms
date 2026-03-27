@@ -315,6 +315,57 @@ class TestAdapterResult:
                 duration_seconds=600.0,
             )
 
+    def test_success_with_error_raises(self) -> None:
+        rto = RawToolOutput(
+            tool=ToolSource.SCUBAGEAR,
+            schema_version="1.0.0",
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            file_manifest={},
+            execution_metadata={},
+        )
+        with pytest.raises(ValidationError, match="must not carry an error"):
+            AdapterResult(
+                adapter_name="scubagear",
+                status=AdapterRunStatus.SUCCESS,
+                raw_output=rto,
+                error="unexpected",
+                duration_seconds=120.5,
+            )
+
+    def test_failed_preserves_raw_output_for_replay(self) -> None:
+        rto = RawToolOutput(
+            tool=ToolSource.SCUBAGEAR,
+            schema_version="1.0.0",
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            file_manifest={"TestResults.json": "utf-8"},
+            execution_metadata={},
+        )
+        ar = AdapterResult(
+            adapter_name="scubagear",
+            status=AdapterRunStatus.FAILED,
+            raw_output=rto,
+            error="ParseError: invalid JSON in TestResults.json",
+            duration_seconds=5.0,
+        )
+        assert ar.raw_output is not None
+        assert ar.error is not None
+
+    def test_skipped_with_raw_output_raises(self) -> None:
+        rto = RawToolOutput(
+            tool=ToolSource.SCUBAGEAR,
+            schema_version="1.0.0",
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            file_manifest={},
+            execution_metadata={},
+        )
+        with pytest.raises(ValidationError, match="must not carry raw_output"):
+            AdapterResult(
+                adapter_name="scubagear",
+                status=AdapterRunStatus.SKIPPED,
+                raw_output=rto,
+                duration_seconds=0.0,
+            )
+
 
 class TestReportPayload:
     def test_default_schema_version(self) -> None:
@@ -408,6 +459,37 @@ class TestToolRunResult:
                 completed_at=datetime(2026, 3, 25, 10, 15, 0, tzinfo=UTC),
                 status=AdapterRunStatus.SUCCESS,
                 finding_count=-1,
+            )
+
+    def test_failed_without_error_raises(self) -> None:
+        with pytest.raises(ValidationError, match="requires error"):
+            ToolRunResult(
+                tool=ToolSource.SCUBAGEAR,
+                started_at=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+                completed_at=datetime(2026, 3, 25, 10, 15, 0, tzinfo=UTC),
+                status=AdapterRunStatus.FAILED,
+                finding_count=0,
+            )
+
+    def test_timeout_without_error_raises(self) -> None:
+        with pytest.raises(ValidationError, match="requires error"):
+            ToolRunResult(
+                tool=ToolSource.SCUBAGEAR,
+                started_at=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+                completed_at=datetime(2026, 3, 25, 10, 15, 0, tzinfo=UTC),
+                status=AdapterRunStatus.TIMEOUT,
+                finding_count=0,
+            )
+
+    def test_success_with_error_raises(self) -> None:
+        with pytest.raises(ValidationError, match="must not carry an error"):
+            ToolRunResult(
+                tool=ToolSource.SCUBAGEAR,
+                started_at=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+                completed_at=datetime(2026, 3, 25, 10, 15, 0, tzinfo=UTC),
+                status=AdapterRunStatus.SUCCESS,
+                finding_count=0,
+                error="unexpected",
             )
 
 

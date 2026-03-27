@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic import ValidationError as PydanticValidationError
 
 from gxassessms.core.contracts.errors import ConfigError, ConfigValidationError
@@ -26,6 +26,13 @@ class ToolConfig(BaseModel):
     modules: list[str] = Field(default_factory=list)
     timeout: int = Field(default=600, gt=0)
     extra_args: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("timeout", mode="before")
+    @classmethod
+    def reject_bool_timeout(cls, v: Any) -> Any:
+        if isinstance(v, bool):
+            raise ValueError("timeout must be an integer, not a boolean")
+        return v
 
 
 class AuthConfig(BaseModel):
@@ -43,18 +50,25 @@ class AuthConfig(BaseModel):
 class EngagementConfig(BaseModel):
     """Root engagement configuration."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     client_name: str
     tenant_id: str
     auth: AuthConfig
     tools: dict[str, ToolConfig]
-    max_parallel: int = 4
+    max_parallel: int = Field(default=4, gt=0)
     report_formats: list[str] = Field(default_factory=lambda: ["docx"])
     report_theme: str = "basic"
     report_logo_path: str | None = None
     qa_model: str = "claude-sonnet-4-6"
-    qa_token_budget: int = 100000
+    qa_token_budget: int = Field(default=100000, gt=0)
+
+    @field_validator("max_parallel", "qa_token_budget", mode="before")
+    @classmethod
+    def reject_bool_integers(cls, v: Any) -> Any:
+        if isinstance(v, bool):
+            raise ValueError("value must be an integer, not a boolean")
+        return v
 
 
 def load_config(path: Path) -> EngagementConfig:
