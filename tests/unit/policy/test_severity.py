@@ -211,3 +211,48 @@ class TestMinimumSeverityFloor:
         adjustments = policy.suggest_adjustments(findings=[cf])
         assert len(adjustments) == 1
         assert adjustments[0].suggested_severity == Severity.LOW
+
+
+class TestUpgradeAdjustments:
+    def test_upgrade_when_confidence_above_threshold(self, sample_rules: dict) -> None:
+        # LOW with confidence 0.95 >= upgrade_threshold 0.9 -> suggest MEDIUM
+        cf = _make_consolidated(severity=Severity.LOW, confidence_overall=0.95)
+        policy = DefaultSeverityPolicy(rules=sample_rules)
+        adjustments = policy.suggest_adjustments(findings=[cf])
+        assert len(adjustments) == 1
+        assert adjustments[0].suggested_severity == Severity.MEDIUM
+        assert "upgrade threshold" in adjustments[0].reason
+
+    def test_no_upgrade_when_confidence_below_threshold(self, sample_rules: dict) -> None:
+        cf = _make_consolidated(severity=Severity.LOW, confidence_overall=0.5)
+        policy = DefaultSeverityPolicy(rules=sample_rules)
+        adjustments = policy.suggest_adjustments(findings=[cf])
+        assert len(adjustments) == 0
+
+    def test_upgrade_blocked_by_maximum_severity(self, sample_rules: dict) -> None:
+        # CRITICAL cannot upgrade further; upgrade_map has CRITICAL -> CRITICAL
+        cf = _make_consolidated(severity=Severity.CRITICAL, confidence_overall=0.95)
+        policy = DefaultSeverityPolicy(rules=sample_rules)
+        adjustments = policy.suggest_adjustments(findings=[cf])
+        assert len(adjustments) == 0
+
+    def test_upgrade_blocked_by_configured_maximum(self, sample_rules: dict) -> None:
+        # Set maximum_severity = "MEDIUM"; HIGH at 0.95 confidence is blocked.
+        rules = {
+            **sample_rules,
+            "confidence_adjustments": {
+                **sample_rules["confidence_adjustments"],
+                "maximum_severity": "MEDIUM",
+            },
+        }
+        cf = _make_consolidated(severity=Severity.HIGH, confidence_overall=0.95)
+        policy = DefaultSeverityPolicy(rules=rules)
+        adjustments = policy.suggest_adjustments(findings=[cf])
+        assert len(adjustments) == 0
+
+    def test_no_upgrade_without_upgrade_threshold_configured(self, sample_rules: dict) -> None:
+        rules = {**sample_rules, "confidence_adjustments": {}}
+        cf = _make_consolidated(severity=Severity.LOW, confidence_overall=1.0)
+        policy = DefaultSeverityPolicy(rules=rules)
+        adjustments = policy.suggest_adjustments(findings=[cf])
+        assert len(adjustments) == 0

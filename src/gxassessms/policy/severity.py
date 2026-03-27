@@ -64,38 +64,68 @@ class DefaultSeverityPolicy:
     def suggest_adjustments(self, findings: list[ConsolidatedFinding]) -> list[SeverityAdjustment]:
         """Suggest severity adjustments based on confidence thresholds.
 
-        If a finding's confidence is below the escalation threshold for its
-        severity, suggest downgrading by one level.
+        Downgrade: if a finding's confidence is below the escalation threshold
+        for its severity, suggest downgrading by one level (floor: minimum_severity).
+
+        Upgrade: if a finding's confidence is at or above the configured
+        upgrade_threshold, suggest upgrading by one level (ceiling: maximum_severity).
         """
         adjustments: list[SeverityAdjustment] = []
         thresholds = self._rules.get("escalation_thresholds", {})
         ca = self._rules.get("confidence_adjustments", {})
         min_sev_str = ca.get("minimum_severity")
         min_sev = Severity(min_sev_str) if min_sev_str else None
+        max_sev_str = ca.get("maximum_severity")
+        max_sev = Severity(max_sev_str) if max_sev_str else None
+        upgrade_threshold = ca.get("upgrade_threshold")
 
         for finding in findings:
+            # Downgrade path: low confidence -> suggest lower severity
             threshold = thresholds.get(finding.severity.value, 0.0)
             if finding.confidence.overall < threshold:
                 suggested = self._downgrade(finding.severity)
-                if suggested == finding.severity:
-                    continue
-                if min_sev is not None and SEVERITY_ORDER.get(
-                    suggested.value, 0
-                ) < SEVERITY_ORDER.get(min_sev.value, 0):
-                    continue
-                adjustments.append(
-                    SeverityAdjustment(
-                        finding_instance_id=finding.finding_instance_id,
-                        finding_key=finding.finding_key,
-                        current_severity=finding.severity,
-                        suggested_severity=suggested,
-                        reason=(
-                            f"Confidence {finding.confidence.overall:.2f} "
-                            f"is below threshold {threshold:.2f} for "
-                            f"{finding.severity.value}"
-                        ),
+                if suggested != finding.severity and (
+                    min_sev is None
+                    or SEVERITY_ORDER.get(suggested.value, 0)
+                    >= SEVERITY_ORDER.get(min_sev.value, 0)
+                ):
+                    adjustments.append(
+                        SeverityAdjustment(
+                            finding_instance_id=finding.finding_instance_id,
+                            finding_key=finding.finding_key,
+                            current_severity=finding.severity,
+                            suggested_severity=suggested,
+                            reason=(
+                                f"Confidence {finding.confidence.overall:.2f} "
+                                f"is below threshold {threshold:.2f} for "
+                                f"{finding.severity.value}"
+                            ),
+                        )
                     )
-                )
+                continue
+
+            # Upgrade path: high confidence -> suggest higher severity
+            if upgrade_threshold is not None and finding.confidence.overall >= upgrade_threshold:
+                suggested = self._upgrade(finding.severity)
+                if suggested != finding.severity and (
+                    max_sev is None
+                    or SEVERITY_ORDER.get(suggested.value, 0)
+                    <= SEVERITY_ORDER.get(max_sev.value, 0)
+                ):
+                    adjustments.append(
+                        SeverityAdjustment(
+                            finding_instance_id=finding.finding_instance_id,
+                            finding_key=finding.finding_key,
+                            current_severity=finding.severity,
+                            suggested_severity=suggested,
+                            reason=(
+                                f"Confidence {finding.confidence.overall:.2f} "
+                                f"is at or above upgrade threshold "
+                                f"{upgrade_threshold:.2f} for "
+                                f"{finding.severity.value}"
+                            ),
+                        )
+                    )
 
         return adjustments
 
@@ -145,4 +175,12 @@ class DefaultSeverityPolicy:
         downgraded = downgrade_map.get(severity.value)
         if downgraded is not None:
             return Severity(downgraded)
+        return severity
+
+    def _upgrade(self, severity: Severity) -> Severity:
+        """Upgrade severity by one level using the upgrade map."""
+        upgrade_map = self._rules.get("upgrade_map", {})
+        upgraded = upgrade_map.get(severity.value)
+        if upgraded is not None:
+            return Severity(upgraded)
         return severity
