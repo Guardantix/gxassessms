@@ -223,9 +223,9 @@ class DefaultNormalizationPolicy:
         # Try adapter-specific dedup key
         mapped_key = adapter_dedup_keys.get(obs.native_check_id)
         if mapped_key is not None:
-            if not mapped_key:
+            if not mapped_key.strip():
                 raise ValueError(
-                    f"adapter_dedup_keys[{obs.native_check_id!r}] is an empty string. "
+                    f"adapter_dedup_keys[{obs.native_check_id!r}] is empty/blank. "
                     f"Finding keys must be non-empty; remove or fix this mapping entry."
                 )
             return mapped_key

@@ -220,8 +220,16 @@ class DefaultConsolidationPolicy:
         # Use the highest configured tier that does not exceed distinct_tools (floor lookup).
         # An exact-key lookup with fallback would under-score multi-tool findings when the
         # config omits intermediate tiers (e.g. {1: 0.4, 2: 0.7, 4: 0.95} with 3 tools).
-        corroboration_scores = self._rules.get("corroboration_scores", {})
-        if corroboration_scores:
+        corroboration_scores_raw = self._rules.get("corroboration_scores", {})
+        if corroboration_scores_raw:
+            # Coerce keys to int so YAML quoted keys ("1") don't cause TypeError.
+            try:
+                corroboration_scores = {int(k): v for k, v in corroboration_scores_raw.items()}
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"corroboration_scores keys must be integers, got: "
+                    f"{list(corroboration_scores_raw.keys())}"
+                ) from exc
             # Floor lookup: highest tier <= distinct_tools. When no tier qualifies
             # (all configured tiers exceed distinct_tools), use the conservative 0.4
             # default rather than min(corroboration_scores), which could assign a

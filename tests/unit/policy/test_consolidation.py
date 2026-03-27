@@ -305,6 +305,31 @@ class TestDefaultConsolidationPolicy:
         # overall = 0.8*0.30 + 0.4*0.35 + 1.0*0.20 + 0.7*0.15 = 0.24+0.14+0.20+0.105 = 0.685
         assert cf.confidence.overall == pytest.approx(0.685, abs=1e-3)
 
+    def test_corroboration_string_keys_coerced_to_int(self, sample_rules: dict) -> None:
+        """YAML quoted keys (strings) must be coerced to int without error."""
+        rules = {
+            **sample_rules,
+            "corroboration_scores": {"1": 0.4, "2": 0.7},
+        }
+        f1 = _make_finding(tool=ToolSource.SCUBAGEAR)
+        f2 = _make_finding(tool=ToolSource.MAESTER)
+        policy = DefaultConsolidationPolicy(rules=rules)
+        result = policy.consolidate([f1, f2])
+        assert len(result) == 1
+        # 2 tools -> tier 2 -> corroboration 0.7 (same as int-keyed config)
+        assert result[0].confidence.corroborating_tools == 2
+
+    def test_corroboration_non_numeric_key_raises(self, sample_rules: dict) -> None:
+        """A non-numeric corroboration tier key must raise ValueError."""
+        rules = {
+            **sample_rules,
+            "corroboration_scores": {"many": 0.9},
+        }
+        f1 = _make_finding(tool=ToolSource.SCUBAGEAR)
+        policy = DefaultConsolidationPolicy(rules=rules)
+        with pytest.raises(ValueError, match="integers"):
+            policy.consolidate([f1])
+
     def test_category_tie_resolved_deterministically(self, sample_rules: dict) -> None:
         # Both findings have equal severity (CRITICAL). f2 has category that sorts
         # later alphabetically (IDENTITY_ACCESS > COMPLIANCE). Regardless of input

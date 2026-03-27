@@ -504,12 +504,32 @@ class TestDefaultNormalizationPolicy:
             description="Test.",
         )
         policy = DefaultNormalizationPolicy(rules=sample_rules)
-        with pytest.raises(ValueError, match="empty string"):
+        with pytest.raises(ValueError, match="empty/blank"):
             policy.normalize(
                 observations=[obs],
                 adapter_severity_map={},
                 adapter_category_map={},
                 adapter_dedup_keys={"MS.AAD.1.1v1": ""},
+            )
+
+    def test_whitespace_adapter_dedup_key_raises(self, sample_rules: dict) -> None:
+        """A whitespace-only adapter dedup key must also raise ValueError."""
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.1.1v1",
+            title="Test",
+            native_severity="Shall",
+            native_status="Fail",
+            description="Test.",
+        )
+        policy = DefaultNormalizationPolicy(rules=sample_rules)
+        with pytest.raises(ValueError, match="empty/blank"):
+            policy.normalize(
+                observations=[obs],
+                adapter_severity_map={},
+                adapter_category_map={},
+                adapter_dedup_keys={"MS.AAD.1.1v1": "   "},
             )
 
     def test_invalid_fallback_severity_in_rules_raises(self, sample_rules: dict) -> None:
