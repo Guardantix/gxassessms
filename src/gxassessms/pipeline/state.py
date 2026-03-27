@@ -44,13 +44,13 @@ class PipelineEvent:
     timestamp: datetime
     event_type: EventType
     actor: str  # "system", "human:<name>", "ai:severity_review", etc.
-    payload: Mapping[str, Any]  # stored as MappingProxyType; pass plain dict from caller
+    payload: Mapping[str, Any]  # always stored as a fresh MappingProxyType copy
 
     def __post_init__(self) -> None:
-        # Callers pass a plain dict; convert to immutable mapping to prevent
-        # post-creation mutation of the audit record before persistence.
-        if not isinstance(self.payload, MappingProxyType):
-            object.__setattr__(self, "payload", MappingProxyType(dict(self.payload)))
+        # Always create a new MappingProxyType backed by a fresh dict copy so
+        # that neither the caller's original dict nor a passed MappingProxyType
+        # referencing an external dict can be mutated to alter the audit record.
+        object.__setattr__(self, "payload", MappingProxyType(dict(self.payload)))
 
 
 _ENGAGEMENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
