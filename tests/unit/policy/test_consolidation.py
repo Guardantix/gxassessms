@@ -227,6 +227,34 @@ class TestDefaultConsolidationPolicy:
         with pytest.raises(ValueError, match="status_priority"):
             policy.consolidate([f1, f2])
 
+    def test_corroboration_uses_conservative_default_when_no_tier_applies(
+        self, sample_rules: dict
+    ) -> None:
+        """When all configured tiers exceed distinct_tools, the conservative 0.4 default
+        is used instead of min(corroboration_scores), which would inflate confidence."""
+        # Config only defines tiers for 2+ tools; a single-tool finding must not get 0.7.
+        rules_high_tier_only = {
+            **sample_rules,
+            "corroboration_scores": {2: 0.7, 4: 0.95},
+            "confidence_weights": {
+                "evidence_strength": 0.30,
+                "corroboration": 0.35,
+                "data_freshness": 0.20,
+                "provenance": 0.15,
+            },
+        }
+        f1 = _make_finding(tool=ToolSource.SCUBAGEAR)
+        policy = DefaultConsolidationPolicy(rules=rules_high_tier_only)
+        result = policy.consolidate([f1])
+        cf = result[0]
+        # distinct_tools=1; no tier <=1 exists; must use 0.4, not 0.7 (tier 2)
+        # evidence_strength = min(1.0, 0.6 + 1*0.1) = 0.7
+        # corroboration = 0.4 (conservative fallback)
+        # data_freshness = 1.0
+        # provenance_score = 0.7 (system-generated)
+        # overall = 0.7*0.30 + 0.4*0.35 + 1.0*0.20 + 0.7*0.15 = 0.21+0.14+0.20+0.105 = 0.655
+        assert cf.confidence.overall == pytest.approx(0.655, abs=1e-3)
+
     def test_confidence_computed_when_corroboration_scores_empty(self, sample_rules: dict) -> None:
         """G3: Empty corroboration_scores dict does not raise; overall confidence is
         in [0.0, 1.0] and the 0.4 fallback corroboration is used."""

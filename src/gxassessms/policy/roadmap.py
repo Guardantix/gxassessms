@@ -53,25 +53,36 @@ class DefaultRoadmapPolicy:
         self._rules = rules
 
     def assign_phases(self, findings: list[ConsolidatedFinding]) -> list[RoadmapAssignment]:
-        """Assign each finding to a remediation phase with priority score."""
-        assignments: list[RoadmapAssignment] = []
+        """Assign each finding to a remediation phase with priority score.
+
+        Sorting uses the full-precision raw score so that close scores that round
+        to the same value are still ordered consistently. finding_key is a
+        deterministic tie-break for the (unlikely) case of truly equal raw scores.
+        The stored priority_score is rounded to two decimals for display.
+        """
+        # Build (raw_score, assignment) pairs so sorting uses full precision.
+        pairs: list[tuple[float, RoadmapAssignment]] = []
 
         for finding in findings:
             phase = self._determine_phase(finding)
             timeline = self._get_timeline(phase)
             priority_score = self._compute_priority(finding)
 
-            assignments.append(
-                RoadmapAssignment(
-                    finding_instance_id=finding.finding_instance_id,
-                    finding_key=finding.finding_key,
-                    phase=phase,
-                    timeline=timeline,
-                    priority_score=round(priority_score, 2),
+            pairs.append(
+                (
+                    priority_score,
+                    RoadmapAssignment(
+                        finding_instance_id=finding.finding_instance_id,
+                        finding_key=finding.finding_key,
+                        phase=phase,
+                        timeline=timeline,
+                        priority_score=round(priority_score, 2),
+                    ),
                 )
             )
 
-        return sorted(assignments, key=lambda a: a.priority_score, reverse=True)
+        pairs.sort(key=lambda p: (-p[0], p[1].finding_key))
+        return [a for _, a in pairs]
 
     def _determine_phase(self, finding: ConsolidatedFinding) -> PhaseLabel:
         """Determine the remediation phase from severity.

@@ -235,3 +235,52 @@ class TestEmptyInput:
         assignments = policy.assign_phases(findings=[low_finding, critical_finding])
         assert len(assignments) == 2
         assert assignments[0].priority_score >= assignments[1].priority_score
+
+    def test_priority_sort_uses_full_precision_not_rounded_score(self, sample_rules: dict) -> None:
+        """Findings whose raw scores differ by less than 0.005 (would round to the same
+        value) must still be ordered deterministically by finding_key tie-break."""
+        # Two findings that will have very close priority scores.
+        # Both MEDIUM severity; differ only by confidence (0.800 vs 0.804) -> raw diff < 0.005.
+        f_a = _make_consolidated(
+            severity=Severity.MEDIUM,
+            confidence_overall=0.800,
+            finding_key="aaa:1.1",
+            instance_id="uuid-aaa",
+        )
+        f_b = _make_consolidated(
+            severity=Severity.MEDIUM,
+            confidence_overall=0.804,
+            finding_key="bbb:1.1",
+            instance_id="uuid-bbb",
+        )
+        policy = DefaultRoadmapPolicy(rules=sample_rules)
+        # Run twice in opposite input order; result order must be identical.
+        result_ab = policy.assign_phases(findings=[f_a, f_b])
+        result_ba = policy.assign_phases(findings=[f_b, f_a])
+        assert [a.finding_key for a in result_ab] == [a.finding_key for a in result_ba]
+
+    def test_finding_key_tiebreak_is_deterministic(self, sample_rules: dict) -> None:
+        """When two findings have identical raw priority scores, finding_key (ascending)
+        is the tie-break so output order is stable regardless of input order."""
+        # Same severity + identical confidence -> identical raw scores.
+        f_a = _make_consolidated(
+            severity=Severity.MEDIUM,
+            confidence_overall=0.80,
+            finding_key="aaa:1.1",
+            instance_id="uuid-aaa",
+        )
+        f_b = _make_consolidated(
+            severity=Severity.MEDIUM,
+            confidence_overall=0.80,
+            finding_key="zzz:9.9",
+            instance_id="uuid-zzz",
+        )
+        policy = DefaultRoadmapPolicy(rules=sample_rules)
+        result_ab = policy.assign_phases(findings=[f_a, f_b])
+        result_ba = policy.assign_phases(findings=[f_b, f_a])
+        keys_ab = [a.finding_key for a in result_ab]
+        keys_ba = [a.finding_key for a in result_ba]
+        assert keys_ab == keys_ba
+        # "aaa:1.1" < "zzz:9.9" alphabetically -> aaa sorts first in descending-score,
+        # ascending-key ordering (both have equal score so key ascending wins).
+        assert keys_ab[0] == "aaa:1.1"

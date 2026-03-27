@@ -218,9 +218,12 @@ class DefaultConsolidationPolicy:
         # config omits intermediate tiers (e.g. {1: 0.4, 2: 0.7, 4: 0.95} with 3 tools).
         corroboration_scores = self._rules.get("corroboration_scores", {})
         if corroboration_scores:
+            # Floor lookup: highest tier <= distinct_tools. When no tier qualifies
+            # (all configured tiers exceed distinct_tools), use the conservative 0.4
+            # default rather than min(corroboration_scores), which could assign a
+            # multi-tool tier to a single-tool finding and inflate confidence.
             applicable = [k for k in corroboration_scores if k <= distinct_tools]
-            corroboration_key = max(applicable) if applicable else min(corroboration_scores)
-            corroboration = corroboration_scores[corroboration_key]
+            corroboration = corroboration_scores[max(applicable)] if applicable else 0.4
         else:
             corroboration = 0.4
 
