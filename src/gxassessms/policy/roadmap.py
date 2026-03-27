@@ -11,13 +11,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Literal, Protocol, runtime_checkable
+from typing import Any, Literal, Protocol, get_args, runtime_checkable
 
 from gxassessms.core.domain.models import ConsolidatedFinding
 
 logger = logging.getLogger(__name__)
 
 PhaseLabel = Literal["IMMEDIATE", "SHORT_TERM", "MEDIUM_TERM", "LONG_TERM"]
+_VALID_PHASES: frozenset[str] = frozenset(get_args(PhaseLabel))
 
 
 @dataclass(frozen=True)
@@ -86,6 +87,15 @@ class DefaultRoadmapPolicy:
                 finding.severity.value,
             )
             logger.debug("Unmapped phase detail: finding_key=%r", finding.finding_key)
+            return "MEDIUM_TERM"
+        if phase not in _VALID_PHASES:
+            logger.warning(
+                "severity_to_phase value %r for severity %r is not a valid phase; "
+                "defaulting to MEDIUM_TERM. Valid phases: %s",
+                phase,
+                finding.severity.value,
+                sorted(_VALID_PHASES),
+            )
             return "MEDIUM_TERM"
         return phase
 

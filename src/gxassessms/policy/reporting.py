@@ -105,11 +105,13 @@ class DefaultReportingPolicy:
                 continue
             filtered.append(finding)
 
-        # Sort by severity descending, then by confidence descending
+        # Sort by severity descending, then confidence descending, then finding_key
+        # as a deterministic tie-break so capped reports are reproducible.
         filtered.sort(
             key=lambda f: (
                 SEVERITY_ORDER.get(f.severity.value, 0),
                 f.confidence.overall,
+                f.finding_key,
             ),
             reverse=True,
         )
