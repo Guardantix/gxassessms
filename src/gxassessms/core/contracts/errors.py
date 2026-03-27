@@ -155,3 +155,17 @@ class LockTimeoutError(PersistenceError):
         self.engagement_id = engagement_id
         self.timeout_seconds = timeout_seconds
         super().__init__(message)
+
+
+class InvalidTransitionError(PersistenceError):
+    """Invalid engagement state transition attempted."""
+
+    def __init__(
+        self,
+        message: str,
+        from_state: str = "",
+        to_state: str = "",
+    ) -> None:
+        self.from_state = from_state
+        self.to_state = to_state
+        super().__init__(message)

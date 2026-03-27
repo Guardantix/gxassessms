@@ -10,6 +10,9 @@ from gxassessms.persistence.database import (
 from gxassessms.persistence.database import (
     get_default_db_path as get_default_db_path,
 )
+from gxassessms.persistence.explanation import (
+    FindingExplanationService as FindingExplanationService,
+)
 from gxassessms.persistence.repositories import (
     CoverageRepo as CoverageRepo,
 )
@@ -18,9 +21,6 @@ from gxassessms.persistence.repositories import (
 )
 from gxassessms.persistence.repositories import (
     EventRepo as EventRepo,
-)
-from gxassessms.persistence.repositories import (
-    FindingExplanationService as FindingExplanationService,
 )
 from gxassessms.persistence.repositories import (
     FindingRepo as FindingRepo,

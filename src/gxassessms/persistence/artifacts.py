@@ -50,7 +50,7 @@ def _validate_path_within_root(target: Path, root: Path) -> None:
     """
     resolved_target = target.resolve()
     resolved_root = root.resolve()
-    if not str(resolved_target).startswith(str(resolved_root)):
+    if not resolved_target.is_relative_to(resolved_root):
         raise PersistenceError(
             f"Blocked path traversal: {target} resolves outside engagements root {root}"
         )
@@ -61,7 +61,7 @@ class ArtifactManager:
 
     Engagement directory layout:
         <engagements_root>/<slug>-<engagement_id>/
-            config.yaml
+            config.yaml (created by pipeline initialization)
             raw-output/
                 scubagear/
                 maester/
@@ -103,7 +103,7 @@ class ArtifactManager:
         engagement ID. Raises PersistenceError if not found.
         """
         for entry in self._engagements_root.iterdir():
-            if entry.is_dir() and entry.name.endswith(engagement_id):
+            if entry.is_dir() and entry.name.endswith(f"-{engagement_id}"):
                 _validate_path_within_root(entry, self._engagements_root)
                 return entry
         raise PersistenceError(f"Engagement directory not found for: {engagement_id}")
@@ -123,6 +123,13 @@ class ArtifactManager:
         archive_path = eng_dir / "raw-output.tar.gz"
         with tarfile.open(str(archive_path), "w:gz") as tar:
             tar.add(str(raw_dir), arcname="raw-output")
+
+        # Verify archive integrity before removing source
+        with tarfile.open(str(archive_path), "r:gz") as verify_tar:
+            if not verify_tar.getmembers():
+                raise PersistenceError(
+                    f"Archive verification failed: tarball is empty for engagement {engagement_id}"
+                )
 
         # Remove the raw output directory contents
         shutil.rmtree(raw_dir)
@@ -204,7 +211,14 @@ class ArtifactManager:
         logger.info("Wrote purge audit manifest to %s", manifest_path)
 
         # Now delete the engagement directory
-        shutil.rmtree(eng_dir)
+        try:
+            shutil.rmtree(eng_dir)
+        except OSError as e:
+            manifest["rmtree_error"] = str(e)
+            logger.error("Failed to remove engagement directory %s: %s", eng_dir, e)
+            raise PersistenceError(
+                f"Purge audit manifest written but directory removal failed: {e}"
+            ) from e
         logger.info(
             "Purged engagement %s: %d files deleted",
             engagement_id,

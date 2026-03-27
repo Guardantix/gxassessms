@@ -1,6 +1,6 @@
-"""Engagement state machine, PipelineEvent, and EngagementLock.
+"""Engagement lifecycle states, PipelineEvent, and EngagementLock.
 
-EngagementState defines the pipeline state machine. PipelineEvent is the
+EngagementState defines the pipeline lifecycle states. PipelineEvent is the
 append-only event journal record. EngagementLock provides advisory file
 locking per engagement to prevent concurrent state mutation.
 """
@@ -8,6 +8,7 @@ locking per engagement to prevent concurrent state mutation.
 from __future__ import annotations
 
 import logging
+import re
 from collections.abc import Generator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -18,13 +19,13 @@ from typing import Any
 
 from filelock import BaseFileLock, FileLock, Timeout
 
-from gxassessms.core.contracts.errors import LockTimeoutError
+from gxassessms.core.contracts.errors import LockTimeoutError, PersistenceError
 
 logger = logging.getLogger(__name__)
 
 
 class EngagementState(StrEnum):
-    """Pipeline state machine states."""
+    """Pipeline lifecycle states."""
 
     CREATED = "CREATED"
     COLLECTING = "COLLECTING"
@@ -41,6 +42,31 @@ class EngagementState(StrEnum):
     COMPLETE = "COMPLETE"
     FAILED = "FAILED"
 
+    @classmethod
+    def can_transition_to(cls, from_state: EngagementState, to_state: EngagementState) -> bool:
+        """Check whether a state transition is valid."""
+        return to_state in _VALID_TRANSITIONS.get(from_state, frozenset())
+
+
+_VALID_TRANSITIONS: dict[EngagementState, frozenset[EngagementState]] = {
+    EngagementState.CREATED: frozenset({EngagementState.COLLECTING, EngagementState.FAILED}),
+    EngagementState.COLLECTING: frozenset({EngagementState.COLLECTED, EngagementState.FAILED}),
+    EngagementState.COLLECTED: frozenset({EngagementState.PARSING, EngagementState.FAILED}),
+    EngagementState.PARSING: frozenset({EngagementState.PARSED, EngagementState.FAILED}),
+    EngagementState.PARSED: frozenset({EngagementState.NORMALIZING, EngagementState.FAILED}),
+    EngagementState.NORMALIZING: frozenset({EngagementState.NORMALIZED, EngagementState.FAILED}),
+    EngagementState.NORMALIZED: frozenset({EngagementState.CONSOLIDATING, EngagementState.FAILED}),
+    EngagementState.CONSOLIDATING: frozenset(
+        {EngagementState.CONSOLIDATED, EngagementState.FAILED}
+    ),
+    EngagementState.CONSOLIDATED: frozenset({EngagementState.QA_REVIEW, EngagementState.FAILED}),
+    EngagementState.QA_REVIEW: frozenset({EngagementState.QA_APPROVED, EngagementState.FAILED}),
+    EngagementState.QA_APPROVED: frozenset({EngagementState.RENDERING, EngagementState.FAILED}),
+    EngagementState.RENDERING: frozenset({EngagementState.COMPLETE, EngagementState.FAILED}),
+    EngagementState.COMPLETE: frozenset(),
+    EngagementState.FAILED: frozenset(),
+}
+
 
 @dataclass(frozen=True)
 class PipelineEvent:
@@ -56,7 +82,10 @@ class PipelineEvent:
     timestamp: datetime
     event_type: str  # "state_transition", "override", "ai_modification", "rerun", etc.
     actor: str  # "system", "human:<name>", "ai:severity_review", etc.
-    payload: dict[str, Any]  # Treat as immutable; serialized to SQLite on append
+    payload: dict[str, Any]  # Mutable dict -- callers must not modify after creation
+
+
+_ENGAGEMENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 class EngagementLock:
@@ -71,6 +100,8 @@ class EngagementLock:
         self._locks: dict[str, BaseFileLock] = {}
 
     def _lock_path(self, engagement_id: str) -> Path:
+        if not _ENGAGEMENT_ID_PATTERN.match(engagement_id):
+            raise PersistenceError(f"Invalid engagement ID format: {engagement_id!r}")
         return self._engagements_root / engagement_id / ".lock"
 
     def acquire(self, engagement_id: str, timeout: float = 30.0) -> None:
@@ -79,6 +110,11 @@ class EngagementLock:
         Creates the engagement directory if it does not exist.
         Raises LockTimeoutError if the lock cannot be acquired within timeout.
         """
+        if engagement_id in self._locks:
+            raise PersistenceError(
+                f"Lock already held for engagement {engagement_id} in this process"
+            )
+
         eng_dir = self._engagements_root / engagement_id
         eng_dir.mkdir(parents=True, exist_ok=True)
 
@@ -90,8 +126,7 @@ class EngagementLock:
             raise LockTimeoutError(
                 message=(
                     f"Engagement locked by another process (review UI or concurrent CLI). "
-                    f"Use `mseco engagement unlock {engagement_id}` to force-release "
-                    f"if the locking process has exited."
+                    f"Lock file: {lock_path}"
                 ),
                 engagement_id=engagement_id,
                 timeout_seconds=timeout,

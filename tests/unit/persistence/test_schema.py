@@ -167,6 +167,35 @@ class TestSchemaConstraints:
             )
 
 
+class TestEnumSchemaSync:
+    def test_engagement_state_check_matches_enum(self) -> None:
+        """CHECK constraint values in schema.sql must match EngagementState enum."""
+        import re
+
+        from gxassessms.pipeline.state import EngagementState
+
+        schema_path = (
+            Path(__file__).parent.parent.parent.parent / "src/gxassessms/persistence/schema.sql"
+        )
+        schema_text = schema_path.read_text()
+
+        # Extract the state CHECK constraint values
+        match = re.search(
+            r"state\s+TEXT\s+NOT\s+NULL\s+CHECK\s*\(state\s+IN\s*\((.*?)\)\)",
+            schema_text,
+            re.DOTALL,
+        )
+        assert match is not None, "Could not find state CHECK constraint in schema.sql"
+
+        check_values = {v.strip().strip("'") for v in match.group(1).split(",")}
+        enum_values = {s.value for s in EngagementState}
+
+        assert check_values == enum_values, (
+            f"Schema CHECK constraint {check_values} does not match "
+            f"EngagementState enum {enum_values}"
+        )
+
+
 class TestSchemaAndMigrationSync:
     def test_schema_sql_matches_migration(self) -> None:
         """schema.sql and 001_initial.sql should have identical content."""

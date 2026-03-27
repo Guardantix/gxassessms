@@ -156,6 +156,35 @@ class TestDatabaseManager:
         with mgr.connect() as conn:
             assert conn.row_factory == sqlite3.Row
 
+    def test_connect_rolls_back_on_database_error(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        migrations_dir = tmp_path / "migrations"
+        migrations_dir.mkdir()
+        (migrations_dir / "001_test.sql").write_text(
+            "CREATE TABLE rollback_test (id INTEGER PRIMARY KEY, name TEXT);"
+        )
+        mgr = DatabaseManager(db_path=db_path, migrations_dir=migrations_dir)
+        mgr.initialize()
+
+        def _insert_with_duplicate(m: DatabaseManager) -> None:
+            with m.connect() as conn:
+                conn.execute("INSERT INTO rollback_test (id, name) VALUES (1, 'before')")
+                conn.execute("INSERT INTO rollback_test (id, name) VALUES (1, 'duplicate')")
+
+        with pytest.raises(sqlite3.DatabaseError):
+            _insert_with_duplicate(mgr)
+        # The insert should have been rolled back
+        with mgr.connect() as conn:
+            rows = conn.execute("SELECT * FROM rollback_test").fetchall()
+            assert len(rows) == 0
+
+    def test_missing_migrations_dir_no_error(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "test.db"
+        nonexistent_dir = tmp_path / "no-such-dir"
+        mgr = DatabaseManager(db_path=db_path, migrations_dir=nonexistent_dir)
+        mgr.initialize()
+        assert db_path.exists()
+
     def test_parent_directory_created_if_missing(self, tmp_path: Path) -> None:
         db_path = tmp_path / "subdir" / "nested" / "test.db"
         migrations_dir = tmp_path / "migrations"

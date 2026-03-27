@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from gxassessms.core.config.datetime_utils import utc_now
-from gxassessms.core.contracts.errors import PersistenceError
+from gxassessms.core.contracts.errors import InvalidTransitionError, PersistenceError
+from gxassessms.core.domain.enums import Severity
 from gxassessms.persistence.database import DatabaseManager
 from gxassessms.persistence.repositories import (
     CoverageRepo,
@@ -121,6 +122,22 @@ class TestEngagementRepoUpdateState:
         eng = engagement_repo.get(eng_id)
         assert eng["updated_at"] is not None
 
+    def test_update_state_nonexistent_raises(self, engagement_repo: EngagementRepo) -> None:
+        with pytest.raises(PersistenceError):
+            engagement_repo.update_state("nonexistent-id", EngagementState.COLLECTING)
+
+    def test_update_state_invalid_transition_raises(self, engagement_repo: EngagementRepo) -> None:
+        eng_id = engagement_repo.create(
+            client_name="Test",
+            tenant_id="tenant-001",
+            config_snapshot={},
+        )
+        # CREATED -> PARSED is not a valid transition (must go through COLLECTING first)
+        with pytest.raises(InvalidTransitionError) as exc_info:
+            engagement_repo.update_state(eng_id, EngagementState.PARSED)
+        assert exc_info.value.from_state == "CREATED"
+        assert exc_info.value.to_state == "PARSED"
+
 
 class TestEngagementRepoListByClient:
     def test_list_by_client(self, engagement_repo: EngagementRepo) -> None:
@@ -145,6 +162,77 @@ class TestEngagementRepoListByClient:
     def test_list_by_client_no_results(self, engagement_repo: EngagementRepo) -> None:
         results = engagement_repo.list_by_client("Nonexistent")
         assert results == []
+
+
+class TestEngagementRepoListAll:
+    def test_list_all_returns_all_engagements(self, engagement_repo: EngagementRepo) -> None:
+        engagement_repo.create(client_name="A", tenant_id="t-1", config_snapshot={})
+        engagement_repo.create(client_name="B", tenant_id="t-2", config_snapshot={})
+        engagement_repo.create(client_name="C", tenant_id="t-3", config_snapshot={})
+        results = engagement_repo.list_all()
+        assert len(results) == 3
+
+    def test_list_all_empty(self, engagement_repo: EngagementRepo) -> None:
+        results = engagement_repo.list_all()
+        assert results == []
+
+
+class TestEngagementRepoDelete:
+    def test_delete_removes_engagement_and_related_records(
+        self,
+        engagement_repo: EngagementRepo,
+        event_repo: EventRepo,
+        finding_repo: FindingRepo,
+        coverage_repo: CoverageRepo,
+        db_manager: DatabaseManager,
+    ) -> None:
+        eng_id = engagement_repo.create(
+            client_name="DeleteTest",
+            tenant_id="t-del",
+            config_snapshot={},
+        )
+        # Add related records
+        event_repo.append(
+            PipelineEvent(
+                event_id="evt-del-001",
+                engagement_id=eng_id,
+                timestamp=utc_now(),
+                event_type="state_transition",
+                actor="system",
+                payload={"from": "CREATED", "to": "COLLECTING"},
+            )
+        )
+        finding_repo.save_parsed(
+            eng_id,
+            [
+                {
+                    "finding_id": "f-del-001",
+                    "observation_id": "obs-001",
+                    "finding_key": "key-001",
+                    "tool_source": "ScubaGear",
+                    "title": "Test",
+                    "severity": "HIGH",
+                    "status": "FAIL",
+                    "category": "Identity & Access",
+                    "description": "Test",
+                    "dedup_keys": ["key-001"],
+                },
+            ],
+        )
+        coverage_repo.save(
+            eng_id,
+            [{"control_id": "c-1", "tool_source": "ScubaGear", "status": "assessed"}],
+        )
+
+        # Delete
+        engagement_repo.delete(eng_id)
+
+        # Verify all gone
+        with pytest.raises(PersistenceError):
+            engagement_repo.get(eng_id)
+        assert event_repo.get_events(eng_id) == []
+        assert finding_repo.get_parsed(eng_id) == []
+        assert coverage_repo.get_for_engagement(eng_id) == []
 
 
 # ── EventRepo ──────────────────────────────────────────────────────────
@@ -396,7 +484,7 @@ class TestFindingRepoOverrideSeverity:
         )
         finding_repo.override_severity(
             finding_id="cf-001",
-            new_severity="HIGH",
+            new_severity=Severity.HIGH,
             reason="Client-specific risk",
             actor="human:rick",
             engagement_id=eng_id,
@@ -439,7 +527,7 @@ class TestFindingRepoOverrideSeverity:
         )
         finding_repo.override_severity(
             finding_id="cf-001",
-            new_severity="CRITICAL",
+            new_severity=Severity.CRITICAL,
             reason="Regulatory requirement",
             actor="human:rick",
             engagement_id=eng_id,
@@ -468,7 +556,7 @@ class TestFindingRepoOverrideSeverity:
         with pytest.raises(PersistenceError):
             finding_repo.override_severity(
                 finding_id="nonexistent",
-                new_severity="HIGH",
+                new_severity=Severity.HIGH,
                 reason="test",
                 actor="system",
                 engagement_id=eng_id,
@@ -606,59 +694,3 @@ class TestCoverageRepoSave:
         count = coverage_repo.delete_for_engagement(eng_id)
         assert count == 1
         assert coverage_repo.get_for_engagement(eng_id) == []
-
-
-# ── FindingExplanationService ─────────────────────────────────────────
-
-
-class TestFindingExplanationService:
-    def test_explain_returns_stub_structure(
-        self,
-        engagement_repo: EngagementRepo,
-        finding_repo: FindingRepo,
-        db_manager: DatabaseManager,
-    ) -> None:
-        from gxassessms.persistence.repositories import FindingExplanationService
-
-        eng_id = engagement_repo.create(
-            client_name="Test",
-            tenant_id="t-001",
-            config_snapshot={},
-        )
-        finding_repo.save_consolidated(
-            eng_id,
-            [
-                {
-                    "finding_instance_id": "cf-explain-001",
-                    "finding_key": "cis:m365:1.1.1",
-                    "title": "Test finding",
-                    "severity": "HIGH",
-                    "status": "FAIL",
-                    "category": "Identity & Access",
-                    "description": "Test",
-                    "sources": [{"tool": "ScubaGear", "check_id": "MS.AAD.3.1v1", "raw_data": {}}],
-                    "confidence": {
-                        "evidence_strength": 0.9,
-                        "corroborating_tools": 2,
-                        "data_freshness": 0.95,
-                        "provenance": "system-generated",
-                        "overall": 0.88,
-                    },
-                },
-            ],
-        )
-        svc = FindingExplanationService(db_manager)
-        explanation = svc.explain("cf-explain-001")
-        assert explanation["finding_instance_id"] == "cf-explain-001"
-        assert "sources" in explanation
-        assert "severity_basis" in explanation
-        assert "override_history" in explanation
-        assert "ai_modifications" in explanation
-        assert "confidence_basis" in explanation
-
-    def test_explain_nonexistent_finding_raises(self, db_manager: DatabaseManager) -> None:
-        from gxassessms.persistence.repositories import FindingExplanationService
-
-        svc = FindingExplanationService(db_manager)
-        with pytest.raises(PersistenceError):
-            svc.explain("nonexistent-finding")

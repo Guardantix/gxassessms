@@ -35,6 +35,9 @@ class TestSanitizeSlug:
         result = _sanitize_slug("Acme Gesundheit GmbH")
         assert "acme" in result
 
+    def test_all_special_chars_returns_unnamed(self) -> None:
+        assert _sanitize_slug("@#$%^&*()") == "unnamed"
+
 
 class TestValidatePathWithinRoot:
     def test_valid_path(self, tmp_path: Path) -> None:
@@ -128,15 +131,13 @@ class TestArtifactManagerArchive:
     def test_archive_creates_tarball(self, populated_artifact_mgr: ArtifactManager) -> None:
         archive_path = populated_artifact_mgr.archive("eng-archive")
         assert archive_path.exists()
-        assert archive_path.suffix == ".gz" or ".tar" in archive_path.name
+        assert archive_path.name == "raw-output.tar.gz"
 
     def test_archive_removes_raw_output(self, populated_artifact_mgr: ArtifactManager) -> None:
         populated_artifact_mgr.archive("eng-archive")
         eng_dir = populated_artifact_mgr.get_engagement_dir("eng-archive")
-        raw_dir = eng_dir / "raw-output"
-        # Raw output should be removed after archive
-        scuba_dir = raw_dir / "scubagear"
-        assert not scuba_dir.exists() or not any(scuba_dir.iterdir())
+        scuba_dir = eng_dir / "raw-output" / "scubagear"
+        assert not scuba_dir.exists()
 
     def test_restore_recreates_files(self, populated_artifact_mgr: ArtifactManager) -> None:
         populated_artifact_mgr.archive("eng-archive")
@@ -146,9 +147,19 @@ class TestArtifactManagerArchive:
         assert restored_file.exists()
         assert json.loads(restored_file.read_text()) == {"test": True}
 
+    def test_archive_on_empty_raw_output_raises(self, tmp_path: Path) -> None:
+        engagements_root = tmp_path / "engagements"
+        engagements_root.mkdir()
+        mgr = ArtifactManager(engagements_root=engagements_root)
+        mgr.create_engagement_dir("eng-empty", "Test")
+        with pytest.raises(PersistenceError, match="No raw output"):
+            mgr.archive("eng-empty")
+
     def test_restore_nonexistent_archive_raises(
         self, populated_artifact_mgr: ArtifactManager
     ) -> None:
+        # Create engagement dir without archiving so there's no .tar.gz
+        populated_artifact_mgr.create_engagement_dir("eng-no-archive", "Test")
         with pytest.raises(PersistenceError, match="archive"):
             populated_artifact_mgr.restore("eng-no-archive")
 
@@ -200,3 +211,17 @@ class TestArtifactManagerPurge:
         # Audit directory should still exist and contain the manifest
         assert purge_mgr._audit_dir.exists()
         assert len(list(purge_mgr._audit_dir.iterdir())) > 0
+
+    def test_purge_directory_with_only_subdirs_raises(self, tmp_path: Path) -> None:
+        engagements_root = tmp_path / "engagements"
+        engagements_root.mkdir()
+        audit_dir = tmp_path / "audit"
+        audit_dir.mkdir()
+        mgr = ArtifactManager(engagements_root=engagements_root, audit_dir=audit_dir)
+        eng_dir = mgr.create_engagement_dir("eng-empty-purge", "Test")
+        # Remove all files but keep subdirectories
+        for f in eng_dir.rglob("*"):
+            if f.is_file():
+                f.unlink()
+        with pytest.raises(PersistenceError, match="empty"):
+            mgr.purge("eng-empty-purge")

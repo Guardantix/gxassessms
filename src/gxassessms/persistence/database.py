@@ -15,6 +15,7 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from pathlib import Path
 
+from gxassessms.core.config.datetime_utils import format_utc, utc_now
 from gxassessms.core.contracts.errors import MigrationError
 
 logger = logging.getLogger(__name__)
@@ -91,8 +92,9 @@ class DatabaseManager:
         try:
             yield conn
             conn.commit()
-        except sqlite3.OperationalError:
+        except sqlite3.DatabaseError:
             conn.rollback()
+            logger.error("Database error during transaction, rolled back")
             raise
         finally:
             conn.close()
@@ -130,15 +132,35 @@ class DatabaseManager:
         logger.info("Applying migration: %s", migration_file.name)
         sql = migration_file.read_text(encoding="utf-8")
         try:
-            conn.executescript(sql)
-        except sqlite3.OperationalError as e:
+            for stmt in self._split_sql_statements(sql):
+                conn.execute(stmt)
+        except sqlite3.DatabaseError as e:
             raise MigrationError(f"Migration {migration_file.name} failed: {e}") from e
 
         conn.execute(
-            "INSERT INTO _schema_migrations (filename) VALUES (?)",
-            (migration_file.name,),
+            "INSERT INTO _schema_migrations (filename, applied_at) VALUES (?, ?)",
+            (migration_file.name, format_utc(utc_now())),
         )
         logger.info("Applied migration: %s", migration_file.name)
+
+    @staticmethod
+    def _split_sql_statements(sql: str) -> list[str]:
+        """Split SQL text into individual statements for transactional execution."""
+        statements: list[str] = []
+        for segment in sql.split(";"):
+            # Strip whitespace and skip empty/comment-only segments
+            stripped = segment.strip()
+            if not stripped:
+                continue
+            # Skip segments that are ONLY comments (no actual SQL)
+            lines = [
+                line
+                for line in stripped.splitlines()
+                if line.strip() and not line.strip().startswith("--")
+            ]
+            if lines:
+                statements.append(stripped)
+        return statements
 
     def _get_applied_list(self, conn: sqlite3.Connection) -> list[str]:
         """Get list of applied migration filenames in order."""

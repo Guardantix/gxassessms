@@ -1,6 +1,7 @@
 """Tests for PipelineEvent, EngagementState, and EngagementLock."""
 
 from datetime import UTC, datetime
+from itertools import pairwise
 from pathlib import Path
 
 import pytest
@@ -96,6 +97,18 @@ class TestPipelineEvent:
         )
         assert isinstance(event.timestamp, datetime)
 
+    def test_frozen_immutability(self) -> None:
+        event = PipelineEvent(
+            event_id="evt-frozen",
+            engagement_id="eng-001",
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            event_type="state_transition",
+            actor="system",
+            payload={"test": True},
+        )
+        with pytest.raises(AttributeError):
+            event.event_id = "changed"  # type: ignore[misc]
+
 
 class TestEngagementLock:
     def test_acquire_and_release(self, tmp_path: Path) -> None:
@@ -150,3 +163,76 @@ class TestEngagementLock:
         lock.acquire("eng-005", timeout=5.0)
         assert (tmp_path / "eng-005" / ".lock").exists()
         lock.release("eng-005")
+
+    def test_hold_releases_lock_on_exception(self, tmp_path: Path) -> None:
+        lock = EngagementLock(engagements_root=tmp_path)
+        with pytest.raises(RuntimeError), lock.hold("eng-exc", timeout=5.0):
+            raise RuntimeError("simulated failure")
+        # Lock should have been released -- re-acquire should work
+        lock.acquire("eng-exc", timeout=5.0)
+        lock.release("eng-exc")
+
+    def test_double_acquire_raises(self, tmp_path: Path) -> None:
+        from gxassessms.core.contracts.errors import PersistenceError
+
+        lock = EngagementLock(engagements_root=tmp_path)
+        lock.acquire("eng-double", timeout=5.0)
+        try:
+            with pytest.raises(PersistenceError, match="already held"):
+                lock.acquire("eng-double", timeout=5.0)
+        finally:
+            lock.release("eng-double")
+
+    def test_invalid_engagement_id_raises(self, tmp_path: Path) -> None:
+        from gxassessms.core.contracts.errors import PersistenceError
+
+        lock = EngagementLock(engagements_root=tmp_path)
+        with pytest.raises(PersistenceError, match="Invalid engagement ID"):
+            lock.acquire("../../../etc/passwd", timeout=5.0)
+
+
+class TestEngagementStateTransitions:
+    def test_valid_transitions_happy_path(self) -> None:
+        """Walk the happy path: CREATED -> COLLECTING -> ... -> COMPLETE."""
+        happy_path = [
+            EngagementState.CREATED,
+            EngagementState.COLLECTING,
+            EngagementState.COLLECTED,
+            EngagementState.PARSING,
+            EngagementState.PARSED,
+            EngagementState.NORMALIZING,
+            EngagementState.NORMALIZED,
+            EngagementState.CONSOLIDATING,
+            EngagementState.CONSOLIDATED,
+            EngagementState.QA_REVIEW,
+            EngagementState.QA_APPROVED,
+            EngagementState.RENDERING,
+            EngagementState.COMPLETE,
+        ]
+        for from_state, to_state in pairwise(happy_path):
+            assert EngagementState.can_transition_to(from_state, to_state), (
+                f"{from_state} -> {to_state} should be valid"
+            )
+
+    def test_failed_reachable_from_non_terminal(self) -> None:
+        """Every non-terminal state can transition to FAILED."""
+        for state in EngagementState:
+            if state in (EngagementState.COMPLETE, EngagementState.FAILED):
+                continue
+            assert EngagementState.can_transition_to(state, EngagementState.FAILED), (
+                f"{state} -> FAILED should be valid"
+            )
+
+    def test_terminal_states_have_no_outgoing_transitions(self) -> None:
+        """COMPLETE and FAILED are terminal -- no valid outgoing transitions."""
+        for terminal in (EngagementState.COMPLETE, EngagementState.FAILED):
+            for target in EngagementState:
+                assert not EngagementState.can_transition_to(terminal, target), (
+                    f"{terminal} -> {target} should be invalid"
+                )
+
+    def test_invalid_transition_rejected(self) -> None:
+        """Skipping states should be rejected."""
+        assert not EngagementState.can_transition_to(
+            EngagementState.CREATED, EngagementState.PARSED
+        )

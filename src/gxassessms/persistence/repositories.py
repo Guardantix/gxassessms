@@ -12,8 +12,8 @@ import uuid
 from typing import Any
 
 from gxassessms.core.config.datetime_utils import format_utc, utc_now
-from gxassessms.core.contracts.errors import PersistenceError
-from gxassessms.core.domain.enums import FindingStatus
+from gxassessms.core.contracts.errors import InvalidTransitionError, PersistenceError
+from gxassessms.core.domain.enums import FindingStatus, Severity
 from gxassessms.persistence.database import DatabaseManager
 from gxassessms.pipeline.state import EngagementState, PipelineEvent
 
@@ -72,12 +72,26 @@ class EngagementRepo:
         """Update the state of an engagement."""
         now = format_utc(utc_now())
         with self._db.connect() as conn:
-            result = conn.execute(
+            # Fetch current state for transition validation
+            row = conn.execute(
+                "SELECT state FROM engagements WHERE engagement_id = ?",
+                (engagement_id,),
+            ).fetchone()
+            if row is None:
+                raise PersistenceError(f"Engagement not found: {engagement_id}")
+
+            current_state = EngagementState(row["state"])
+            if not EngagementState.can_transition_to(current_state, state):
+                raise InvalidTransitionError(
+                    message=f"Cannot transition from {current_state.value} to {state.value}",
+                    from_state=current_state.value,
+                    to_state=state.value,
+                )
+
+            conn.execute(
                 "UPDATE engagements SET state = ?, updated_at = ? WHERE engagement_id = ?",
                 (state.value, now, engagement_id),
             )
-            if result.rowcount == 0:
-                raise PersistenceError(f"Engagement not found: {engagement_id}")
         logger.info("Updated engagement %s state to %s", engagement_id, state.value)
 
     def list_by_client(self, client_name: str) -> list[dict[str, Any]]:
@@ -98,7 +112,7 @@ class EngagementRepo:
     def delete(self, engagement_id: str) -> None:
         """Delete an engagement and all related records.
 
-        Used by purge operations. Cascading deletes handle related tables.
+        Deletes explicitly from all child tables in dependency order.
         """
         with self._db.connect() as conn:
             # Delete in dependency order (child tables first)
@@ -283,7 +297,7 @@ class FindingRepo:
     def override_severity(
         self,
         finding_id: str,
-        new_severity: str,
+        new_severity: Severity,
         reason: str,
         actor: str,
         engagement_id: str,
@@ -304,7 +318,7 @@ class FindingRepo:
             conn.execute(
                 "UPDATE consolidated_findings SET severity = ?, updated_at = ? "
                 "WHERE finding_instance_id = ?",
-                (new_severity, now, finding_id),
+                (new_severity.value, now, finding_id),
             )
 
             # Record the override
@@ -320,7 +334,7 @@ class FindingRepo:
                     finding_id,
                     "severity",
                     old_severity,
-                    new_severity,
+                    new_severity.value,
                     reason,
                     actor,
                     now,
@@ -444,72 +458,3 @@ class CoverageRepo:
                 (engagement_id,),
             )
         return result.rowcount
-
-
-class FindingExplanationService:
-    """First-class provenance API for every consolidated finding.
-
-    Reconstructs complete finding lineage from the event journal rather
-    than joining scattered DB tables.
-
-    TODO: Full implementation requires pipeline stages to be built
-    (Plan 3+) to populate the event journal with the normalization,
-    consolidation, and QA events this service queries. For now, the
-    explain() signature is established and returns a stub structure.
-    """
-
-    def __init__(self, db: DatabaseManager) -> None:
-        self._db = db
-
-    def explain(self, finding_id: str) -> dict[str, Any]:
-        """Explain the lineage of a consolidated finding.
-
-        Returns a dict with keys:
-        - sources: which ToolObservations contributed
-        - severity_basis: which policy rule applied, original severity, overrides
-        - dedup_history: which findings were merged and why
-        - override_history: all overrides (who/when/why/what)
-        - ai_modifications: which QA tasks modified or flagged this finding
-        - confidence_basis: breakdown of ConfidenceScore components
-
-        TODO: Fully implement when pipeline stages exist to populate the
-        event journal with normalization, consolidation, and QA events.
-        """
-        with self._db.connect() as conn:
-            # Get the consolidated finding
-            finding_row = conn.execute(
-                "SELECT * FROM consolidated_findings WHERE finding_instance_id = ?",
-                (finding_id,),
-            ).fetchone()
-            if finding_row is None:
-                raise PersistenceError(f"Consolidated finding not found: {finding_id}")
-            finding = dict(finding_row)
-
-            # Get overrides for this finding
-            override_rows = conn.execute(
-                "SELECT * FROM overrides WHERE finding_id = ? ORDER BY created_at",
-                (finding_id,),
-            ).fetchall()
-            overrides = [dict(row) for row in override_rows]
-
-            # Get related events from the journal
-            event_rows = conn.execute(
-                "SELECT * FROM pipeline_events "
-                "WHERE engagement_id = ? AND payload LIKE ? "
-                "ORDER BY timestamp",
-                (finding["engagement_id"], f"%{finding_id}%"),
-            ).fetchall()
-            events = [dict(row) for row in event_rows]
-
-        return {
-            "finding_instance_id": finding_id,
-            "sources": json.loads(finding.get("sources", "[]")),
-            "severity_basis": {
-                "current_severity": finding["severity"],
-                "override_count": len(overrides),
-            },
-            "dedup_history": [],  # TODO: populate from consolidation events
-            "override_history": overrides,
-            "ai_modifications": [e for e in events if e.get("event_type") == "ai_modification"],
-            "confidence_basis": json.loads(finding.get("confidence", "{}")),
-        }
