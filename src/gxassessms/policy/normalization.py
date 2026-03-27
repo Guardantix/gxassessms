@@ -66,6 +66,7 @@ class DefaultNormalizationPolicy:
 
             finding = Finding(
                 observation_id=obs.observation_id,
+                native_check_id=obs.native_check_id,
                 finding_key=finding_key,
                 tool=obs.tool,
                 title=obs.title,

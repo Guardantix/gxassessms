@@ -60,6 +60,7 @@ class TestFinding:
     def test_create_normalized_finding(self) -> None:
         f = Finding(
             observation_id="scubagear:MS.AAD.3.1v1",
+            native_check_id="MS.AAD.3.1v1",
             finding_key="cis:m365:1.1.1",
             tool=ToolSource.SCUBAGEAR,
             title="MFA for privileged roles",
@@ -76,6 +77,7 @@ class TestFinding:
         with pytest.raises(ValidationError):
             Finding(
                 observation_id="test:1",
+                native_check_id="test:1",
                 finding_key="test:1",
                 tool=ToolSource.SCUBAGEAR,
                 title="Test",

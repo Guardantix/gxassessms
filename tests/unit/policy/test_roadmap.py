@@ -227,3 +227,11 @@ class TestEmptyInput:
         policy = DefaultRoadmapPolicy(rules=sample_rules)
         assignments = policy.assign_phases(findings=[])
         assert assignments == []
+
+    def test_assignments_returned_in_priority_order(self, sample_rules: dict) -> None:
+        low_finding = _make_consolidated(severity=Severity.LOW)
+        critical_finding = _make_consolidated(severity=Severity.CRITICAL)
+        policy = DefaultRoadmapPolicy(rules=sample_rules)
+        assignments = policy.assign_phases(findings=[low_finding, critical_finding])
+        assert len(assignments) == 2
+        assert assignments[0].priority_score >= assignments[1].priority_score

@@ -166,7 +166,7 @@ class DefaultConsolidationPolicy:
             sources.append(
                 SourceEvidence(
                     tool=finding.tool,
-                    check_id=finding.observation_id,
+                    check_id=finding.native_check_id,
                     raw_data=dict(finding.raw_data),
                 )
             )

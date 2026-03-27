@@ -70,7 +70,7 @@ class DefaultRoadmapPolicy:
                 )
             )
 
-        return assignments
+        return sorted(assignments, key=lambda a: a.priority_score, reverse=True)
 
     def _determine_phase(self, finding: ConsolidatedFinding) -> PhaseLabel:
         """Determine the remediation phase from severity.

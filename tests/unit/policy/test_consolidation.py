@@ -64,11 +64,13 @@ def _make_finding(
     title: str = "MFA for admins",
     description: str | None = None,
     observation_id: str | None = None,
+    native_check_id: str = "MS.AAD.1.1v1",
 ) -> Finding:
     if observation_id is None:
         observation_id = f"{tool.value.lower()}:{uuid.uuid4().hex[:8]}"
     return Finding(
         observation_id=observation_id,
+        native_check_id=native_check_id,
         finding_key=finding_key,
         tool=tool,
         title=title,
@@ -246,3 +248,14 @@ class TestDefaultConsolidationPolicy:
         # provenance_score = 0.7 (system-generated)
         # overall = 0.8*0.30 + 0.4*0.35 + 1.0*0.20 + 0.7*0.15 = 0.24+0.14+0.20+0.105 = 0.685
         assert cf.confidence.overall == pytest.approx(0.685, abs=1e-3)
+
+    def test_source_evidence_check_id_uses_native_check_id(self, sample_rules: dict) -> None:
+        finding = _make_finding(
+            observation_id="scubagear:run-abc123",  # synthetic ingestion ID
+            native_check_id="MS.AAD.3.1v1",
+        )
+        policy = DefaultConsolidationPolicy(rules=sample_rules)
+        consolidated = policy.consolidate(findings=[finding])
+        source = consolidated[0].sources[0]
+        assert source.check_id == "MS.AAD.3.1v1"
+        assert source.check_id != "scubagear:run-abc123"

@@ -256,3 +256,32 @@ class TestUpgradeAdjustments:
         policy = DefaultSeverityPolicy(rules=rules)
         adjustments = policy.suggest_adjustments(findings=[cf])
         assert len(adjustments) == 0
+
+
+class TestDowngradeThreshold:
+    def test_global_downgrade_threshold_overrides_permissive_per_severity(
+        self, sample_rules: dict
+    ) -> None:
+        # escalation_thresholds.HIGH = 0.5; with downgrade_threshold=0.9,
+        # HIGH at 0.80 confidence should now trigger a downgrade suggestion.
+        rules = {
+            **sample_rules,
+            "confidence_adjustments": {
+                **sample_rules["confidence_adjustments"],
+                "downgrade_threshold": 0.9,
+            },
+        }
+        cf = _make_consolidated(severity=Severity.HIGH, confidence_overall=0.80)
+        policy = DefaultSeverityPolicy(rules=rules)
+        adjustments = policy.suggest_adjustments(findings=[cf])
+        assert len(adjustments) == 1
+        assert adjustments[0].suggested_severity == Severity.MEDIUM
+
+    def test_per_severity_threshold_still_used_when_stricter(self, sample_rules: dict) -> None:
+        # escalation_thresholds.CRITICAL = 0.7; downgrade_threshold=0.3.
+        # CRITICAL at 0.6 confidence is below 0.7 -> still triggers downgrade.
+        cf = _make_consolidated(severity=Severity.CRITICAL, confidence_overall=0.6)
+        policy = DefaultSeverityPolicy(rules=sample_rules)
+        adjustments = policy.suggest_adjustments(findings=[cf])
+        assert len(adjustments) == 1
+        assert adjustments[0].suggested_severity == Severity.HIGH

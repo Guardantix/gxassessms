@@ -78,10 +78,13 @@ class DefaultSeverityPolicy:
         max_sev_str = ca.get("maximum_severity")
         max_sev = Severity(max_sev_str) if max_sev_str else None
         upgrade_threshold = ca.get("upgrade_threshold")
+        downgrade_threshold_global: float = ca.get("downgrade_threshold", 0.0)
 
         for finding in findings:
-            # Downgrade path: low confidence -> suggest lower severity
-            threshold = thresholds.get(finding.severity.value, 0.0)
+            # Downgrade path: low confidence -> suggest lower severity.
+            # Use the stricter of per-severity escalation threshold and global
+            # downgrade_threshold so custom policy configs can tighten the floor.
+            threshold = max(thresholds.get(finding.severity.value, 0.0), downgrade_threshold_global)
             if finding.confidence.overall < threshold:
                 suggested = self._downgrade(finding.severity)
                 if suggested != finding.severity and (
