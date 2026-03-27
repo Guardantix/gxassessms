@@ -448,6 +448,21 @@ class TestReportKeyStats:
                 controls_not_assessed=0,
             )
 
+    def test_rejects_bool_counter(self) -> None:
+        with pytest.raises(ValidationError):
+            ReportKeyStats(
+                total_findings=True,  # type: ignore[arg-type]
+                critical_count=0,
+                high_count=0,
+                medium_count=0,
+                low_count=0,
+                info_count=0,
+                tools_run=1,
+                tools_failed=0,
+                controls_assessed=10,
+                controls_not_assessed=0,
+            )
+
 
 class TestToolRunResult:
     def test_create_tool_run_result(self) -> None:

@@ -234,6 +234,13 @@ class ReportKeyStats(BaseModel):
     controls_assessed: int = Field(ge=0)
     controls_not_assessed: int = Field(ge=0)
 
+    @field_validator("*", mode="before")
+    @classmethod
+    def reject_bool_counters(cls, v: Any) -> Any:
+        if isinstance(v, bool):
+            raise ValueError("counter fields must be integers, not booleans")
+        return v
+
 
 class ReportPayload(BaseModel):
     """JSON contract between Python pipeline and Node.js renderers.
