@@ -103,7 +103,14 @@ class DefaultConsolidationPolicy:
         merge_strategy = self._rules.get("merge_strategy", {})
         status_priority = merge_strategy.get(
             "status_priority",
-            ["FAIL", "ERROR", "WARNING", "MANUAL", "PASS", "N/A"],
+            [
+                FindingStatus.FAIL.value,
+                FindingStatus.ERROR.value,
+                FindingStatus.WARNING.value,
+                FindingStatus.MANUAL.value,
+                FindingStatus.PASS.value,
+                FindingStatus.NOT_APPLICABLE.value,
+            ],
         )
         priority_map = {s: i for i, s in enumerate(status_priority)}
 

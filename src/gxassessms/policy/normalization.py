@@ -100,7 +100,7 @@ class DefaultNormalizationPolicy:
                 return Severity(entry["severity"])
 
         # Fallback severity
-        fallback = self._rules.get("fallback_severity", "MEDIUM")
+        fallback = self._rules.get("fallback_severity", Severity.MEDIUM.value)
         return Severity(fallback)
 
     def _resolve_category(

@@ -13,6 +13,7 @@ import logging
 from typing import Any, Protocol, runtime_checkable
 
 from gxassessms.core.domain.constants import SEVERITY_ORDER
+from gxassessms.core.domain.enums import Severity
 from gxassessms.core.domain.models import ConsolidatedFinding
 
 logger = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ class DefaultReportingPolicy:
             # Unknown audience: return all findings unfiltered
             return list(findings)
 
-        min_severity_str = audience_config.get("minimum_severity", "INFO")
+        min_severity_str = audience_config.get("minimum_severity", Severity.INFO.value)
         min_confidence = audience_config.get("minimum_confidence", 0.0)
         max_findings = audience_config.get("max_findings")
 
