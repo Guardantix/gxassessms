@@ -309,6 +309,15 @@ class TestAdapterResult:
                 duration_seconds=5.0,
             )
 
+    def test_rejects_negative_duration(self) -> None:
+        with pytest.raises(ValidationError):
+            AdapterResult(
+                adapter_name="scubagear",
+                status=AdapterRunStatus.FAILED,
+                error="failed",
+                duration_seconds=-5.0,
+            )
+
     def test_success_without_raw_output_raises(self) -> None:
         with pytest.raises(ValidationError, match="requires raw_output"):
             AdapterResult(

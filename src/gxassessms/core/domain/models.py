@@ -149,7 +149,7 @@ class AdapterResult(BaseModel):
     status: AdapterRunStatus
     raw_output: RawToolOutput | None = None
     error: str | None = None
-    duration_seconds: float
+    duration_seconds: float = Field(ge=0)
 
     @model_validator(mode="after")
     def status_payload_consistent(self) -> AdapterResult:
