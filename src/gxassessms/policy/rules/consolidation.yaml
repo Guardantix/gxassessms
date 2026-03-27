@@ -1,0 +1,51 @@
+# Consolidation policy reference tables.
+# Loaded by config/ and injected into ConsolidationPolicy as a plain dict.
+
+# Merge strategy: how to reconcile fields when multiple Findings share a finding_key
+merge_strategy:
+  # Severity reconciliation: take the highest severity across all sources
+  severity: "highest"
+  # Status reconciliation: FAIL wins over PASS, WARNING, etc.
+  status_priority:
+    - "FAIL"
+    - "ERROR"
+    - "WARNING"
+    - "MANUAL"
+    - "PASS"
+    - "N/A"
+  # Description: concatenate from all sources, deduped
+  description: "concatenate"
+  # Title: use the first source's title (prefer the highest-severity source)
+  title: "highest_severity_source"
+
+# Confidence score computation weights
+confidence_weights:
+  # Weight of evidence_strength in overall score
+  evidence_strength: 0.30
+  # Weight of corroborating_tools signal in overall score
+  corroboration: 0.35
+  # Weight of data_freshness in overall score
+  data_freshness: 0.20
+  # Weight of provenance quality in overall score
+  provenance: 0.15
+
+# Corroboration scoring: how many tools confirming increases confidence
+corroboration_scores:
+  1: 0.4   # Single tool only
+  2: 0.7   # Two tools agree
+  3: 0.85  # Three tools agree
+  4: 0.95  # Four or more tools agree
+
+# Data freshness thresholds (hours since data collection)
+data_freshness_thresholds:
+  fresh: 24        # < 24 hours -> 1.0
+  recent: 72       # < 72 hours -> 0.8
+  aging: 168       # < 7 days   -> 0.6
+  stale: 720       # < 30 days  -> 0.3
+  # > 30 days -> 0.1
+
+# Provenance quality scores
+provenance_scores:
+  "human-overridden": 1.0
+  "system-generated": 0.7
+  "AI-adjusted": 0.5

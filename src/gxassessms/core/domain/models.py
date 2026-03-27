@@ -61,6 +61,7 @@ class Finding(BaseModel):
     """
 
     observation_id: str
+    native_check_id: str
     finding_key: str
     tool: ToolSource
     title: str

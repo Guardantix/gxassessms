@@ -1,0 +1,60 @@
+# Reporting policy reference tables.
+# Suppression rules, redaction, and audience-specific filtering.
+
+# Audience definitions and their visibility thresholds
+audiences:
+  executive:
+    # Only show findings at or above this severity
+    minimum_severity: "HIGH"
+    # Only show findings at or above this confidence
+    minimum_confidence: 0.5
+    # Maximum number of findings to include
+    max_findings: 20
+    # Include these sections
+    sections:
+      - "executive_summary"
+      - "key_findings"
+      - "risk_summary"
+      - "roadmap"
+  technical:
+    minimum_severity: "INFO"
+    minimum_confidence: 0.0
+    max_findings: null  # No limit
+    sections:
+      - "executive_summary"
+      - "key_findings"
+      - "risk_summary"
+      - "roadmap"
+      - "detailed_findings"
+      - "methodology"
+      - "appendices"
+
+# Global suppression rules: findings matching these criteria are suppressed
+# from all reports (but retained in the database)
+suppression_rules:
+  # Suppress findings with status PASS (they passed; no action needed)
+  - field: "status"
+    value: "PASS"
+    reason: "Passing checks are not reported as findings"
+  # Suppress findings with status N/A
+  - field: "status"
+    value: "N/A"
+    reason: "Not-applicable checks excluded from findings report"
+
+# Redaction rules: sensitive fields that should be masked in reports
+redaction:
+  # Fields to redact from finding descriptions in executive reports
+  executive_redacted_patterns:
+    - "tenant_id"
+    - "client_secret"
+    - "api_key"
+    - "password"
+
+# Display formatting preferences
+display:
+  # Sort findings by this field in reports
+  default_sort: "severity"
+  # Sort direction
+  sort_descending: true
+  # Group findings by this field in detailed reports
+  group_by: "category"

@@ -1,0 +1,44 @@
+# Severity policy reference tables.
+# Override suggestions, escalation thresholds, and confidence-based adjustment.
+
+# Escalation thresholds: minimum confidence for a finding to stay at its severity.
+# If confidence is below the floor, suggest downgrading.
+escalation_thresholds:
+  CRITICAL: 0.7
+  HIGH: 0.5
+  MEDIUM: 0.3
+  LOW: 0.0
+  INFO: 0.0
+
+# Override suggestion rules: when a finding has been overridden N times
+# across engagements, suggest updating the default mapping.
+override_suggestions:
+  # Minimum override count before suggesting a rule change
+  suggestion_threshold: 3
+
+# Severity adjustment rules based on confidence
+confidence_adjustments:
+  # If confidence falls below this threshold, downgrade by one level
+  downgrade_threshold: 0.3
+  # If confidence is above this threshold, eligible for upgrade
+  upgrade_threshold: 0.9
+  # Never auto-adjust below this severity
+  minimum_severity: "LOW"
+  # Never auto-adjust above this severity
+  maximum_severity: "CRITICAL"
+
+# Severity downgrade map: what each severity downgrades to
+downgrade_map:
+  CRITICAL: "HIGH"
+  HIGH: "MEDIUM"
+  MEDIUM: "LOW"
+  LOW: "INFO"
+  INFO: "INFO"
+
+# Severity upgrade map: what each severity upgrades to
+upgrade_map:
+  INFO: "LOW"
+  LOW: "MEDIUM"
+  MEDIUM: "HIGH"
+  HIGH: "CRITICAL"
+  CRITICAL: "CRITICAL"
