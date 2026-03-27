@@ -89,14 +89,26 @@ class DefaultNormalizationPolicy:
     ) -> Severity:
         """Resolve severity: adapter-specific map first, then default rules, then fallback.
 
-        Observations with a native_status in the configured passing_statuses list
-        (e.g. Pass, N/A) are mapped to INFO before consulting any severity table,
-        because a passing or not-applicable control has no actionable severity.
+        Observations that resolve to FindingStatus.PASS or FindingStatus.NOT_APPLICABLE
+        are mapped to INFO before consulting any severity table, because a passing or
+        not-applicable control has no actionable severity.
+
+        The domain-status check mirrors _resolve_status (status_map first, then direct
+        FindingStatus conversion) so all native variants are handled consistently --
+        "Pass", "PASS", "Informational" all collapse to PASS; "N/A" and "Not Applicable"
+        collapse to NOT_APPLICABLE -- without requiring a separate string list in config.
         """
-        # Passing / non-applicable observations have no actionable severity.
-        passing_statuses: list[str] = self._rules.get("passing_statuses", [])
-        if obs.native_status in passing_statuses:
-            return Severity.INFO
+        # Short-circuit to INFO for passing/non-applicable observations.
+        # Use the same two-step lookup as _resolve_status so enum-value inputs
+        # ("PASS") and string-mapped inputs ("Pass") are both covered.
+        _passing = {FindingStatus.PASS, FindingStatus.NOT_APPLICABLE}
+        _status_map = self._rules.get("default_status_map", {})
+        _mapped = _status_map.get(obs.native_status, obs.native_status)
+        try:
+            if FindingStatus(_mapped) in _passing:
+                return Severity.INFO
+        except ValueError:
+            pass
 
         # Try adapter-specific severity map
         key = (obs.native_severity, obs.native_status)

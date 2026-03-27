@@ -28,16 +28,6 @@ default_severity_map:
 # Fallback severity when no mapping matches
 fallback_severity: "MEDIUM"
 
-# Native status strings that represent passing or non-applicable controls.
-# Observations with these statuses are mapped to INFO severity before consulting
-# the severity map, because a passing or not-applicable control has no actionable
-# severity regardless of its requirement level.
-passing_statuses:
-  - "Pass"
-  - "N/A"
-  - "Not Applicable"
-  - "Informational"
-
 # Default category mapping: maps tool module prefix -> domain category.
 # Adapter-specific category maps take precedence.
 default_category_map:
