@@ -316,3 +316,15 @@ class TestEmptyInput:
     def test_empty_findings_audience_filter(self, sample_rules: dict) -> None:
         policy = DefaultReportingPolicy(rules=sample_rules)
         assert policy.filter_for_audience(findings=[], audience="executive") == []
+
+    def test_filter_for_audience_raises_on_invalid_minimum_severity(
+        self, sample_rules: dict
+    ) -> None:
+        """Invalid minimum_severity must raise ValueError, not silently pass all findings."""
+        rules = {
+            **sample_rules,
+            "audiences": {"exec": {"minimum_severity": "CRYTICAL"}},
+        }
+        policy = DefaultReportingPolicy(rules=rules)
+        with pytest.raises(ValueError, match="minimum_severity"):
+            policy.filter_for_audience(findings=[], audience="exec")

@@ -348,3 +348,14 @@ class TestDefaultConsolidationPolicy:
         # Same inputs in reversed order -- ID must be identical
         result2 = policy.consolidate([f2, f1])
         assert result1[0].finding_instance_id == result2[0].finding_instance_id
+
+    def test_reconcile_title_deterministic_with_equal_severity_and_tool(
+        self, sample_rules: dict
+    ) -> None:
+        """Title selection must be stable when severity and tool are equal for all findings."""
+        f1 = _make_finding(native_check_id="check:A", title="Title A")
+        f2 = _make_finding(native_check_id="check:B", title="Title B")
+        policy = DefaultConsolidationPolicy(rules=sample_rules)
+        result_ab = policy.consolidate([f1, f2])
+        result_ba = policy.consolidate([f2, f1])
+        assert result_ab[0].title == result_ba[0].title

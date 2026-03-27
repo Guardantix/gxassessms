@@ -155,10 +155,14 @@ class DefaultConsolidationPolicy:
         )
 
     def _reconcile_title(self, group: list[Finding]) -> str:
-        """Use the title from the highest-severity finding, with tool name as tie-break."""
+        """Use the title from the highest-severity finding; tool then check ID as tie-breaks."""
         highest = max(
             group,
-            key=lambda f: (SEVERITY_ORDER.get(f.severity.value, 0), f.tool.value),
+            key=lambda f: (
+                SEVERITY_ORDER.get(f.severity.value, 0),
+                f.tool.value,
+                f.native_check_id,
+            ),
         )
         return highest.title
 

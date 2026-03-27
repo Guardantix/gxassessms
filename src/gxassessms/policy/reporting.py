@@ -87,14 +87,11 @@ class DefaultReportingPolicy:
         max_findings = audience_config.get("max_findings")
 
         if min_severity_str not in SEVERITY_ORDER:
-            logger.warning(
-                "Unknown minimum_severity %r for audience %r -- defaulting to INFO. "
-                "Valid values: %s",
-                min_severity_str,
-                audience,
-                list(SEVERITY_ORDER),
+            raise ValueError(
+                f"Unknown minimum_severity {min_severity_str!r} for audience {audience!r}. "
+                f"Valid values: {list(SEVERITY_ORDER)}"
             )
-        min_severity_order = SEVERITY_ORDER.get(min_severity_str, 0)
+        min_severity_order = SEVERITY_ORDER[min_severity_str]
 
         filtered: list[ConsolidatedFinding] = []
         for finding in findings:
