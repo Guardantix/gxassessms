@@ -50,6 +50,9 @@ severity = "gxassessms.policy.severity:DefaultSeverityPolicy"
 roadmap = "gxassessms.policy.roadmap:DefaultRoadmapPolicy"
 reporting = "gxassessms.policy.reporting:DefaultReportingPolicy"
 
+[project.entry-points."gxassessms.consolidation_rules"]
+default = "gxassessms.consolidation.rules:DefaultConsolidationRule"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/gxassessms"]
 

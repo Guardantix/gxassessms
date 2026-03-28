@@ -5,3 +5,11 @@ Two modules with distinct responsibilities:
 - rules.py: ConsolidationRule Protocol implementation that wires
   dedup groups to ConsolidationPolicy merge_group() logic
 """
+
+from gxassessms.consolidation.dedup import UnionFindDedup
+from gxassessms.consolidation.rules import DefaultConsolidationRule
+
+__all__ = [
+    "DefaultConsolidationRule",
+    "UnionFindDedup",
+]
