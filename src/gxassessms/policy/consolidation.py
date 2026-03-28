@@ -14,6 +14,7 @@ import uuid
 from collections import defaultdict
 from typing import Any, Protocol, runtime_checkable
 
+from gxassessms.core.contracts.errors import ConsolidationError
 from gxassessms.core.domain.constants import SEVERITY_ORDER
 from gxassessms.core.domain.enums import (
     FindingStatus,
@@ -39,6 +40,10 @@ class ConsolidationPolicy(Protocol):
     Two usage patterns:
     - consolidate(): groups findings by finding_key, then merges each group
     - merge_group(): merges a pre-formed group (e.g., from union-find dedup)
+
+    Contract: ``merge_group()`` requires ``findings`` to be non-empty.
+    Implementations must raise ``ConsolidationError`` if called with an
+    empty list.
     """
 
     def consolidate(self, findings: list[Finding]) -> list[ConsolidatedFinding]: ...
@@ -73,7 +78,11 @@ class DefaultConsolidationPolicy:
         return consolidated
 
     def merge_group(self, finding_key: str, findings: list[Finding]) -> ConsolidatedFinding:
-        """Merge a pre-formed group of Findings with the same finding_key."""
+        """Merge a pre-formed group of Findings into a single ConsolidatedFinding."""
+        if not findings:
+            raise ConsolidationError(
+                f"merge_group() requires at least one Finding (finding_key={finding_key!r})"
+            )
         severity = self._reconcile_severity(findings)
         status = self._reconcile_status(findings)
         title = self._reconcile_title(findings)

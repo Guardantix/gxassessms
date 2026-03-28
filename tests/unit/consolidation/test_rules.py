@@ -10,6 +10,7 @@ from __future__ import annotations
 import pytest
 
 from gxassessms.consolidation.rules import DefaultConsolidationRule
+from gxassessms.core.contracts.errors import ConsolidationError
 from gxassessms.core.contracts.types import ConsolidationRule
 from gxassessms.core.domain.enums import (
     Severity,
@@ -225,3 +226,17 @@ class TestDefaultConsolidationRuleOutput:
         assert len(result) == 5
         for cf in result:
             assert isinstance(cf, ConsolidatedFinding)
+
+    def test_merge_failure_wraps_as_consolidation_error(self) -> None:
+        """When policy.merge_group() raises, error is wrapped with group context."""
+
+        class FailingPolicy:
+            def consolidate(self, findings: list) -> list:
+                return []
+
+            def merge_group(self, finding_key: str, findings: list) -> None:
+                raise ValueError("boom")
+
+        rule = DefaultConsolidationRule(policy=FailingPolicy())  # type: ignore[arg-type]
+        with pytest.raises(ConsolidationError, match="group 1"):
+            rule.consolidate(findings=[make_finding()])

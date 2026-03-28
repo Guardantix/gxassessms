@@ -29,6 +29,8 @@ class _DisjointSet:
     """
 
     def __init__(self, size: int) -> None:
+        if size < 0:
+            raise ValueError("size must be non-negative")
         self._parent: list[int] = list(range(size))
         self._rank: list[int] = [0] * size
 
@@ -96,10 +98,18 @@ class UnionFindDedup:
         # Filter out empty/whitespace-only keys to prevent false merges.
         key_to_indices: dict[str, list[int]] = defaultdict(list)
         for idx, finding in enumerate(findings):
+            valid_key_count = 0
             for key in finding.dedup_keys:
                 stripped = key.strip()
                 if stripped:
                     key_to_indices[stripped].append(idx)
+                    valid_key_count += 1
+            if valid_key_count == 0:
+                logger.warning(
+                    "Finding %s has no valid dedup keys after whitespace filtering; "
+                    "it will form its own isolated group",
+                    finding.finding_key,
+                )
 
         # Union all findings that share a dedup key
         for indices in key_to_indices.values():

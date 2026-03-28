@@ -7,9 +7,10 @@ The DefaultConsolidationRule wires two concerns together:
    confidence scoring, etc.)
 
 This separation means:
+- dedup.py and policy/consolidation.py have no knowledge of each other
+  -- rules.py is the only bridge
 - The dedup algorithm can be tested and optimized independently
 - The merge policy can be swapped via entry points without touching grouping
-- Neither module knows about the other's internals
 
 This module NEVER performs I/O.
 """
@@ -20,6 +21,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from gxassessms.consolidation.dedup import UnionFindDedup
+from gxassessms.core.contracts.errors import ConsolidationError
 from gxassessms.core.domain.constants import SEVERITY_ORDER
 from gxassessms.core.domain.models import ConsolidatedFinding, Finding
 
@@ -70,9 +72,15 @@ class DefaultConsolidationRule:
 
         # Step 2-3: Select canonical key and merge each group
         consolidated: list[ConsolidatedFinding] = []
-        for group in groups:
-            canonical_key = self._select_canonical_finding_key(group)
-            merged = self._policy.merge_group(finding_key=canonical_key, findings=group)
+        for i, group in enumerate(groups):
+            try:
+                canonical_key = self._select_canonical_finding_key(group)
+                merged = self._policy.merge_group(finding_key=canonical_key, findings=group)
+            except (ConsolidationError, KeyError, ValueError) as exc:
+                raise ConsolidationError(
+                    f"Failed to consolidate group {i + 1}/{len(groups)} "
+                    f"(group_size={len(group)}): {exc}"
+                ) from exc
             consolidated.append(merged)
 
         logger.info(
@@ -89,14 +97,17 @@ class DefaultConsolidationRule:
         Strategy:
         1. If all findings share the same finding_key, use it (common case)
         2. Otherwise, use the finding_key from the highest-severity finding
-        3. Tiebreak: alphabetical (latest) for deterministic output
+        3. Tiebreak: lexicographically highest (max()) for deterministic output
         """
+        if not group:
+            raise ConsolidationError("Cannot select canonical finding_key from empty group")
+
         unique_keys = {f.finding_key for f in group}
         if len(unique_keys) == 1:
             return unique_keys.pop()
 
-        # Highest severity, then alphabetical (latest) for stability
+        # Highest severity, then lexicographically highest (max()) for stability
         return max(
             group,
-            key=lambda f: (SEVERITY_ORDER.get(f.severity.value, 0), f.finding_key),
+            key=lambda f: (SEVERITY_ORDER[f.severity.value], f.finding_key),
         ).finding_key

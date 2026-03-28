@@ -37,22 +37,9 @@ from gxassessms.policy.consolidation import DefaultConsolidationPolicy
 # ---------------------------------------------------------------------------
 
 _severity_strategy = st.sampled_from(list(Severity))
-_status_strategy = st.sampled_from(
-    [
-        FindingStatus.FAIL,
-        FindingStatus.PASS,
-        FindingStatus.WARNING,
-    ]
-)
+_status_strategy = st.sampled_from(list(FindingStatus))
 _category_strategy = st.sampled_from(list(Category))
-_tool_strategy = st.sampled_from(
-    [
-        ToolSource.SCUBAGEAR,
-        ToolSource.MAESTER,
-        ToolSource.MONKEY365,
-        ToolSource.PROWLER,
-    ]
-)
+_tool_strategy = st.sampled_from(list(ToolSource))
 
 # Dedup keys: short lowercase strings to encourage overlap
 _dedup_key_strategy = st.text(
