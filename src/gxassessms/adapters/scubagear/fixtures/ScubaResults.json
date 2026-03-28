@@ -1,0 +1,365 @@
+{
+  "MetaData": {
+    "TenantId": "00000000-0000-0000-0000-000000000000",
+    "DisplayName": "Test Tenant (Sanitized)",
+    "DomainName": "testtenant.onmicrosoft.com",
+    "ProductSuite": "Microsoft 365",
+    "ProductsAssessed": [
+      "Azure Active Directory",
+      "Microsoft 365 Defender",
+      "Exchange Online",
+      "Microsoft Power Platform",
+      "SharePoint Online",
+      "Microsoft Teams"
+    ],
+    "ProductAbbreviationMapping": {
+      "Azure Active Directory": "AAD",
+      "Exchange Online": "EXO",
+      "SharePoint Online": "SharePoint",
+      "Microsoft Teams": "Teams",
+      "Microsoft 365 Defender": "Defender",
+      "Microsoft Power Platform": "PowerPlatform"
+    },
+    "Tool": "ScubaGear",
+    "ToolVersion": "1.7.1",
+    "TimestampZulu": "2026-03-25T10:00:00.000Z",
+    "ReportUUID": "00000000-0000-0000-0000-000000000001"
+  },
+  "Results": {
+    "AAD": [
+      {
+        "GroupName": "Legacy Authentication",
+        "GroupNumber": "1",
+        "GroupReferenceURL": "https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/aad.md#1-legacy-authentication",
+        "Controls": [
+          {
+            "Control ID": "MS.AAD.1.1v1",
+            "Requirement": "Legacy authentication SHALL be blocked.",
+            "Result": "Fail",
+            "Criticality": "Shall",
+            "Details": "0 conditional access policy(s) found that meet(s) all requirements.",
+            "OmittedEvaluationResult": "N/A",
+            "OmittedEvaluationDetails": "N/A",
+            "IncorrectResult": "N/A",
+            "IncorrectResultDetails": "N/A",
+            "OriginalResult": "Fail",
+            "OriginalDetails": "0 conditional access policy(s) found that meet(s) all requirements. View all CA policies.",
+            "Comments": [],
+            "ResolutionDate": null
+          }
+        ]
+      },
+      {
+        "GroupName": "Strong Authentication and a Secure Registration Process",
+        "GroupNumber": "3",
+        "GroupReferenceURL": "https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/aad.md#3-strong-authentication-and-a-secure-registration-process",
+        "Controls": [
+          {
+            "Control ID": "MS.AAD.3.4v1",
+            "Requirement": "The Authentication Methods Manage Migration feature SHALL be set to Migration Complete.",
+            "Result": "Pass",
+            "Criticality": "Shall",
+            "Details": "Requirement met",
+            "OmittedEvaluationResult": "N/A",
+            "OmittedEvaluationDetails": "N/A",
+            "IncorrectResult": "N/A",
+            "IncorrectResultDetails": "N/A",
+            "OriginalResult": "Pass",
+            "OriginalDetails": "Requirement met",
+            "Comments": [],
+            "ResolutionDate": null
+          },
+          {
+            "Control ID": "MS.AAD.3.7v1",
+            "Requirement": "Managed devices SHOULD be required for authentication.",
+            "Result": "Warning",
+            "Criticality": "Should",
+            "Details": "0 conditional access policy(s) found that meet(s) all requirements.",
+            "OmittedEvaluationResult": "N/A",
+            "OmittedEvaluationDetails": "N/A",
+            "IncorrectResult": "N/A",
+            "IncorrectResultDetails": "N/A",
+            "OriginalResult": "Warning",
+            "OriginalDetails": "0 conditional access policy(s) found that meet(s) all requirements. View all CA policies.",
+            "Comments": [],
+            "ResolutionDate": null
+          }
+        ]
+      },
+      {
+        "GroupName": "Centralized Log Collection",
+        "GroupNumber": "4",
+        "GroupReferenceURL": "https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/aad.md#4-centralized-log-collection",
+        "Controls": [
+          {
+            "Control ID": "MS.AAD.4.1v1",
+            "Requirement": "Security logs SHALL be sent to the agency's security operations center for monitoring.",
+            "Result": "N/A",
+            "Criticality": "Shall/Not-Implemented",
+            "Details": "This product does not currently have the capability to check compliance for this policy. See Secure Configuration Baseline policy, https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/aad.md#msaad41v1 for instructions on manual check",
+            "OmittedEvaluationResult": "N/A",
+            "OmittedEvaluationDetails": "N/A",
+            "IncorrectResult": "N/A",
+            "IncorrectResultDetails": "N/A",
+            "OriginalResult": "N/A",
+            "OriginalDetails": "This product does not currently have the capability to check compliance for this policy. See Secure Configuration Baseline policy for instructions on manual check",
+            "Comments": [],
+            "ResolutionDate": null
+          }
+        ]
+      }
+    ],
+    "Defender": [
+      {
+        "GroupName": "Preset Security Profiles",
+        "GroupNumber": "1",
+        "GroupReferenceURL": "https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/defender.md#1-preset-security-profiles",
+        "Controls": [
+          {
+            "Control ID": "MS.DEFENDER.1.2v1",
+            "Requirement": "All users SHALL be added to Exchange Online Protection (EOP) in either the standard or strict preset security policy.",
+            "Result": "Pass",
+            "Criticality": "Shall",
+            "Details": "Requirement met",
+            "OmittedEvaluationResult": "N/A",
+            "OmittedEvaluationDetails": "N/A",
+            "IncorrectResult": "N/A",
+            "IncorrectResultDetails": "N/A",
+            "OriginalResult": "Pass",
+            "OriginalDetails": "Requirement met",
+            "Comments": [],
+            "ResolutionDate": null
+          }
+        ]
+      },
+      {
+        "GroupName": "Impersonation Protection",
+        "GroupNumber": "2",
+        "GroupReferenceURL": "https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/defender.md#2-impersonation-protection",
+        "Controls": [
+          {
+            "Control ID": "MS.DEFENDER.2.2v1",
+            "Requirement": "Domain impersonation protection SHOULD be enabled for domains owned by the agency in both the standard and strict preset policies.",
+            "Result": "Warning",
+            "Criticality": "Should",
+            "Details": "No agency domains defined for impersonation protection assessment. See configuration file documentation for details on how to define.",
+            "OmittedEvaluationResult": "N/A",
+            "OmittedEvaluationDetails": "N/A",
+            "IncorrectResult": "N/A",
+            "IncorrectResultDetails": "N/A",
+            "OriginalResult": "Warning",
+            "OriginalDetails": "No agency domains defined for impersonation protection assessment. See configuration file documentation for details on how to define.",
+            "Comments": [],
+            "ResolutionDate": null
+          }
+        ]
+      }
+    ],
+    "EXO": [
+      {
+        "GroupName": "Automatic Forwarding to External Domains",
+        "GroupNumber": "1",
+        "GroupReferenceURL": "https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/exo.md#1-automatic-forwarding-to-external-domains",
+        "Controls": [
+          {
+            "Control ID": "MS.EXO.1.1v2",
+            "Requirement": "Automatic forwarding to external domains SHALL be disabled.",
+            "Result": "Fail",
+            "Criticality": "Shall",
+            "Details": "1 remote domain allows automatic forwarding: *. NOTE: specific domains that have a legitimate need to allow remote forwarding can be configured in a ScubaGear config file.",
+            "OmittedEvaluationResult": "N/A",
+            "OmittedEvaluationDetails": "N/A",
+            "IncorrectResult": "N/A",
+            "IncorrectResultDetails": "N/A",
+            "OriginalResult": "Fail",
+            "OriginalDetails": "1 remote domain allows automatic forwarding: *. NOTE: specific domains that have a legitimate need to allow remote forwarding can be configured in a ScubaGear config file.",
+            "Comments": [],
+            "ResolutionDate": null
+          }
+        ]
+      },
+      {
+        "GroupName": "Sender Policy Framework",
+        "GroupNumber": "2",
+        "GroupReferenceURL": "https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/exo.md#2-sender-policy-framework",
+        "Controls": [
+          {
+            "Control ID": "MS.EXO.2.2v2",
+            "Requirement": "An SPF policy SHALL be published for each domain that fails all non-approved senders.",
+            "Result": "Pass",
+            "Criticality": "Shall",
+            "Details": "Requirement met. View DNS logs, #dns-logs for more details.",
+            "OmittedEvaluationResult": "N/A",
+            "OmittedEvaluationDetails": "N/A",
+            "IncorrectResult": "N/A",
+            "IncorrectResultDetails": "N/A",
+            "OriginalResult": "Pass",
+            "OriginalDetails": "Requirement met. View DNS logs for more details.",
+            "Comments": [],
+            "ResolutionDate": null
+          }
+        ]
+      },
+      {
+        "GroupName": "DomainKeys Identified Mail",
+        "GroupNumber": "3",
+        "GroupReferenceURL": "https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/exo.md#3-domainkeys-identified-mail",
+        "Controls": [
+          {
+            "Control ID": "MS.EXO.3.1v1",
+            "Requirement": "DKIM SHOULD be enabled for all domains.",
+            "Result": "Warning",
+            "Criticality": "Should",
+            "Details": "1 agency domain(s) found in violation: TestTenant.onmicrosoft.com. View DNS logs, #dns-logs for more details.",
+            "OmittedEvaluationResult": "N/A",
+            "OmittedEvaluationDetails": "N/A",
+            "IncorrectResult": "N/A",
+            "IncorrectResultDetails": "N/A",
+            "OriginalResult": "Warning",
+            "OriginalDetails": "1 agency domain(s) found in violation: TestTenant.onmicrosoft.com. View DNS logs for more details.",
+            "Comments": [],
+            "ResolutionDate": null
+          }
+        ]
+      },
+      {
+        "GroupName": "Data Loss Prevention Solutions",
+        "GroupNumber": "8",
+        "GroupReferenceURL": "https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/exo.md#8-data-loss-prevention-solutions",
+        "Controls": [
+          {
+            "Control ID": "MS.EXO.8.1v2",
+            "Requirement": "A DLP solution SHALL be used.",
+            "Result": "N/A",
+            "Criticality": "Shall/3rd Party",
+            "Details": "A custom product can be used to fulfill this policy requirement. If a custom product is used, a 3rd party assessment tool or manual review is needed to ensure compliance. If you are using Defender for Office 365 to implement this policy, ensure when running ScubaGear that 'defender' is an argument to the -ProductNames parameter. Then, review the corresponding Defender policy that fulfills the requirements of this policy on the Defender ScubaGear HTML report. See the Secure Configuration Baseline policy, https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/exo.md#msexo81v2 for instructions on a manual check.",
+            "OmittedEvaluationResult": "N/A",
+            "OmittedEvaluationDetails": "N/A",
+            "IncorrectResult": "N/A",
+            "IncorrectResultDetails": "N/A",
+            "OriginalResult": "N/A",
+            "OriginalDetails": "A custom product can be used to fulfill this policy requirement. If a custom product is used, a 3rd party assessment tool or manual review is needed to ensure compliance. If you are using Defender for Office 365 to implement this policy, ensure when running ScubaGear that 'defender' is an argument to the -ProductNames parameter. Then, review the corresponding Defender policy that fulfills the requirements of this policy on the Defender ScubaGear HTML report. See the Secure Configuration Baseline policy for instructions on a manual check.",
+            "Comments": [],
+            "ResolutionDate": null
+          }
+        ]
+      }
+    ],
+    "PowerPlatform": [
+      {
+        "GroupName": "Creation of Power Platform Environments",
+        "GroupNumber": "1",
+        "GroupReferenceURL": "https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/powerplatform.md#1-creation-of-power-platform-environments",
+        "Controls": [
+          {
+            "Control ID": "MS.POWERPLATFORM.1.1v1",
+            "Requirement": "The ability to create production and sandbox environments SHALL be restricted to admins.",
+            "Result": "Fail",
+            "Criticality": "Shall",
+            "Details": "Requirement not met",
+            "OmittedEvaluationResult": "N/A",
+            "OmittedEvaluationDetails": "N/A",
+            "IncorrectResult": "N/A",
+            "IncorrectResultDetails": "N/A",
+            "OriginalResult": "Fail",
+            "OriginalDetails": "Requirement not met",
+            "Comments": [],
+            "ResolutionDate": null
+          }
+        ]
+      }
+    ],
+    "SharePoint": [
+      {
+        "GroupName": "External Sharing",
+        "GroupNumber": "1",
+        "GroupReferenceURL": "https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/sharepoint.md#1-external-sharing",
+        "Controls": [
+          {
+            "Control ID": "MS.SHAREPOINT.1.1v1",
+            "Requirement": "External sharing for SharePoint SHALL be limited to \"Existing guests\" or \"Only people in your organization\".",
+            "Result": "Fail",
+            "Criticality": "Shall",
+            "Details": "Requirement not met",
+            "OmittedEvaluationResult": "N/A",
+            "OmittedEvaluationDetails": "N/A",
+            "IncorrectResult": "N/A",
+            "IncorrectResultDetails": "N/A",
+            "OriginalResult": "Fail",
+            "OriginalDetails": "Requirement not met",
+            "Comments": [],
+            "ResolutionDate": null
+          }
+        ]
+      }
+    ],
+    "Teams": [
+      {
+        "GroupName": "Meeting Policies",
+        "GroupNumber": "1",
+        "GroupReferenceURL": "https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/teams.md#1-meeting-policies",
+        "Controls": [
+          {
+            "Control ID": "MS.TEAMS.1.2v2",
+            "Requirement": "Anonymous users SHALL NOT be enabled to start meetings.",
+            "Result": "Pass",
+            "Criticality": "Shall",
+            "Details": "Requirement met",
+            "OmittedEvaluationResult": "N/A",
+            "OmittedEvaluationDetails": "N/A",
+            "IncorrectResult": "N/A",
+            "IncorrectResultDetails": "N/A",
+            "OriginalResult": "Pass",
+            "OriginalDetails": "Requirement met",
+            "Comments": [],
+            "ResolutionDate": null
+          }
+        ]
+      },
+      {
+        "GroupName": "External User Access",
+        "GroupNumber": "2",
+        "GroupReferenceURL": "https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/teams.md#2-external-user-access",
+        "Controls": [
+          {
+            "Control ID": "MS.TEAMS.2.1v2",
+            "Requirement": "External access for users SHALL only be enabled on a per-domain basis.",
+            "Result": "Fail",
+            "Criticality": "Shall",
+            "Details": "1 meeting policy(ies) that allow external access across all domains: Global",
+            "OmittedEvaluationResult": "N/A",
+            "OmittedEvaluationDetails": "N/A",
+            "IncorrectResult": "N/A",
+            "IncorrectResultDetails": "N/A",
+            "OriginalResult": "Fail",
+            "OriginalDetails": "1 meeting policy(ies) that allow external access across all domains: Global",
+            "Comments": [],
+            "ResolutionDate": null
+          }
+        ]
+      },
+      {
+        "GroupName": "Malware Scanning",
+        "GroupNumber": "7",
+        "GroupReferenceURL": "https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/teams.md#7-malware-scanning",
+        "Controls": [
+          {
+            "Control ID": "MS.TEAMS.7.1v1",
+            "Requirement": "Attachments included with Teams messages SHOULD be scanned for malware.",
+            "Result": "N/A",
+            "Criticality": "Should/3rd Party",
+            "Details": "A custom product can be used to fulfill this policy requirement. If a custom product is used, a 3rd party assessment tool or manual review is needed to ensure compliance. If you are using Defender for Office 365 to implement this policy, ensure when running ScubaGear that 'defender' is an argument to the -ProductNames parameter. Then, review the corresponding Defender policy that fulfills the requirements of this policy on the Defender ScubaGear HTML report. See the Secure Configuration Baseline policy, https://github.com/cisagov/ScubaGear/blob/v1.7.1/PowerShell/ScubaGear/baselines/teams.md#msteams71v1 for instructions on a manual check.",
+            "OmittedEvaluationResult": "N/A",
+            "OmittedEvaluationDetails": "N/A",
+            "IncorrectResult": "N/A",
+            "IncorrectResultDetails": "N/A",
+            "OriginalResult": "N/A",
+            "OriginalDetails": "A custom product can be used to fulfill this policy requirement. If a custom product is used, a 3rd party assessment tool or manual review is needed to ensure compliance. If you are using Defender for Office 365 to implement this policy, ensure when running ScubaGear that 'defender' is an argument to the -ProductNames parameter. Then, review the corresponding Defender policy that fulfills the requirements of this policy on the Defender ScubaGear HTML report. See the Secure Configuration Baseline policy for instructions on a manual check.",
+            "Comments": [],
+            "ResolutionDate": null
+          }
+        ]
+      }
+    ]
+  }
+}
