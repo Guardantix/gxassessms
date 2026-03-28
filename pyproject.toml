@@ -34,6 +34,9 @@ dev = [
 # [project.scripts]
 # mseco = "gxassessms.cli.main:main"  # TODO: uncomment when cli module exists
 
+[project.entry-points."gxassessms.adapters"]
+scubagear = "gxassessms.adapters.scubagear:ScubaGearAdapter"
+
 [project.entry-points."gxassessms.credentials"]
 env_var = "gxassessms.core.contracts.credentials:EnvVarProvider"
 

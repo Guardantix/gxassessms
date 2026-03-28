@@ -5,8 +5,6 @@ from __future__ import annotations
 from enum import StrEnum
 from types import MappingProxyType
 
-from gxassessms.core.contracts.errors import InvalidTransitionError
-
 
 class Severity(StrEnum):
     CRITICAL = "CRITICAL"
@@ -98,6 +96,8 @@ class EngagementState(StrEnum):
     ) -> None:
         """Assert transition is valid; raises InvalidTransitionError if not."""
         if not cls.can_transition_to(from_state, to_state):
+            from gxassessms.core.contracts.errors import InvalidTransitionError
+
             raise InvalidTransitionError(
                 message=f"Cannot transition from {from_state.value} to {to_state.value}",
                 from_state=from_state.value,

@@ -24,9 +24,10 @@ class TestToolConfig:
     def test_defaults(self) -> None:
         tc = ToolConfig(enabled=True)
         assert tc.enabled is True
+        assert tc.output_dir == ""
         assert tc.modules == []
-        assert tc.timeout == 600
-        assert tc.extra_args == {}
+        assert tc.timeout is None
+        assert tc.extra_args == []
 
     def test_rejects_unknown_fields(self) -> None:
         with pytest.raises(ValidationError):

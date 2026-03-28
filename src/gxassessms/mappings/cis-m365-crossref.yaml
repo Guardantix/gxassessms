@@ -1,0 +1,54 @@
+# CIS Microsoft 365 Benchmark cross-reference mappings.
+#
+# Maps CIS control IDs to tool-native check IDs across all supported tools.
+# The 'semantic' key provides a natural-language description for AI QA context
+# and report narratives -- it is NOT used for lookup or dedup.
+#
+# Format:
+#   cis:m365:{control_id}:
+#     scubagear: "MS.{MODULE}.{check}"
+#     maester: "MT.{id}"
+#     monkey365: "m365.{module}.{check}"
+#     m365_assess: "{control_id}"
+#     semantic: "{human-readable description}"
+#
+# Maintenance:
+# - When adding a new tool adapter, add its check IDs to existing entries.
+# - When a tool changes its check ID format, update entries here AND in the
+#   adapter's mappings.py DEDUP_KEY_RULES.
+# - Adapter-specific DEDUP_KEY_RULES dicts reference these shared IDs.
+
+cis:m365:1.1.1:  # Authentication Methods migration
+  scubagear: "MS.AAD.3.4v1"
+  maester: ~     # TODO: populate when Maester adapter is built
+  monkey365: ~   # TODO: populate when Monkey365 adapter is built
+  m365_assess: ~ # TODO: populate when M365Assess adapter is built
+  semantic: "entra:auth_methods:migration"
+
+cis:m365:1.1.4:  # Block legacy authentication
+  scubagear: "MS.AAD.1.1v1"
+  maester: ~
+  monkey365: ~
+  m365_assess: ~
+  semantic: "entra:legacy_auth:block"
+
+cis:m365:2.1.1:  # DKIM signing
+  scubagear: "MS.EXO.3.1v1"
+  maester: ~
+  monkey365: ~
+  m365_assess: ~
+  semantic: "exchange:email_auth:dkim"
+
+cis:m365:2.1.2:  # SPF records
+  scubagear: "MS.EXO.2.2v2"
+  maester: ~
+  monkey365: ~
+  m365_assess: ~
+  semantic: "exchange:email_auth:spf"
+
+cis:m365:2.1.4:  # Disable automatic forwarding
+  scubagear: "MS.EXO.1.1v2"
+  maester: ~
+  monkey365: ~
+  m365_assess: ~
+  semantic: "exchange:forwarding:block_external"
