@@ -6,7 +6,7 @@ All three dicts are intended to be imported directly and treated as read-only.
 
 from __future__ import annotations
 
-from gxassessms.core.domain.enums import Category, Severity
+from gxassessms.core.domain.enums import Category, FindingStatus, Severity
 
 # ---------------------------------------------------------------------------
 # SEVERITY_MAP
@@ -44,8 +44,8 @@ SEVERITY_MAP: dict[tuple[str, str], Severity] = {
     ("Should/3rd Party", "Warning"): Severity.LOW,
     # --- Not-Implemented (ScubaGear cannot check; always produces N/A) ---
     # Still a SHALL/SHOULD gap -- requires manual verification.
-    ("Shall/Not-Implemented", "N/A"): Severity.HIGH,
-    ("Should/Not-Implemented", "N/A"): Severity.MEDIUM,
+    ("Shall/Not-Implemented", FindingStatus.NOT_APPLICABLE): Severity.HIGH,
+    ("Should/Not-Implemented", FindingStatus.NOT_APPLICABLE): Severity.MEDIUM,
 }
 
 # ---------------------------------------------------------------------------

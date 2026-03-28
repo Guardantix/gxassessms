@@ -30,7 +30,7 @@ from gxassessms.core.contracts.errors import (
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
 from gxassessms.core.domain.constants import FileEncoding
-from gxassessms.core.domain.enums import CoverageStatus, ToolSource
+from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
     CoverageRecord,
@@ -308,7 +308,7 @@ class ScubaGearAdapter:
                     result_str: str = control.get("Result", "")
                     details: str = control.get("Details", "")
 
-                    if result_str.strip().upper() == "N/A":
+                    if result_str.strip().upper() == FindingStatus.NOT_APPLICABLE:
                         status = CoverageStatus.NOT_ASSESSED
                         reason: str | None = details if details else None
                     else:
