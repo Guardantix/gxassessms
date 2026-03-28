@@ -15,6 +15,7 @@ Ref: architecture spec Section 11 (Testing Architecture), property-based testing
 from __future__ import annotations
 
 import string
+import time
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -316,3 +317,54 @@ class TestConsolidationStability:
             assert 0.0 <= cf.confidence.evidence_strength <= 1.0
             assert 0.0 <= cf.confidence.data_freshness <= 1.0
             assert cf.confidence.corroborating_tools >= 0
+
+
+# ---------------------------------------------------------------------------
+# Performance regression guard
+# ---------------------------------------------------------------------------
+
+
+class TestConsolidationPerformance:
+    """Ensure consolidation handles realistic engagement sizes."""
+
+    def test_thousand_findings_completes_in_reasonable_time(self) -> None:
+        """1000 findings with overlapping dedup keys should consolidate
+        in under 5 seconds. This is a regression guard, not a benchmark."""
+        findings = []
+        for i in range(1000):
+            cluster_key = f"cluster-{i // 5}"
+            keys = [cluster_key, f"unique-{i}"]
+            if i % 50 == 0 and i > 0:
+                keys.append(f"cluster-{(i // 5) - 1}")
+            tool = [
+                ToolSource.SCUBAGEAR,
+                ToolSource.MAESTER,
+                ToolSource.MONKEY365,
+                ToolSource.PROWLER,
+            ][i % 4]
+            findings.append(
+                Finding(
+                    observation_id=f"{tool.value.lower()}:perf-{i:04d}",
+                    native_check_id=f"CHECK-{i:04d}",
+                    finding_key=f"finding-{i}",
+                    tool=tool,
+                    title=f"Perf test finding {i}",
+                    severity=Severity.MEDIUM,
+                    status=FindingStatus.FAIL,
+                    category=Category.IDENTITY_ACCESS,
+                    description=f"Performance test finding {i}",
+                    dedup_keys=keys,
+                    benchmark_refs=[],
+                )
+            )
+
+        policy = DefaultConsolidationPolicy(rules=_POLICY_RULES)
+        rule = DefaultConsolidationRule(policy=policy)
+
+        start = time.monotonic()
+        consolidated = rule.consolidate(findings=findings)
+        elapsed = time.monotonic() - start
+
+        assert elapsed < 5.0, f"Consolidation took {elapsed:.2f}s for 1000 findings"
+        assert len(consolidated) < len(findings)
+        assert len(consolidated) > 0
