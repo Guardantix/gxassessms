@@ -106,13 +106,13 @@ def _validate_adapter(name: str, adapter_class: Any) -> list[str]:
     # Smoke test -- instantiate and verify tool_name is a non-empty string
     try:
         instance = adapter_class()
-    except (TypeError, ValueError, AttributeError, RuntimeError) as exc:
+    except TypeError as exc:
         failures.append(f"Adapter {name!r} raised {type(exc).__name__} during instantiation: {exc}")
         return failures
 
     try:
         tool_name_value = instance.tool_name
-    except (TypeError, ValueError, AttributeError, RuntimeError) as exc:
+    except AttributeError as exc:
         failures.append(f"Adapter {name!r} raised {type(exc).__name__} accessing tool_name: {exc}")
         return failures
 
