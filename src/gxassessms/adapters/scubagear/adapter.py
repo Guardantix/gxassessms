@@ -232,6 +232,13 @@ class ScubaGearAdapter:
         for html_file in run_dir.glob("*.html"):
             file_manifest[str(html_file)] = "utf-8"
 
+        if not file_manifest:
+            raise CollectionError(
+                f"ScubaGear created output directory {run_dir.name} but "
+                f"no JSON/HTML files were found",
+                adapter_name=self.tool_name,
+            )
+
         logger.info(
             "ScubaGear collection complete. Output dir: %s, %d files in manifest",
             run_dir,
