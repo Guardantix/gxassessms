@@ -42,6 +42,9 @@ logger = logging.getLogger(__name__)
 
 _SCHEMA_VERSION = "1.7.1"
 _DEFAULT_TIMEOUT_SECONDS = 1800  # 30 minutes -- ScubaGear can be slow
+_VALID_PRODUCT_NAMES: frozenset[str] = frozenset(
+    {"AAD", "Defender", "EXO", "PowerPlatform", "SharePoint", "Teams"}
+)
 
 
 class ScubaGearAdapter:
@@ -154,8 +157,16 @@ class ScubaGearAdapter:
 
         # Build Invoke-SCuBA command
         script_parts = ["Import-Module ScubaGear;", "Invoke-SCuBA"]
-        script_parts.append(f"-OutPath '{output_dir}'")
+        escaped_path = str(output_dir).replace("'", "''")
+        script_parts.append(f"-OutPath '{escaped_path}'")
         if modules:
+            invalid = set(modules) - _VALID_PRODUCT_NAMES
+            if invalid:
+                raise CollectionError(
+                    f"Invalid ScubaGear module(s): {sorted(invalid)}. "
+                    f"Valid modules: {sorted(_VALID_PRODUCT_NAMES)}",
+                    adapter_name=self.tool_name,
+                )
             module_list = ",".join(modules)
             script_parts.append(f"-ProductNames {module_list}")
 
@@ -288,17 +299,19 @@ class ScubaGearAdapter:
 
     def coverage(self, raw: RawToolOutput) -> list[CoverageRecord]:
         """Extract per-control coverage records. N/A -> NOT_ASSESSED, others -> ASSESSED."""
+        self.validate_raw(raw)
+
         json_files = [f for f in raw.file_manifest if f.lower().endswith(".json")]
         results_file = self._find_scuba_results_file(json_files)
-
         if results_file is None:
+            # validate_raw guarantees this exists; guard satisfies type checker
             raise RawOutputValidationError(
-                "ScubaResults JSON file not found in manifest for coverage export",
+                "ScubaResults file missing after validation (unexpected)",
                 adapter_name=self.tool_name,
             )
 
         data = load_json_file(Path(results_file), adapter_name=self.tool_name)
-        results: dict[str, list[dict[str, Any]]] = data.get("Results", {})
+        results: dict[str, list[dict[str, Any]]] = data["Results"]
 
         records: list[CoverageRecord] = []
         for _module_key, groups in results.items():
