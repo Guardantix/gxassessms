@@ -151,6 +151,13 @@ class TestValidateRaw:
             self.adapter.validate_raw(raw)
 
     @patch("gxassessms.adapters.scubagear.adapter.load_json_file")
+    def test_controls_null_raises(self, mock_load: Any) -> None:
+        mock_load.return_value = {"Results": {"AAD": [{"GroupName": "G", "Controls": None}]}}
+        raw = _make_raw_output(file_manifest={"ScubaResults.json": "utf-8"})
+        with pytest.raises(self.RawOutputValidationError, match=r"Controls.*not a list"):
+            self.adapter.validate_raw(raw)
+
+    @patch("gxassessms.adapters.scubagear.adapter.load_json_file")
     def test_control_entry_not_dict_raises(self, mock_load: Any) -> None:
         mock_load.return_value = {
             "Results": {"AAD": [{"GroupName": "G", "Controls": ["not-a-dict"]}]}

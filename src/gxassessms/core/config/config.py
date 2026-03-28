@@ -25,7 +25,7 @@ class ToolConfig(BaseModel):
     enabled: bool = False
     output_dir: str = ""
     modules: list[str] = Field(default_factory=list)
-    timeout: int | None = None
+    timeout: int | None = Field(default=None, gt=0)
     extra_args: list[str] = Field(default_factory=list)
 
     @field_validator("enabled", mode="before")
@@ -37,11 +37,9 @@ class ToolConfig(BaseModel):
 
     @field_validator("timeout", mode="before")
     @classmethod
-    def reject_invalid_timeout(cls, v: Any) -> Any:
+    def reject_bool_timeout(cls, v: Any) -> Any:
         if isinstance(v, bool):
             raise ValueError("timeout must be an integer, not a boolean")
-        if isinstance(v, int) and v <= 0:
-            raise ValueError("timeout must be positive")
         return v
 
 

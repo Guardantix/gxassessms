@@ -318,7 +318,7 @@ class ScubaGearAdapter:
                         adapter_name=self.tool_name,
                     )
                 controls = group.get("Controls")
-                if controls is not None and not isinstance(controls, list):
+                if "Controls" in group and not isinstance(controls, list):
                     raise RawOutputValidationError(
                         f"ScubaResults Controls in module {_module_key!r} is not a list "
                         f"(got {type(controls).__name__})",
