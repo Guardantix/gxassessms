@@ -45,6 +45,7 @@ _DEFAULT_TIMEOUT_SECONDS = 1800  # 30 minutes -- ScubaGear can be slow
 _VALID_PRODUCT_NAMES: frozenset[str] = frozenset(
     {"AAD", "Defender", "EXO", "PowerPlatform", "SharePoint", "Teams"}
 )
+_PRODUCT_NAME_MAP: dict[str, str] = {name.lower(): name for name in _VALID_PRODUCT_NAMES}
 
 
 class ScubaGearAdapter:
@@ -176,14 +177,21 @@ class ScubaGearAdapter:
         escaped_path = str(output_dir).replace("'", "''")
         script_parts.append(f"-OutPath '{escaped_path}'")
         if modules:
-            invalid = set(modules) - _VALID_PRODUCT_NAMES
+            canonical_modules: list[str] = []
+            invalid: list[str] = []
+            for m in modules:
+                canonical = _PRODUCT_NAME_MAP.get(m.lower())
+                if canonical:
+                    canonical_modules.append(canonical)
+                else:
+                    invalid.append(m)
             if invalid:
                 raise CollectionError(
                     f"Invalid ScubaGear module(s): {sorted(invalid)}. "
                     f"Valid modules: {sorted(_VALID_PRODUCT_NAMES)}",
                     adapter_name=self.tool_name,
                 )
-            module_list = ",".join(modules)
+            module_list = ",".join(canonical_modules)
             script_parts.append(f"-ProductNames {module_list}")
 
         script = " ".join(script_parts)
@@ -306,7 +314,14 @@ class ScubaGearAdapter:
                         f"(got {type(group).__name__})",
                         adapter_name=self.tool_name,
                     )
-                if group.get("Controls"):
+                controls = group.get("Controls")
+                if controls is not None and not isinstance(controls, list):
+                    raise RawOutputValidationError(
+                        f"ScubaResults Controls in module {_module_key!r} is not a list "
+                        f"(got {type(controls).__name__})",
+                        adapter_name=self.tool_name,
+                    )
+                if controls:
                     has_controls = True
                     break
             if has_controls:
