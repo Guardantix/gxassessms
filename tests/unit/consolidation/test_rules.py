@@ -127,6 +127,25 @@ class TestDefaultConsolidationRuleTransitive:
         # Canonical key comes from highest-severity finding
         assert result[0].finding_key == "b"
 
+    def test_canonical_key_alphabetical_tiebreak(self, policy: DefaultConsolidationPolicy) -> None:
+        """When severity ties, the alphabetically latest finding_key wins
+        (max() on string comparison)."""
+        f_a = make_finding(
+            finding_key="alpha",
+            severity=Severity.CRITICAL,
+            dedup_keys=["shared-key"],
+        )
+        f_b = make_finding(
+            finding_key="zulu",
+            severity=Severity.CRITICAL,
+            dedup_keys=["shared-key"],
+        )
+        rule = DefaultConsolidationRule(policy=policy)
+        result = rule.consolidate(findings=[f_a, f_b])
+        assert len(result) == 1
+        # Same severity -> alphabetical tiebreak -> "zulu" > "alpha"
+        assert result[0].finding_key == "zulu"
+
 
 class TestDefaultConsolidationRuleSeverity:
     """Severity reconciliation through the full rule."""
