@@ -228,3 +228,11 @@ class TestUnionFindDedupEdgeCases:
         engine = UnionFindDedup()
         groups = engine.group(findings=[f1, f2])
         assert len(groups) == 2
+
+    def test_whitespace_padded_keys_normalize(self) -> None:
+        """Dedup keys with leading/trailing whitespace match their stripped form."""
+        f1 = make_finding(finding_key="f1", dedup_keys=["cis:m365:1.1.1"])
+        f2 = make_finding(finding_key="f2", dedup_keys=[" cis:m365:1.1.1 "])
+        engine = UnionFindDedup()
+        groups = engine.group(findings=[f1, f2])
+        assert len(groups) == 1

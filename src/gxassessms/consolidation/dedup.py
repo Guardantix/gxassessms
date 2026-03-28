@@ -97,8 +97,9 @@ class UnionFindDedup:
         key_to_indices: dict[str, list[int]] = defaultdict(list)
         for idx, finding in enumerate(findings):
             for key in finding.dedup_keys:
-                if key.strip():
-                    key_to_indices[key].append(idx)
+                stripped = key.strip()
+                if stripped:
+                    key_to_indices[stripped].append(idx)
 
         # Union all findings that share a dedup key
         for indices in key_to_indices.values():

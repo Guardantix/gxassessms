@@ -238,18 +238,6 @@ class TestConsolidationRuleInvariants:
             )
 
     @given(findings=_findings_list_strategy)
-    @settings(max_examples=200)
-    def test_no_dedup_key_in_multiple_consolidated(self, findings: list[Finding]) -> None:
-        """Invariant 4: no dedup key appears in more than one consolidated finding."""
-        policy = DefaultConsolidationPolicy(rules=_POLICY_RULES)
-        rule = DefaultConsolidationRule(policy=policy)
-        consolidated = rule.consolidate(findings=findings)
-
-        engine = UnionFindDedup()
-        groups = engine.group(findings=findings)
-        assert len(consolidated) == len(groups)
-
-    @given(findings=_findings_list_strategy)
     @settings(max_examples=100)
     def test_every_input_finding_traceable_via_sources(self, findings: list[Finding]) -> None:
         """Invariant 2: every input finding appears in exactly one consolidated

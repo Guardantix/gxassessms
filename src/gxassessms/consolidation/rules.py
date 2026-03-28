@@ -95,7 +95,7 @@ class DefaultConsolidationRule:
         if len(unique_keys) == 1:
             return unique_keys.pop()
 
-        # Highest severity, then alphabetical (earliest) for stability
+        # Highest severity, then alphabetical (latest) for stability
         return max(
             group,
             key=lambda f: (SEVERITY_ORDER.get(f.severity.value, 0), f.finding_key),
