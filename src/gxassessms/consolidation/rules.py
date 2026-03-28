@@ -89,7 +89,7 @@ class DefaultConsolidationRule:
         Strategy:
         1. If all findings share the same finding_key, use it (common case)
         2. Otherwise, use the finding_key from the highest-severity finding
-        3. Tiebreak: alphabetical (earliest) for deterministic output
+        3. Tiebreak: alphabetical (latest) for deterministic output
         """
         unique_keys = {f.finding_key for f in group}
         if len(unique_keys) == 1:
