@@ -9,7 +9,6 @@ end up in the same group.
 from __future__ import annotations
 
 from gxassessms.consolidation.dedup import UnionFindDedup
-
 from gxassessms.core.domain.enums import (
     ToolSource,
 )
