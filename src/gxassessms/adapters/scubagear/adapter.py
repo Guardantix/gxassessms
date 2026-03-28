@@ -130,18 +130,22 @@ class ScubaGearAdapter:
         """Invoke ScubaGear and capture its output directory.
 
         Reads from ``config.tools["scubagear"]``: ``output_dir`` (required),
-        ``modules``, ``timeout_seconds`` (default 1800), ``extra_args``.
+        ``modules``, ``timeout`` (default 1800), ``extra_args``.
 
         Raises:
             CollectionError: On PowerShell failure, timeout, or missing output.
         """
         from gxassessms.core.config.datetime_utils import utc_now
 
-        tool_config: dict[str, Any] = {}
+        tool_cfg: dict[str, Any] = {}
         if hasattr(config, "tools") and config.tools:
-            tool_config = config.tools.get("scubagear", {})
+            raw_tc = config.tools.get("scubagear", {})
+            if hasattr(raw_tc, "model_dump"):
+                tool_cfg = cast(dict[str, Any], raw_tc.model_dump())
+            elif isinstance(raw_tc, dict):
+                tool_cfg = cast(dict[str, Any], raw_tc)
 
-        raw_output_dir = tool_config.get("output_dir", "")
+        raw_output_dir = tool_cfg.get("output_dir", "")
         if not raw_output_dir:
             raise CollectionError(
                 "ScubaGear adapter requires 'output_dir' in tool config",
@@ -151,21 +155,21 @@ class ScubaGearAdapter:
         output_dir = Path(raw_output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        modules: list[str] = tool_config.get("modules", [])
-        raw_timeout = tool_config.get("timeout_seconds", _DEFAULT_TIMEOUT_SECONDS)
+        modules: list[str] = tool_cfg.get("modules", [])
+        raw_timeout = tool_cfg.get("timeout", _DEFAULT_TIMEOUT_SECONDS)
         try:
             timeout_seconds: int = int(raw_timeout)
         except (TypeError, ValueError) as exc:
             raise CollectionError(
-                f"Invalid timeout_seconds value: {raw_timeout!r}",
+                f"Invalid timeout value: {raw_timeout!r}",
                 adapter_name=self.tool_name,
             ) from exc
         if timeout_seconds <= 0:
             raise CollectionError(
-                f"timeout_seconds must be positive, got {timeout_seconds}",
+                f"timeout must be positive, got {timeout_seconds}",
                 adapter_name=self.tool_name,
             )
-        extra_args: list[str] = tool_config.get("extra_args", [])
+        extra_args: list[str] = tool_cfg.get("extra_args", [])
 
         # Build Invoke-SCuBA command
         script_parts = ["Import-Module ScubaGear;", "Invoke-SCuBA"]
@@ -184,6 +188,13 @@ class ScubaGearAdapter:
 
         script = " ".join(script_parts)
 
+        # Snapshot existing output dirs so we can detect stale results
+        existing_dirs = {
+            d
+            for d in output_dir.iterdir()
+            if d.is_dir() and d.name.startswith("M365BaselineConformance")
+        }
+
         engagement_id = getattr(config, "engagement_id", "")
         run_powershell(
             script=script,
@@ -195,6 +206,13 @@ class ScubaGearAdapter:
 
         # Locate the output subdirectory ScubaGear created
         run_dir = find_latest_output_dir(output_dir, prefix="M365BaselineConformance")
+
+        if run_dir in existing_dirs:
+            raise CollectionError(
+                f"ScubaGear did not produce new output. "
+                f"Latest directory {run_dir.name} pre-dates this collection",
+                adapter_name=self.tool_name,
+            )
 
         # Collect JSON and HTML output files
         file_manifest: dict[str, FileEncoding] = {}
@@ -272,10 +290,22 @@ class ScubaGearAdapter:
             dict[str, list[dict[str, Any]]], raw_results
         )
 
-        # Verify at least one module has controls
+        # Verify structure and that at least one module has controls
         has_controls = False
         for _module_key, groups in results.items():
+            if not isinstance(groups, list):  # pyright: ignore[reportUnnecessaryIsInstance]
+                raise RawOutputValidationError(
+                    f"ScubaResults module {_module_key!r} value is not a list "
+                    f"(got {type(groups).__name__})",
+                    adapter_name=self.tool_name,
+                )
             for group in groups:
+                if not isinstance(group, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
+                    raise RawOutputValidationError(
+                        f"ScubaResults group in module {_module_key!r} is not a dict "
+                        f"(got {type(group).__name__})",
+                        adapter_name=self.tool_name,
+                    )
                 if group.get("Controls"):
                     has_controls = True
                     break

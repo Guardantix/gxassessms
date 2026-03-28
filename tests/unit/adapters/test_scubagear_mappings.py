@@ -92,10 +92,11 @@ class TestSeverityMap:
     @pytest.fixture(autouse=True)
     def _import_maps(self) -> None:
         from gxassessms.adapters.scubagear.mappings import SEVERITY_MAP
-        from gxassessms.core.domain.enums import Severity
+        from gxassessms.core.domain.enums import FindingStatus, Severity
 
         self.map = SEVERITY_MAP
         self.Severity = Severity
+        self.FindingStatus = FindingStatus
 
     def test_is_dict(self) -> None:
         assert isinstance(self.map, dict)
@@ -114,28 +115,28 @@ class TestSeverityMap:
     # --- known mappings ---
 
     def test_shall_fail_is_critical(self) -> None:
-        assert self.map[("Shall", "Fail")] == self.Severity.CRITICAL
+        assert self.map[("Shall", self.FindingStatus.FAIL)] == self.Severity.CRITICAL
 
     def test_shall_warning_is_high(self) -> None:
-        assert self.map[("Shall", "Warning")] == self.Severity.HIGH
+        assert self.map[("Shall", self.FindingStatus.WARNING)] == self.Severity.HIGH
 
     def test_should_fail_is_high(self) -> None:
-        assert self.map[("Should", "Fail")] == self.Severity.HIGH
+        assert self.map[("Should", self.FindingStatus.FAIL)] == self.Severity.HIGH
 
     def test_should_warning_is_medium(self) -> None:
-        assert self.map[("Should", "Warning")] == self.Severity.MEDIUM
+        assert self.map[("Should", self.FindingStatus.WARNING)] == self.Severity.MEDIUM
 
     def test_shall_3rd_party_fail_is_high(self) -> None:
-        assert self.map[("Shall/3rd Party", "Fail")] == self.Severity.HIGH
+        assert self.map[("Shall/3rd Party", self.FindingStatus.FAIL)] == self.Severity.HIGH
 
     def test_should_3rd_party_fail_is_medium(self) -> None:
-        assert self.map[("Should/3rd Party", "Fail")] == self.Severity.MEDIUM
+        assert self.map[("Should/3rd Party", self.FindingStatus.FAIL)] == self.Severity.MEDIUM
 
     def test_shall_3rd_party_warning_is_medium(self) -> None:
-        assert self.map[("Shall/3rd Party", "Warning")] == self.Severity.MEDIUM
+        assert self.map[("Shall/3rd Party", self.FindingStatus.WARNING)] == self.Severity.MEDIUM
 
     def test_should_3rd_party_warning_is_low(self) -> None:
-        assert self.map[("Should/3rd Party", "Warning")] == self.Severity.LOW
+        assert self.map[("Should/3rd Party", self.FindingStatus.WARNING)] == self.Severity.LOW
 
     def test_shall_not_implemented_na_is_high(self) -> None:
         assert self.map[("Shall/Not-Implemented", "N/A")] == self.Severity.HIGH
@@ -147,10 +148,15 @@ class TestSeverityMap:
 
     def test_all_fixture_pairs_that_need_mapping_are_present(self) -> None:
         """Every (Criticality, Result) pair from the fixture that should have a
-        non-INFO severity must appear as a key in SEVERITY_MAP."""
+        non-INFO severity must appear as a key in SEVERITY_MAP.
+
+        Fixture results are raw ScubaGear values ("Fail", "Warning") but
+        SEVERITY_MAP uses canonicalized domain values ("FAIL", "WARNING")
+        because normalization applies default_status_map before lookup.
+        """
         all_pairs = _load_fixture_pairs()
         must_be_mapped = {
-            (crit, result)
+            (crit, result.upper())
             for crit, result in all_pairs
             if result != _PASS_RESULT
             and not (result == "N/A" and crit in _STANDARD_NA_CRITICALITIES)

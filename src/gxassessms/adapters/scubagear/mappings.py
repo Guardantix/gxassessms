@@ -21,29 +21,32 @@ from gxassessms.core.domain.enums import Category, FindingStatus, Severity
 #   "Shall/Not-Implemented"-- mandatory, ScubaGear cannot check (always N/A)
 #   "Should/Not-Implemented"-- recommended, ScubaGear cannot check (always N/A)
 #
-# Result values:
-#   "Fail", "Warning", "Pass", "N/A"
+# Result values (canonicalized by default_status_map before lookup):
+#   "FAIL", "WARNING", "PASS", "N/A"
 #
 # Pass (any Criticality) and N/A with 3rd-Party Criticality resolve to INFO
 # via DefaultNormalizationPolicy._resolve_severity(), which short-circuits
 # PASS and NOT_APPLICABLE statuses to INFO before consulting this map.
 # These entries are therefore intentionally absent.
+#
+# Keys use canonicalized (domain) status values because _resolve_severity()
+# applies default_status_map ("Fail"->"FAIL", etc.) before looking up here.
 # ---------------------------------------------------------------------------
 
 SEVERITY_MAP: dict[tuple[str, str], Severity] = {
     # --- Shall (mandatory, directly assessed) ---
-    ("Shall", "Fail"): Severity.CRITICAL,
-    ("Shall", "Warning"): Severity.HIGH,
+    ("Shall", FindingStatus.FAIL): Severity.CRITICAL,
+    ("Shall", FindingStatus.WARNING): Severity.HIGH,
     # --- Should (recommended, directly assessed) ---
-    ("Should", "Fail"): Severity.HIGH,
-    ("Should", "Warning"): Severity.MEDIUM,
+    ("Should", FindingStatus.FAIL): Severity.HIGH,
+    ("Should", FindingStatus.WARNING): Severity.MEDIUM,
     # --- Shall/3rd Party (mandatory, 3rd-party implementation) ---
     # Lower confidence than direct assessment -- one notch down.
-    ("Shall/3rd Party", "Fail"): Severity.HIGH,
-    ("Shall/3rd Party", "Warning"): Severity.MEDIUM,
+    ("Shall/3rd Party", FindingStatus.FAIL): Severity.HIGH,
+    ("Shall/3rd Party", FindingStatus.WARNING): Severity.MEDIUM,
     # --- Should/3rd Party (recommended, 3rd-party implementation) ---
-    ("Should/3rd Party", "Fail"): Severity.MEDIUM,
-    ("Should/3rd Party", "Warning"): Severity.LOW,
+    ("Should/3rd Party", FindingStatus.FAIL): Severity.MEDIUM,
+    ("Should/3rd Party", FindingStatus.WARNING): Severity.LOW,
     # --- Not-Implemented (ScubaGear cannot check; always produces N/A) ---
     # Under DefaultNormalizationPolicy these entries are unreachable because
     # _resolve_severity short-circuits N/A -> INFO before consulting this map.

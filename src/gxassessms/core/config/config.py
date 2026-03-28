@@ -23,9 +23,10 @@ class ToolConfig(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     enabled: bool = False
+    output_dir: str = ""
     modules: list[str] = Field(default_factory=list)
     timeout: int = Field(default=600, gt=0)
-    extra_args: dict[str, Any] = Field(default_factory=dict)
+    extra_args: list[str] = Field(default_factory=list)
 
     @field_validator("enabled", mode="before")
     @classmethod

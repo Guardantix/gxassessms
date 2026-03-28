@@ -127,6 +127,20 @@ class TestValidateRaw:
         with pytest.raises(self.RawOutputValidationError, match="no controls"):
             self.adapter.validate_raw(raw)
 
+    @patch("gxassessms.adapters.scubagear.adapter.load_json_file")
+    def test_module_value_not_list_raises(self, mock_load: Any) -> None:
+        mock_load.return_value = {"Results": {"AAD": "not-a-list"}}
+        raw = _make_raw_output(file_manifest={"ScubaResults.json": "utf-8"})
+        with pytest.raises(self.RawOutputValidationError, match="not a list"):
+            self.adapter.validate_raw(raw)
+
+    @patch("gxassessms.adapters.scubagear.adapter.load_json_file")
+    def test_group_not_dict_raises(self, mock_load: Any) -> None:
+        mock_load.return_value = {"Results": {"AAD": ["not-a-dict"]}}
+        raw = _make_raw_output(file_manifest={"ScubaResults.json": "utf-8"})
+        with pytest.raises(self.RawOutputValidationError, match="not a dict"):
+            self.adapter.validate_raw(raw)
+
     def test_valid_fixture_passes(self) -> None:
         manifest = {str(FIXTURE_PATH): "utf-8"}
         raw = _make_raw_output(file_manifest=manifest)
