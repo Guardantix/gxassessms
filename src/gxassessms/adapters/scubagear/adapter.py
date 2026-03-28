@@ -298,7 +298,7 @@ class ScubaGearAdapter:
             dict[str, list[dict[str, Any]]], raw_results
         )
 
-        # Verify structure and that at least one module has controls
+        # Verify structure of ALL modules and that at least one has controls
         has_controls = False
         for _module_key, groups in results.items():
             if not isinstance(groups, list):  # pyright: ignore[reportUnnecessaryIsInstance]
@@ -323,9 +323,6 @@ class ScubaGearAdapter:
                     )
                 if controls:
                     has_controls = True
-                    break
-            if has_controls:
-                break
 
         if not has_controls:
             raise RawOutputValidationError(
