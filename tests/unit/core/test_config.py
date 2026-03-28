@@ -26,7 +26,7 @@ class TestToolConfig:
         assert tc.enabled is True
         assert tc.output_dir == ""
         assert tc.modules == []
-        assert tc.timeout == 600
+        assert tc.timeout is None
         assert tc.extra_args == []
 
     def test_rejects_unknown_fields(self) -> None:

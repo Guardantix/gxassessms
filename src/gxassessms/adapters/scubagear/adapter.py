@@ -157,19 +157,22 @@ class ScubaGearAdapter:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         modules: list[str] = tool_cfg.get("modules", [])
-        raw_timeout = tool_cfg.get("timeout", _DEFAULT_TIMEOUT_SECONDS)
-        try:
-            timeout_seconds: int = int(raw_timeout)
-        except (TypeError, ValueError) as exc:
-            raise CollectionError(
-                f"Invalid timeout value: {raw_timeout!r}",
-                adapter_name=self.tool_name,
-            ) from exc
-        if timeout_seconds <= 0:
-            raise CollectionError(
-                f"timeout must be positive, got {timeout_seconds}",
-                adapter_name=self.tool_name,
-            )
+        raw_timeout = tool_cfg.get("timeout")
+        if raw_timeout is None:
+            timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS
+        else:
+            try:
+                timeout_seconds = int(raw_timeout)
+            except (TypeError, ValueError) as exc:
+                raise CollectionError(
+                    f"Invalid timeout value: {raw_timeout!r}",
+                    adapter_name=self.tool_name,
+                ) from exc
+            if timeout_seconds <= 0:
+                raise CollectionError(
+                    f"timeout must be positive, got {timeout_seconds}",
+                    adapter_name=self.tool_name,
+                )
         extra_args: list[str] = tool_cfg.get("extra_args", [])
 
         # Build Invoke-SCuBA command
