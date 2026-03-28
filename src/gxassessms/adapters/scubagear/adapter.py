@@ -322,6 +322,13 @@ class ScubaGearAdapter:
                         adapter_name=self.tool_name,
                     )
                 if controls:
+                    for control in controls:  # pyright: ignore[reportUnknownVariableType]
+                        if not isinstance(control, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
+                            raise RawOutputValidationError(
+                                f"ScubaResults control entry in module {_module_key!r} "
+                                f"is not a dict (got {type(control).__name__})",  # pyright: ignore[reportUnknownArgumentType]
+                                adapter_name=self.tool_name,
+                            )
                     has_controls = True
 
         if not has_controls:
