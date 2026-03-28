@@ -33,12 +33,17 @@ logger = logging.getLogger(__name__)
 class ConsolidationPolicy(Protocol):
     """Protocol for consolidation policy extension point.
 
-    Implementations group Findings by dedup key, reconcile conflicting
-    severity/status, compute confidence scores, and produce
-    ConsolidatedFindings.
+    Implementations reconcile conflicting severity/status, compute
+    confidence scores, and produce ConsolidatedFindings.
+
+    Two usage patterns:
+    - consolidate(): groups findings by finding_key, then merges each group
+    - merge_group(): merges a pre-formed group (e.g., from union-find dedup)
     """
 
     def consolidate(self, findings: list[Finding]) -> list[ConsolidatedFinding]: ...
+
+    def merge_group(self, finding_key: str, findings: list[Finding]) -> ConsolidatedFinding: ...
 
 
 class DefaultConsolidationPolicy:
@@ -62,22 +67,22 @@ class DefaultConsolidationPolicy:
 
         consolidated: list[ConsolidatedFinding] = []
         for finding_key, group in groups.items():
-            cf = self._merge_group(finding_key, group)
+            cf = self.merge_group(finding_key, group)
             consolidated.append(cf)
 
         return consolidated
 
-    def _merge_group(self, finding_key: str, group: list[Finding]) -> ConsolidatedFinding:
-        """Merge a group of Findings with the same finding_key."""
-        severity = self._reconcile_severity(group)
-        status = self._reconcile_status(group)
-        title = self._reconcile_title(group)
-        description = self._reconcile_description(group)
-        sources = self._build_sources(group)
-        benchmark_refs = self._merge_benchmark_refs(group)
-        confidence = self._compute_confidence(group)
+    def merge_group(self, finding_key: str, findings: list[Finding]) -> ConsolidatedFinding:
+        """Merge a pre-formed group of Findings with the same finding_key."""
+        severity = self._reconcile_severity(findings)
+        status = self._reconcile_status(findings)
+        title = self._reconcile_title(findings)
+        description = self._reconcile_description(findings)
+        sources = self._build_sources(findings)
+        benchmark_refs = self._merge_benchmark_refs(findings)
+        confidence = self._compute_confidence(findings)
         category = max(
-            group,
+            findings,
             key=lambda f: (SEVERITY_ORDER.get(f.severity.value, 0), f.category.name),
         ).category
 
