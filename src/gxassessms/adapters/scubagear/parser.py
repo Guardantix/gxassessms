@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from gxassessms.core.contracts.errors import ParseError
 from gxassessms.core.domain.enums import ToolSource
 from gxassessms.core.domain.models import ToolObservation
 
@@ -80,17 +81,24 @@ def _parse_control(
     Returns:
         ToolObservation populated from the control's fields.
     """
-    native_check_id: str = control["Control ID"]
-    title: str = control["Requirement"]
-    native_status: str = control["Result"]
-    native_severity: str = control["Criticality"]
-    description: str = control["Details"]
+    try:
+        native_check_id: str = control["Control ID"]
+        title: str = control["Requirement"]
+        native_status: str = control["Result"]
+        native_severity: str = control["Criticality"]
+        description: str = control["Details"]
+    except KeyError as exc:
+        raise ParseError(
+            f"Malformed control in module {module_key!r}: missing key {exc}",
+            adapter_name="ScubaGear",
+            check_id=control.get("Control ID", "<unknown>"),
+        ) from exc
 
     raw_data: dict[str, Any] = {
         "module": module_key,
         "group_name": group_name,
         "group_number": group_number,
-        "details": control["Details"],
+        "details": description,
         "original_result": control.get("OriginalResult", ""),
         "original_details": control.get("OriginalDetails", ""),
     }

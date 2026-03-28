@@ -4,7 +4,7 @@ Uses the generic registry.discover_entry_points() for loading, then applies
 adapter-specific validation:
 
 1. Import test: handled by registry.py
-2. Protocol check: does it have required attributes?
+2. Attribute check: does it have required attributes?
 3. Smoke test: does tool_name return a non-empty string?
 
 Invalid adapters are logged as warnings and excluded from the active registry.
@@ -44,7 +44,7 @@ _REQUIRED_ATTRIBUTES: frozenset[str] = frozenset(
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True)
 class AdapterRegistry:
     """Holds validated adapter classes discovered from entry points.
 
@@ -53,8 +53,8 @@ class AdapterRegistry:
         validation_errors: Errors accumulated during discovery and validation.
     """
 
-    adapters: dict[str, Any] = field(default_factory=lambda: dict[str, Any]())
-    validation_errors: list[DiscoveryError] = field(default_factory=lambda: list[DiscoveryError]())
+    adapters: dict[str, Any] = field(default_factory=dict[str, Any])
+    validation_errors: list[DiscoveryError] = field(default_factory=list[DiscoveryError])
 
     # ------------------------------------------------------------------
     # Properties
@@ -106,7 +106,7 @@ def _validate_adapter(name: str, adapter_class: Any) -> list[str]:
     # Smoke test -- instantiate and verify tool_name is a non-empty string
     try:
         instance = adapter_class()
-    except (TypeError, ValueError, RuntimeError) as exc:
+    except (TypeError, ValueError, RuntimeError, ImportError, AttributeError, OSError) as exc:
         failures.append(f"Adapter {name!r} raised {type(exc).__name__} during instantiation: {exc}")
         return failures
 
@@ -145,10 +145,8 @@ def discover_adapters() -> AdapterRegistry:
     """
     discovery = discover_entry_points(ADAPTER_GROUP)
 
-    registry = AdapterRegistry()
-
-    # Carry forward load-time errors from generic discovery
-    registry.validation_errors.extend(discovery.errors)
+    adapters: dict[str, Any] = {}
+    validation_errors: list[DiscoveryError] = list(discovery.errors)
 
     # Validate each successfully loaded plugin
     for adapter_name, adapter_class in discovery.plugins.items():
@@ -157,7 +155,7 @@ def discover_adapters() -> AdapterRegistry:
         if failures:
             for message in failures:
                 logger.warning("Adapter %r failed validation: %s", adapter_name, message)
-                registry.validation_errors.append(
+                validation_errors.append(
                     DiscoveryError(
                         plugin_name=adapter_name,
                         error_type="ValidationError",
@@ -165,12 +163,12 @@ def discover_adapters() -> AdapterRegistry:
                     )
                 )
         else:
-            registry.adapters[adapter_name] = adapter_class
+            adapters[adapter_name] = adapter_class
             logger.debug("Registered adapter %r", adapter_name)
 
     # Summary log
-    valid_count = len(registry.adapters)
-    error_count = len(registry.validation_errors)
+    valid_count = len(adapters)
+    error_count = len(validation_errors)
     if valid_count or error_count:
         logger.info(
             "Adapter discovery complete: %d valid, %d error(s)",
@@ -183,4 +181,4 @@ def discover_adapters() -> AdapterRegistry:
             ADAPTER_GROUP,
         )
 
-    return registry
+    return AdapterRegistry(adapters=adapters, validation_errors=validation_errors)

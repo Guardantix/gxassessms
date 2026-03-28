@@ -1,6 +1,6 @@
 """Shared adapter utilities.
 
-Platform-aware PowerShell runner, output file locator, safe subprocess
+Platform-aware PowerShell runner, output directory locator, safe subprocess
 invocation, and JSON file loader with BOM-aware encoding support.
 
 ScubaGear and other Windows-native tools produce UTF-8-BOM encoded JSON;
@@ -105,11 +105,8 @@ def run_powershell(
         script,
     ]
 
-    logger.info(
-        "[%s] Running PowerShell: %s",
-        adapter_name or "adapter",
-        " ".join(cmd),
-    )
+    logger.info("[%s] Running PowerShell (%s)", adapter_name or "adapter", exe)
+    logger.debug("[%s] Full command: %s", adapter_name or "adapter", " ".join(cmd))
 
     try:
         result = subprocess.run(  # noqa: S603
@@ -124,9 +121,9 @@ def run_powershell(
             adapter_name=adapter_name,
             engagement_id=engagement_id,
         ) from exc
-    except FileNotFoundError as exc:
+    except OSError as exc:
         raise CollectionError(
-            f"PowerShell executable not found: {exe!r}",
+            f"PowerShell not accessible ({type(exc).__name__}): {exe!r}",
             adapter_name=adapter_name,
             engagement_id=engagement_id,
         ) from exc
@@ -162,9 +159,16 @@ def find_latest_output_dir(base_dir: Path, prefix: str = "") -> Path:
             f"Output base directory does not exist: {base_dir}",
         )
 
-    candidates = [
-        d for d in base_dir.iterdir() if d.is_dir() and (not prefix or d.name.startswith(prefix))
-    ]
+    try:
+        candidates = [
+            d
+            for d in base_dir.iterdir()
+            if d.is_dir() and (not prefix or d.name.startswith(prefix))
+        ]
+    except OSError as exc:
+        raise CollectionError(
+            f"Cannot read output directory {base_dir}: {exc}",
+        ) from exc
 
     if not candidates:
         raise CollectionError(
@@ -172,7 +176,12 @@ def find_latest_output_dir(base_dir: Path, prefix: str = "") -> Path:
             + (f" with prefix {prefix!r}" if prefix else ""),
         )
 
-    return max(candidates, key=lambda d: d.stat().st_mtime)
+    try:
+        return max(candidates, key=lambda d: d.stat().st_mtime)
+    except OSError as exc:
+        raise CollectionError(
+            f"Cannot stat output subdirectory under {base_dir}: {exc}",
+        ) from exc
 
 
 def load_json_file(
@@ -202,9 +211,9 @@ def load_json_file(
 
     try:
         text = path.read_text(encoding=encoding)
-    except FileNotFoundError as exc:
+    except OSError as exc:
         raise RawOutputValidationError(
-            f"Output file not found: {path}",
+            f"Cannot read output file {path}: {exc}",
             adapter_name=adapter_name,
         ) from exc
 

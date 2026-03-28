@@ -1,9 +1,9 @@
 """Generic entry-point discovery utilities.
 
-Shared by all plugin types: adapters, renderers, QA strategies, credential
-providers, consolidation rules, and policies. Each plugin type uses a
-different entry-point group name (e.g., 'gxassessms.adapters',
-'gxassessms.renderers'), but the discovery mechanics are the same.
+Currently used for adapter discovery. Designed to support additional plugin
+types (renderers, QA strategies, credential providers, consolidation rules,
+and policies) as they are implemented. Each plugin type uses a different
+entry-point group name (e.g., 'gxassessms.adapters').
 
 This module does NOT perform plugin-type-specific validation (e.g., Protocol
 checks). That is the responsibility of the specific registry module for each
@@ -40,7 +40,7 @@ class DiscoveryError:
     message: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class DiscoveryResult:
     """Outcome of a single entry-point group discovery pass.
 

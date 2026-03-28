@@ -1,10 +1,11 @@
 """Tests for ScubaGear parser -- parse_scuba_results().
 
-Tests are written against the real fixture file (15 controls, 6 modules).
+Tests are written against the real fixture file (see _FIXTURE_CONTROL_COUNT
+and _FIXTURE_MODULES for current values).
 Follows TDD: tests written first, then parser.py is implemented to pass them.
 
-Imports of domain types are deferred into fixtures to avoid circular import
-issues at collection time (same pattern as test_scubagear_mappings.py).
+Imports of domain types are deferred into fixtures for test isolation
+(same pattern as test_scubagear_mappings.py).
 """
 
 from __future__ import annotations

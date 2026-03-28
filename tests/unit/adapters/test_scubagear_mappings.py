@@ -29,8 +29,9 @@ FIXTURE_PATH: Path = (
     / "ScubaResults.json"
 )
 
-# Pairs that are intentionally NOT in SEVERITY_MAP because they resolve to INFO
-# via the parser default: Pass (any Criticality), and N/A with 3rd-Party Criticality.
+# Pairs intentionally absent from SEVERITY_MAP because
+# DefaultNormalizationPolicy._resolve_severity() short-circuits PASS and
+# NOT_APPLICABLE statuses to INFO before consulting the adapter severity map.
 _PASS_RESULT = "Pass"
 _STANDARD_NA_CRITICALITIES = frozenset({"Shall/3rd Party", "Should/3rd Party"})
 

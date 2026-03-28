@@ -71,10 +71,10 @@ class ScubaGearAdapter:
                 capture_output=True,
                 timeout=10,
             )
-        except FileNotFoundError:
+        except OSError:
             return PrerequisiteResult(
                 satisfied=False,
-                message=f"PowerShell executable not found: {exe!r}",
+                message=f"PowerShell not accessible: {exe!r}",
             )
         except subprocess.TimeoutExpired:
             return PrerequisiteResult(
@@ -98,10 +98,10 @@ class ScubaGearAdapter:
                 capture_output=True,
                 timeout=30,
             )
-        except FileNotFoundError:
+        except OSError:
             return PrerequisiteResult(
                 satisfied=False,
-                message=f"PowerShell executable not found: {exe!r}",
+                message=f"PowerShell not accessible: {exe!r}",
             )
         except subprocess.TimeoutExpired:
             return PrerequisiteResult(
@@ -152,7 +152,19 @@ class ScubaGearAdapter:
         output_dir.mkdir(parents=True, exist_ok=True)
 
         modules: list[str] = tool_config.get("modules", [])
-        timeout_seconds: int = int(tool_config.get("timeout_seconds", _DEFAULT_TIMEOUT_SECONDS))
+        raw_timeout = tool_config.get("timeout_seconds", _DEFAULT_TIMEOUT_SECONDS)
+        try:
+            timeout_seconds: int = int(raw_timeout)
+        except (TypeError, ValueError) as exc:
+            raise CollectionError(
+                f"Invalid timeout_seconds value: {raw_timeout!r}",
+                adapter_name=self.tool_name,
+            ) from exc
+        if timeout_seconds <= 0:
+            raise CollectionError(
+                f"timeout_seconds must be positive, got {timeout_seconds}",
+                adapter_name=self.tool_name,
+            )
         extra_args: list[str] = tool_config.get("extra_args", [])
 
         # Build Invoke-SCuBA command
@@ -210,7 +222,11 @@ class ScubaGearAdapter:
         )
 
     def validate_raw(self, raw: RawToolOutput) -> None:
-        """Validate manifest non-empty, ScubaResults JSON present and has controls.
+        """Validate ScubaGear raw output structure.
+
+        Checks (in order): (1) manifest non-empty, (2) ScubaResults*.json present,
+        (3) file parses as JSON dict, (4) 'Results' key exists, (5) Results is a
+        non-empty dict, (6) at least one module has controls.
 
         Raises:
             RawOutputValidationError: If any structural check fails.
@@ -227,7 +243,7 @@ class ScubaGearAdapter:
         if results_file is None:
             raise RawOutputValidationError(
                 "ScubaResults JSON file not found in manifest "
-                "(expected ScubaResults*.json, excluding TestResults.json)",
+                "(expected basename starting with 'scubaresults', case-insensitive)",
                 adapter_name=self.tool_name,
             )
 
@@ -298,7 +314,10 @@ class ScubaGearAdapter:
         return observations
 
     def coverage(self, raw: RawToolOutput) -> list[CoverageRecord]:
-        """Extract per-control coverage records. N/A -> NOT_ASSESSED, others -> ASSESSED."""
+        """Extract per-control coverage records.
+
+        FindingStatus.NOT_APPLICABLE -> NOT_ASSESSED, all others -> ASSESSED.
+        """
         self.validate_raw(raw)
 
         json_files = [f for f in raw.file_manifest if f.lower().endswith(".json")]
@@ -367,7 +386,8 @@ class ScubaGearAdapter:
     def _find_scuba_results_file(json_files: list[str]) -> str | None:
         """Return path of ScubaResults*.json from *json_files*, or None.
 
-        Matches case-insensitively on the basename; excludes TestResults.json.
+        Matches case-insensitively on the basename prefix ``scubaresults``.
+        Files like TestResults.json are excluded implicitly (wrong prefix).
         """
         for file_path in json_files:
             name = Path(file_path).name.lower()

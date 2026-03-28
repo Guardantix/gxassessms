@@ -25,7 +25,9 @@ from gxassessms.core.domain.enums import Category, FindingStatus, Severity
 #   "Fail", "Warning", "Pass", "N/A"
 #
 # Pass (any Criticality) and N/A with 3rd-Party Criticality resolve to INFO
-# by parser default and are intentionally absent from this map.
+# via DefaultNormalizationPolicy._resolve_severity(), which short-circuits
+# PASS and NOT_APPLICABLE statuses to INFO before consulting this map.
+# These entries are therefore intentionally absent.
 # ---------------------------------------------------------------------------
 
 SEVERITY_MAP: dict[tuple[str, str], Severity] = {
@@ -43,7 +45,10 @@ SEVERITY_MAP: dict[tuple[str, str], Severity] = {
     ("Should/3rd Party", "Fail"): Severity.MEDIUM,
     ("Should/3rd Party", "Warning"): Severity.LOW,
     # --- Not-Implemented (ScubaGear cannot check; always produces N/A) ---
-    # Still a SHALL/SHOULD gap -- requires manual verification.
+    # Under DefaultNormalizationPolicy these entries are unreachable because
+    # _resolve_severity short-circuits N/A -> INFO before consulting this map.
+    # Retained for alternative NormalizationPolicy implementations.
+    # Represents a SHALL/SHOULD gap requiring manual verification.
     ("Shall/Not-Implemented", FindingStatus.NOT_APPLICABLE): Severity.HIGH,
     ("Should/Not-Implemented", FindingStatus.NOT_APPLICABLE): Severity.MEDIUM,
 }
