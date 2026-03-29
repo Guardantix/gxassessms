@@ -6,6 +6,8 @@ validates transitions, and rejects invalid transitions.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 
 from gxassessms.core.contracts.errors import InvalidTransitionError
@@ -15,7 +17,7 @@ from gxassessms.pipeline.stages import (
     get_stage_entry_state,
     get_stages_from,
 )
-from gxassessms.pipeline.state import EngagementState
+from gxassessms.pipeline.state import EngagementState, PipelineEvent
 
 
 class TestStageStateMap:
@@ -154,3 +156,27 @@ class TestGetStagesFrom:
     def test_from_qa_review(self) -> None:
         stages = get_stages_from(Stage.QA_REVIEW)
         assert stages == [Stage.QA_REVIEW, Stage.RENDER]
+
+
+class TestPipelineEventValidation:
+    def test_invalid_event_type_raises(self) -> None:
+        with pytest.raises(ValueError, match="Invalid event_type"):
+            PipelineEvent(
+                event_id="1",
+                engagement_id="eng-001",
+                timestamp=datetime(2026, 3, 25, tzinfo=UTC),
+                event_type="bogus",  # type: ignore[arg-type]
+                actor="system",
+                payload={},
+            )
+
+    def test_valid_event_types_accepted(self) -> None:
+        for etype in ("state_transition", "override", "stale_recovery"):
+            PipelineEvent(
+                event_id="1",
+                engagement_id="eng-001",
+                timestamp=datetime(2026, 3, 25, tzinfo=UTC),
+                event_type=etype,  # type: ignore[arg-type]
+                actor="system",
+                payload={},
+            )

@@ -18,6 +18,7 @@ from typing import Any
 
 from gxassessms.core.config.config import EngagementConfig
 from gxassessms.core.config.datetime_utils import utc_now
+from gxassessms.core.contracts.errors import PersistenceError
 from gxassessms.core.domain.enums import Severity
 from gxassessms.core.domain.models import Finding
 from gxassessms.persistence import (
@@ -34,17 +35,19 @@ logger = logging.getLogger(__name__)
 
 
 def _extract_payload(event: Any) -> dict[str, Any]:
-    """Extract the payload dict from an event row or mock object.
+    """Extract the payload dict from an event row or object.
 
     EventRepo.get_events_by_type() returns list[dict[str, Any]] where
-    the 'payload' value is a JSON string. Tests mock events as objects
-    with a .payload dict attribute. We handle both cases.
+    the 'payload' value is a JSON string. PipelineEvent and similar
+    objects use a .payload attribute. We handle both representations.
     """
-    # Real EventRepo returns dict rows; use dict key access
     if isinstance(event, dict):
         raw: str | dict[str, Any] = event["payload"]  # pyright: ignore[reportUnknownVariableType]
         if isinstance(raw, str):
-            result: dict[str, Any] = json.loads(raw)
+            try:
+                result: dict[str, Any] = json.loads(raw)
+            except json.JSONDecodeError as e:
+                raise PersistenceError(f"Corrupt event payload: {e}") from e
             return result
         return raw  # type: ignore[no-any-return]
     # Mock objects use attribute access
@@ -232,10 +235,7 @@ class Orchestrator:
 
         Looks for events where the 'to' field matches the stage's completed
         state, and returns the content_hash from the most recent one.
-
-        EventRepo.get_events_by_type() returns list[dict] where 'payload'
-        is a JSON string. Tests may mock events as objects with a .payload
-        dict attribute. We handle both.
+        Uses _extract_payload() for event deserialization.
         """
         _, completed_state = STAGE_STATE_MAP[stage]
         events = self._event_repo.get_events_by_type(engagement_id, "state_transition")

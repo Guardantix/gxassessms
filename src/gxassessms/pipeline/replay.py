@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 def load_raw_outputs(engagement_dir: Path) -> list[RawToolOutput]:
     """Load persisted raw tool outputs from the engagement directory.
 
-    Looks for JSON manifest files in <engagement_dir>/raw/. Each file
+    Looks for JSON manifest files in <engagement_dir>/raw-output/. Each file
     is a serialized RawToolOutput.
 
     Args:

@@ -19,6 +19,7 @@ from gxassessms.core.config.config import (
 )
 from gxassessms.core.contracts.errors import (
     InvalidTransitionError,
+    PersistenceError,
 )
 from gxassessms.core.domain.enums import (
     Category,
@@ -32,7 +33,7 @@ from gxassessms.core.domain.models import (
     Finding,
     SourceEvidence,
 )
-from gxassessms.pipeline.orchestrator import Orchestrator
+from gxassessms.pipeline.orchestrator import Orchestrator, _extract_payload
 from gxassessms.pipeline.stages import Stage
 from gxassessms.pipeline.state import EngagementState
 from gxassessms.qa.noop import NoOpQAStrategy
@@ -528,3 +529,25 @@ class TestOrchestratorRunFrom:
             )
             mock_run.assert_called_once()
             assert mock_run.call_args[1]["start_stage"] == Stage.PARSE
+
+
+# ---------------------------------------------------------------------------
+# _extract_payload tests
+# ---------------------------------------------------------------------------
+
+
+class TestExtractPayload:
+    def test_dict_with_json_string_payload(self) -> None:
+        event = {"payload": '{"to": "PARSED", "content_hash": "abc123"}'}
+        result = _extract_payload(event)
+        assert result == {"to": "PARSED", "content_hash": "abc123"}
+
+    def test_dict_with_dict_payload(self) -> None:
+        event = {"payload": {"to": "PARSED"}}
+        result = _extract_payload(event)
+        assert result == {"to": "PARSED"}
+
+    def test_corrupt_json_raises_persistence_error(self) -> None:
+        event = {"payload": "{not valid json"}
+        with pytest.raises(PersistenceError, match="Corrupt"):
+            _extract_payload(event)

@@ -1,8 +1,6 @@
-"""Stage execution runner -- execute + persist + journal for each stage.
+"""Stage execution runner -- stage loop, crash recovery, adapter mapping.
 
 Separated from orchestrator.py to keep both files under 400 lines.
-This module handles the actual stage loop, crash recovery, data loading
-fallbacks, and adapter metadata extraction.
 """
 
 from __future__ import annotations
@@ -14,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from gxassessms.core.config.config import EngagementConfig
 from gxassessms.core.config.datetime_utils import format_utc, utc_now
-from gxassessms.core.contracts.errors import PipelineError
+from gxassessms.core.contracts.errors import GxAssessError, PipelineError
 from gxassessms.core.domain.models import (
     AdapterResult,
     ConsolidatedFinding,
@@ -23,11 +21,11 @@ from gxassessms.core.domain.models import (
     ToolObservation,
 )
 from gxassessms.pipeline.stages import (
-    _STAGE_ENTRY_STATE,
     STAGE_STATE_MAP,
     Stage,
     collect,
     consolidate,
+    get_stage_entry_state,
     normalize,
     parse,
     qa_review,
@@ -176,8 +174,13 @@ def run_stages(
                     current_state = completed_state
 
             except PipelineError:
-                # PipelineError is already structured; re-raise as-is
-                orchestrator._transition_state(engagement_id, running_state, EngagementState.FAILED)
+                # Protect original error -- transition failure is secondary
+                try:
+                    orchestrator._transition_state(
+                        engagement_id, running_state, EngagementState.FAILED
+                    )
+                except GxAssessError, RuntimeError, OSError:
+                    logger.error("Failed to transition %s to FAILED", engagement_id, exc_info=True)
                 raise
             except (
                 RuntimeError,
@@ -193,7 +196,12 @@ def run_stages(
                     engagement_id,
                     e,
                 )
-                orchestrator._transition_state(engagement_id, running_state, EngagementState.FAILED)
+                try:
+                    orchestrator._transition_state(
+                        engagement_id, running_state, EngagementState.FAILED
+                    )
+                except GxAssessError, RuntimeError, OSError:
+                    logger.error("Failed to transition %s to FAILED", engagement_id, exc_info=True)
                 raise PipelineError(
                     message=f"Stage {stage.value} failed: {e}",
                     engagement_id=engagement_id,
@@ -216,7 +224,7 @@ def _recover_stale_state(
     recovery_state: EngagementState | None = None
     for stage, (running, _completed) in STAGE_STATE_MAP.items():
         if running == stale_state:
-            recovery_state = _STAGE_ENTRY_STATE[stage]
+            recovery_state = get_stage_entry_state(stage)
             break
 
     if recovery_state is None:
@@ -282,7 +290,10 @@ def _build_adapter_severity_map(
         mapping = getattr(adapter, "severity_map", None)
         if mapping is not None:
             for key, value in mapping.items():
-                result[key] = value.value if hasattr(value, "value") else str(value)
+                resolved = value.value if hasattr(value, "value") else str(value)
+                if key in result and result[key] != resolved:
+                    logger.warning("Severity map key %s: %s -> %s", key, result[key], resolved)
+                result[key] = resolved
     return result
 
 
@@ -300,7 +311,10 @@ def _build_adapter_category_map(
         mapping = getattr(adapter, "category_map", None)
         if mapping is not None:
             for key, value in mapping.items():
-                result[key] = value.value if hasattr(value, "value") else str(value)
+                resolved = value.value if hasattr(value, "value") else str(value)
+                if key in result and result[key] != resolved:
+                    logger.warning("Category map key %s: %s -> %s", key, result[key], resolved)
+                result[key] = resolved
     return result
 
 
@@ -317,7 +331,10 @@ def _build_adapter_dedup_keys(
     for adapter in adapters:
         rules = getattr(adapter, "dedup_key_rules", None)
         if rules is not None:
-            result.update(rules)
+            for key, value in rules.items():
+                if key in result and result[key] != value:
+                    logger.warning("Dedup key %s: %s -> %s", key, result[key], value)
+                result[key] = value
     return result
 
 
@@ -376,7 +393,7 @@ def _compute_stage_hash(
     elif stage == Stage.QA_REVIEW:
         data = qa_results
     elif stage == Stage.RENDER:
-        data = []  # Render stage hash is based on input, not output files
+        data = []  # No meaningful output to hash for render; constant placeholder
     else:
         raise ValueError(f"Unhandled stage for hashing: {stage.value}")
 

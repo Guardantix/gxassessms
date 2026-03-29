@@ -4,8 +4,9 @@ Stage is the enum of pipeline stages. Each stage function is a thin wrapper
 that delegates to the appropriate collaborators (adapters, policies, rules,
 QA strategies, renderers).
 
-All stage functions except collect() are pure -- no side effects, no I/O.
-collect() uses ThreadPoolExecutor for parallel adapter execution.
+All stage functions except collect() and render() are pure -- no side effects,
+no I/O. collect() uses ThreadPoolExecutor for parallel adapter execution.
+render() writes report files to disk via renderers.
 
 Stage functions are called by the orchestrator, not directly by CLI or UI.
 """
@@ -99,7 +100,7 @@ def collect(
 
 
 def _run_adapter(adapter: Any, config: EngagementConfig) -> AdapterResult:
-    """Execute a single adapter's collect method with timing."""
+    """Execute a single adapter's authenticate + collect sequence with timing."""
     start = time.monotonic()
     auth = adapter.authenticate(config)
     raw = adapter.collect(config, auth)
