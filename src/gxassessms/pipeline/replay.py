@@ -69,7 +69,17 @@ def load_raw_outputs(engagement_dir: Path) -> list[RawToolOutput]:
     outputs: list[RawToolOutput] = []
     for manifest_file in manifest_files:
         raw_json = manifest_file.read_text(encoding="utf-8")
-        raw_output = RawToolOutput.model_validate_json(raw_json)
+        try:
+            raw_output = RawToolOutput.model_validate_json(raw_json)
+        except (ValueError, TypeError) as e:
+            raise InvalidRawOutputError(
+                message=(
+                    f"Malformed raw output manifest {manifest_file.name}: {e}. "
+                    f"File may be truncated or schema-invalid."
+                ),
+                engagement_id=engagement_dir.name,
+                stage="replay",
+            ) from e
         outputs.append(raw_output)
         logger.info(
             "Loaded raw output for %s from %s",

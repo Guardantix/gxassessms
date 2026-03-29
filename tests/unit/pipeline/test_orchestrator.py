@@ -305,6 +305,10 @@ class TestStaleStateDetection:
         assert orchestrator._detect_stale_running("eng-001", EngagementState.COLLECTED) is False
         assert orchestrator._detect_stale_running("eng-001", EngagementState.COMPLETE) is False
 
+    def test_qa_review_is_not_stale(self, orchestrator: Orchestrator) -> None:
+        """QA_REVIEW is a legitimate waiting state for human approval, not a crash."""
+        assert orchestrator._detect_stale_running("eng-001", EngagementState.QA_REVIEW) is False
+
 
 class TestStaleStateRecovery:
     def test_recovery_calls_force_update_state(

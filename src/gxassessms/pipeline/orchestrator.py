@@ -280,8 +280,13 @@ class Orchestrator:
         Returns True if current_state is one of the "running" states
         in STAGE_STATE_MAP (COLLECTING, PARSING, etc.), which indicates
         a prior process crashed mid-stage.
+
+        QA_REVIEW is excluded: non-noop QA strategies intentionally
+        park the engagement at QA_REVIEW for human approval. That is
+        a legitimate waiting state, not a crash.
         """
         running_states = {running for running, _completed in STAGE_STATE_MAP.values()}
+        running_states.discard(EngagementState.QA_REVIEW)
         return current_state in running_states
 
     # ------------------------------------------------------------------

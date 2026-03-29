@@ -69,6 +69,15 @@ class TestLoadRawOutputs:
         with pytest.raises(MissingRawOutputError):
             load_raw_outputs(eng_dir)
 
+    def test_malformed_manifest_raises_invalid_raw_output(self, tmp_path: Path) -> None:
+        eng_dir = tmp_path / "eng-bad"
+        eng_dir.mkdir()
+        raw_dir = eng_dir / "raw-output"
+        raw_dir.mkdir()
+        (raw_dir / "broken.json").write_text("{not valid json")
+        with pytest.raises(InvalidRawOutputError, match="Malformed"):
+            load_raw_outputs(eng_dir)
+
     def test_empty_raw_dir_raises(self, tmp_path: Path) -> None:
         eng_dir = tmp_path / "eng-003"
         eng_dir.mkdir()
