@@ -12,11 +12,6 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-from gxassessms.pipeline.replay import (
-    ReplayEngine,
-    load_raw_outputs,
-    validate_raw_outputs,
-)
 
 from gxassessms.core.contracts.errors import (
     InvalidRawOutputError,
@@ -25,6 +20,11 @@ from gxassessms.core.contracts.errors import (
 from gxassessms.core.contracts.types import AdapterRunStatus
 from gxassessms.core.domain.enums import ToolSource
 from gxassessms.core.domain.models import RawToolOutput
+from gxassessms.pipeline.replay import (
+    ReplayEngine,
+    load_raw_outputs,
+    validate_raw_outputs,
+)
 from gxassessms.pipeline.stages import Stage
 
 # ---------------------------------------------------------------------------

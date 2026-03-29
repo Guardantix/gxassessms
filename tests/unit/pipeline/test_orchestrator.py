@@ -11,7 +11,6 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
-from gxassessms.pipeline.orchestrator import Orchestrator
 
 from gxassessms.core.config.config import (
     AuthConfig,
@@ -33,6 +32,7 @@ from gxassessms.core.domain.models import (
     Finding,
     SourceEvidence,
 )
+from gxassessms.pipeline.orchestrator import Orchestrator
 from gxassessms.pipeline.stages import Stage
 from gxassessms.pipeline.state import EngagementState
 from gxassessms.qa.noop import NoOpQAStrategy

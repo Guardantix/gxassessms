@@ -12,16 +12,6 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
-from gxassessms.pipeline.stages import (
-    Stage,
-    collect,
-    consolidate,
-    normalize,
-    parse,
-    qa_review,
-    render,
-)
-
 from gxassessms.core.config.config import (
     AuthConfig,
     EngagementConfig,
@@ -46,6 +36,15 @@ from gxassessms.core.domain.models import (
     ReportPayload,
     SourceEvidence,
     ToolObservation,
+)
+from gxassessms.pipeline.stages import (
+    Stage,
+    collect,
+    consolidate,
+    normalize,
+    parse,
+    qa_review,
+    render,
 )
 
 # ---------------------------------------------------------------------------

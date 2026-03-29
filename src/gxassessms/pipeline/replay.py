@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any
 
 from gxassessms.core.contracts.errors import (
+    GxAssessError,
     InvalidRawOutputError,
     MissingRawOutputError,
 )
@@ -110,7 +111,14 @@ def validate_raw_outputs(
 
         try:
             adapter.validate_raw(raw)
-        except Exception as e:
+        except (
+            ValueError,
+            TypeError,
+            RuntimeError,
+            OSError,
+            AttributeError,
+            GxAssessError,
+        ) as e:
             raise InvalidRawOutputError(
                 message=(
                     f"Raw output for {raw.tool.value} failed re-validation "
