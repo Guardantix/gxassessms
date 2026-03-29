@@ -76,8 +76,9 @@ def run_stages(
 
         # Detect and recover from stale running states (crash recovery)
         if orchestrator._detect_stale_running(engagement_id, current_state):
-            _recover_stale_state(orchestrator, engagement_id, current_state)
+            recovery_stage = _recover_stale_state(orchestrator, engagement_id, current_state)
             current_state = orchestrator._get_current_state(engagement_id)
+            stages = orchestrator._get_stages_to_run(recovery_stage)
 
         # In-memory pipeline data flows between stages
         adapter_results: list[AdapterResult] = []
@@ -183,6 +184,7 @@ def run_stages(
                     logger.error("Failed to transition %s to FAILED", engagement_id, exc_info=True)
                 raise
             except (
+                GxAssessError,
                 RuntimeError,
                 OSError,
                 ValueError,
@@ -213,21 +215,25 @@ def _recover_stale_state(
     orchestrator: Orchestrator,
     engagement_id: str,
     stale_state: EngagementState,
-) -> None:
+) -> Stage:
     """Recover from a stale RUNNING state by rolling back to the entry state.
 
     Bypasses _transition_state() because backwards transitions (e.g.
     COLLECTING -> CREATED) are not in the valid transition table. Directly
     calls the engagement repo and records a stale_recovery event.
+
+    Returns the Stage to resume from after recovery.
     """
     # Find which stage owns this running state
+    recovery_stage: Stage | None = None
     recovery_state: EngagementState | None = None
     for stage, (running, _completed) in STAGE_STATE_MAP.items():
         if running == stale_state:
+            recovery_stage = stage
             recovery_state = get_stage_entry_state(stage)
             break
 
-    if recovery_state is None:
+    if recovery_stage is None or recovery_state is None:
         raise PipelineError(
             message=f"Cannot recover from unrecognized stale state: {stale_state.value}",
             engagement_id=engagement_id,
@@ -257,6 +263,8 @@ def _recover_stale_state(
         },
     )
     orchestrator._event_repo.append(event)
+
+    return recovery_stage
 
 
 def _require_in_memory(name: str, data: list[Any], stage: Stage) -> None:

@@ -18,8 +18,11 @@ from gxassessms.core.config.config import (
     ToolConfig,
 )
 from gxassessms.core.contracts.errors import (
+    ConsolidationError,
     InvalidTransitionError,
+    ParseError,
     PersistenceError,
+    PipelineError,
 )
 from gxassessms.core.domain.enums import (
     Category,
@@ -344,6 +347,233 @@ class TestStaleStateRecovery:
         assert event.event_type == "stale_recovery"
         assert event.payload["from"] == "PARSING"
         assert event.payload["to"] == "COLLECTED"
+
+    def test_recovery_returns_stage_to_resume(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """Recovery returns the stage that was running, so stages can be recomputed."""
+        from gxassessms.pipeline._runner import _recover_stale_state
+
+        result = _recover_stale_state(orchestrator, "eng-001", EngagementState.PARSING)
+        assert result == Stage.PARSE
+
+    def test_recovery_returns_collect_for_collecting(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        from gxassessms.pipeline._runner import _recover_stale_state
+
+        result = _recover_stale_state(orchestrator, "eng-001", EngagementState.COLLECTING)
+        assert result == Stage.COLLECT
+
+    def test_recovery_returns_normalize_for_normalizing(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        from gxassessms.pipeline._runner import _recover_stale_state
+
+        result = _recover_stale_state(orchestrator, "eng-001", EngagementState.NORMALIZING)
+        assert result == Stage.NORMALIZE
+
+
+class TestStaleRecoveryRecomputesStages:
+    """Verify that stale recovery recomputes the stage list from the recovery stage."""
+
+    def test_run_after_crash_at_parsing_resumes_from_parse(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """run() on a PARSING-stuck engagement should resume from PARSE, not COLLECT."""
+        from gxassessms.pipeline._runner import run_stages
+
+        # Engagement is stuck in PARSING (crashed)
+        mock_engagement_repo.get.return_value = {
+            "engagement_id": "eng-001",
+            "client_name": "Test",
+            "state": EngagementState.PARSING.value,
+            "config_snapshot": "{}",
+        }
+
+        # After recovery, state will be COLLECTED
+        call_count = 0
+
+        def get_side_effect(eid: str) -> dict:
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                # First call: stale PARSING state
+                return {
+                    "engagement_id": eid,
+                    "state": EngagementState.PARSING.value,
+                    "config_snapshot": "{}",
+                }
+            # After recovery: COLLECTED
+            return {
+                "engagement_id": eid,
+                "state": EngagementState.COLLECTED.value,
+                "config_snapshot": "{}",
+            }
+
+        mock_engagement_repo.get.side_effect = get_side_effect
+
+        # Mock adapter that will be used by parse stage
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_adapter.parse.return_value = []
+        mock_adapter.validate_raw.return_value = None
+
+        config = _make_config()
+
+        # Pipeline will fail at PARSE because adapter_results is empty,
+        # but the key assertion is that it STARTS at PARSE, not COLLECT
+        with pytest.raises(PipelineError, match="requires adapter_results"):
+            run_stages(
+                orchestrator=orchestrator,
+                engagement_id="eng-001",
+                config=config,
+                adapters=[mock_adapter],
+                normalization_policy=MagicMock(),
+                consolidation_rule=MagicMock(),
+                qa_strategy=MagicMock(),
+                renderers=[],
+                start_stage=Stage.COLLECT,
+            )
+
+        # Verify force_update_state was called (recovery happened)
+        mock_engagement_repo.force_update_state.assert_called_once_with(
+            "eng-001", EngagementState.COLLECTED
+        )
+
+        # Verify the first transition attempted was COLLECTED -> PARSING (PARSE stage),
+        # NOT COLLECTED -> COLLECTING (which would be invalid and crash)
+        # The pipeline raises PipelineError before any transition because
+        # adapter_results is empty, confirming it tried PARSE first.
+
+
+class TestDomainErrorTransitionsToFailed:
+    """Domain errors (GxAssessError subclasses) must transition to FAILED."""
+
+    def test_parse_error_transitions_to_failed(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """ParseError from adapter.validate_raw() should transition to FAILED."""
+        from gxassessms.pipeline._runner import run_stages
+
+        mock_engagement_repo.get.return_value = {
+            "engagement_id": "eng-001",
+            "state": EngagementState.CREATED.value,
+            "config_snapshot": "{}",
+        }
+
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+
+        # Build a valid AdapterResult for collect to return
+        from datetime import UTC, datetime
+
+        from gxassessms.core.contracts.types import AdapterRunStatus
+        from gxassessms.core.domain.models import AdapterResult, RawToolOutput
+
+        raw = RawToolOutput(
+            tool=ToolSource.SCUBAGEAR,
+            schema_version="1.0",
+            timestamp=datetime.now(UTC),
+            file_manifest={"results.json": "utf-8"},
+            execution_metadata={},
+        )
+        mock_result = AdapterResult(
+            adapter_name="scubagear",
+            status=AdapterRunStatus.SUCCESS,
+            raw_output=raw,
+            error=None,
+            duration_seconds=1.0,
+        )
+
+        # Patch collect to return a result so we reach parse
+        with patch("gxassessms.pipeline._runner.collect", return_value=[mock_result]):
+            mock_adapter.validate_raw.side_effect = ParseError(
+                message="Bad format",
+                adapter_name="scubagear",
+            )
+
+            with pytest.raises(PipelineError, match="Stage PARSE failed"):
+                run_stages(
+                    orchestrator=orchestrator,
+                    engagement_id="eng-001",
+                    config=_make_config(),
+                    adapters=[mock_adapter],
+                    normalization_policy=MagicMock(),
+                    consolidation_rule=MagicMock(),
+                    qa_strategy=MagicMock(),
+                    renderers=[],
+                    start_stage=Stage.COLLECT,
+                )
+
+        # Verify transition to FAILED was attempted
+        failed_calls = [
+            c
+            for c in mock_engagement_repo.update_state.call_args_list
+            if c[0][1] == EngagementState.FAILED
+        ]
+        assert len(failed_calls) == 1
+
+    def test_consolidation_error_transitions_to_failed(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """ConsolidationError should transition to FAILED and wrap as PipelineError."""
+        from gxassessms.pipeline._runner import run_stages
+
+        mock_engagement_repo.get.return_value = {
+            "engagement_id": "eng-001",
+            "state": EngagementState.NORMALIZED.value,
+            "config_snapshot": "{}",
+        }
+
+        mock_rule = MagicMock()
+        mock_rule.consolidate.side_effect = ConsolidationError("Dedup conflict")
+
+        # Start from CONSOLIDATE with pre-populated findings
+        with (
+            patch(
+                "gxassessms.pipeline._runner._require_in_memory",
+                return_value=None,
+            ),
+            pytest.raises(PipelineError, match="Stage CONSOLIDATE failed"),
+        ):
+            run_stages(
+                orchestrator=orchestrator,
+                engagement_id="eng-001",
+                config=_make_config(),
+                adapters=[],
+                normalization_policy=MagicMock(),
+                consolidation_rule=mock_rule,
+                qa_strategy=MagicMock(),
+                renderers=[],
+                start_stage=Stage.CONSOLIDATE,
+            )
+
+        # Verify transition to FAILED was attempted
+        failed_calls = [
+            c
+            for c in mock_engagement_repo.update_state.call_args_list
+            if c[0][1] == EngagementState.FAILED
+        ]
+        assert len(failed_calls) == 1
 
 
 # ---------------------------------------------------------------------------
