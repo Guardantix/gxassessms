@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Any, Literal, get_args
 
 from filelock import BaseFileLock, FileLock, Timeout
 
@@ -24,7 +24,18 @@ from gxassessms.core.domain.enums import EngagementState as EngagementState  # r
 
 logger = logging.getLogger(__name__)
 
-EventType = Literal["state_transition", "override", "ai_modification", "rerun"]
+EventType = Literal[
+    "state_transition",
+    "override",
+    "ai_modification",
+    "rerun",
+    "manual_finding_added",
+    "lock_broken",
+    "stale_recovery",
+]
+
+# Derive valid values from the EventType Literal for runtime validation
+_VALID_EVENT_TYPES: frozenset[str] = frozenset(get_args(EventType))
 
 
 @dataclass(frozen=True)
@@ -47,6 +58,8 @@ class PipelineEvent:
     payload: Mapping[str, Any]  # always stored as a fresh MappingProxyType copy
 
     def __post_init__(self) -> None:
+        if self.event_type not in _VALID_EVENT_TYPES:
+            raise ValueError(f"Invalid event_type: {self.event_type!r}")
         # Always create a new MappingProxyType backed by a fresh dict copy so
         # that neither the caller's original dict nor a passed MappingProxyType
         # referencing an external dict can be mutated to alter the audit record.

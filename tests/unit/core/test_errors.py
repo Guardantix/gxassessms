@@ -10,17 +10,22 @@ from gxassessms.core.contracts.errors import (
     ConsolidationError,
     DedupKeyConflictError,
     GxAssessError,
+    InvalidRawOutputError,
+    InvalidTransitionError,
     LockTimeoutError,
     MigrationError,
+    MissingRawOutputError,
     ParseError,
     PayloadVersionError,
     PersistenceError,
+    PipelineError,
     PrerequisiteError,
     QAError,
     QAQualityError,
     RawOutputValidationError,
     RendererDependencyError,
     ReportError,
+    StaleStageError,
     TokenBudgetExhaustedError,
 )
 
@@ -46,9 +51,19 @@ class TestExceptionHierarchy:
             PersistenceError,
             MigrationError,
             LockTimeoutError,
+            InvalidTransitionError,
+            PipelineError,
+            StaleStageError,
+            InvalidRawOutputError,
+            MissingRawOutputError,
         ]
         for exc_class in exceptions:
             assert issubclass(exc_class, GxAssessError)
+
+    def test_pipeline_error_subtypes(self) -> None:
+        assert issubclass(StaleStageError, PipelineError)
+        assert issubclass(InvalidRawOutputError, PipelineError)
+        assert issubclass(MissingRawOutputError, PipelineError)
 
     def test_adapter_error_subtypes(self) -> None:
         assert issubclass(PrerequisiteError, AdapterError)
@@ -127,6 +142,16 @@ class TestExceptionContext:
         err = ConfigValidationError(message="Bare error")
         assert err.errors == []
         assert err.warnings == []
+
+    def test_pipeline_error_carries_context(self) -> None:
+        err = PipelineError(
+            message="Stage COLLECT failed",
+            engagement_id="eng-001",
+            stage="COLLECT",
+        )
+        assert err.engagement_id == "eng-001"
+        assert err.stage == "COLLECT"
+        assert "Stage COLLECT failed" in str(err)
 
     def test_gxassess_error_is_catchable_as_exception(self) -> None:
         with pytest.raises(Exception, match="test"):
