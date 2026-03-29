@@ -46,6 +46,13 @@ IMPORT_RULES: dict[str, list[str]] = {
         "gxassessms.reporting",
         "gxassessms.cli",
     ],
+    "consolidation": [
+        "gxassessms.adapters",
+        "gxassessms.persistence",
+        "gxassessms.pipeline",
+        "gxassessms.reporting",
+        "gxassessms.cli",
+    ],
 }
 
 

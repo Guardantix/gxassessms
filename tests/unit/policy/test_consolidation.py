@@ -4,6 +4,7 @@ import uuid
 
 import pytest
 
+from gxassessms.core.contracts.errors import ConsolidationError
 from gxassessms.core.domain.enums import (
     Category,
     FindingStatus,
@@ -389,6 +390,12 @@ class TestDefaultConsolidationPolicy:
         result1 = policy.consolidate([f1])
         result2 = policy.consolidate([f1])
         assert result1[0].finding_instance_id != result2[0].finding_instance_id
+
+    def test_merge_group_empty_findings_raises(self, sample_rules: dict) -> None:
+        """merge_group() with empty findings raises ConsolidationError."""
+        policy = DefaultConsolidationPolicy(rules=sample_rules)
+        with pytest.raises(ConsolidationError, match="at least one Finding"):
+            policy.merge_group("some-key", [])
 
     def test_reconcile_title_deterministic_with_equal_severity_and_tool(
         self, sample_rules: dict

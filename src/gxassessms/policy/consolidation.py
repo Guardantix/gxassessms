@@ -14,8 +14,10 @@ import uuid
 from collections import defaultdict
 from typing import Any, Protocol, runtime_checkable
 
+from gxassessms.core.contracts.errors import ConsolidationError
 from gxassessms.core.domain.constants import SEVERITY_ORDER
 from gxassessms.core.domain.enums import (
+    Category,
     FindingStatus,
     Severity,
 )
@@ -33,12 +35,21 @@ logger = logging.getLogger(__name__)
 class ConsolidationPolicy(Protocol):
     """Protocol for consolidation policy extension point.
 
-    Implementations group Findings by dedup key, reconcile conflicting
-    severity/status, compute confidence scores, and produce
-    ConsolidatedFindings.
+    Implementations reconcile conflicting severity/status, compute
+    confidence scores, and produce ConsolidatedFindings.
+
+    Two usage patterns:
+    - consolidate(): full pipeline -- receives raw findings and returns consolidated output
+    - merge_group(): merges a pre-formed group (e.g., from union-find dedup)
+
+    Contract: ``merge_group()`` requires ``findings`` to be non-empty.
+    Implementations must raise ``ConsolidationError`` if called with an
+    empty list.
     """
 
     def consolidate(self, findings: list[Finding]) -> list[ConsolidatedFinding]: ...
+
+    def merge_group(self, finding_key: str, findings: list[Finding]) -> ConsolidatedFinding: ...
 
 
 class DefaultConsolidationPolicy:
@@ -62,24 +73,25 @@ class DefaultConsolidationPolicy:
 
         consolidated: list[ConsolidatedFinding] = []
         for finding_key, group in groups.items():
-            cf = self._merge_group(finding_key, group)
+            cf = self.merge_group(finding_key, group)
             consolidated.append(cf)
 
         return consolidated
 
-    def _merge_group(self, finding_key: str, group: list[Finding]) -> ConsolidatedFinding:
-        """Merge a group of Findings with the same finding_key."""
-        severity = self._reconcile_severity(group)
-        status = self._reconcile_status(group)
-        title = self._reconcile_title(group)
-        description = self._reconcile_description(group)
-        sources = self._build_sources(group)
-        benchmark_refs = self._merge_benchmark_refs(group)
-        confidence = self._compute_confidence(group)
-        category = max(
-            group,
-            key=lambda f: (SEVERITY_ORDER.get(f.severity.value, 0), f.category.name),
-        ).category
+    def merge_group(self, finding_key: str, findings: list[Finding]) -> ConsolidatedFinding:
+        """Merge a pre-formed group of Findings into a single ConsolidatedFinding."""
+        if not findings:
+            raise ConsolidationError(
+                f"merge_group() requires at least one Finding (finding_key={finding_key!r})"
+            )
+        severity = self._reconcile_severity(findings)
+        status = self._reconcile_status(findings)
+        title = self._reconcile_title(findings)
+        description = self._reconcile_description(findings)
+        sources = self._build_sources(findings)
+        benchmark_refs = self._merge_benchmark_refs(findings)
+        confidence = self._compute_confidence(findings)
+        category = self._reconcile_category(findings)
 
         # Per spec: finding_instance_id is engagement-specific and never reused across
         # engagements, even for the same finding_key.  The persistence layer handles
@@ -139,8 +151,10 @@ class DefaultConsolidationPolicy:
                 warned.add(f.status.value)
                 logger.warning(
                     "FindingStatus %r is not in configured status_priority list; "
-                    "it will be treated as lowest priority.",
+                    "it will be treated as lowest priority (below %r). "
+                    "Update consolidation rules to set explicit priority.",
                     f.status.value,
+                    status_priority[-1],
                 )
 
         return min(
@@ -160,6 +174,13 @@ class DefaultConsolidationPolicy:
         )
         return highest.title
 
+    def _reconcile_category(self, group: list[Finding]) -> Category:
+        """Use the category from the highest-severity finding; category name as tie-break."""
+        return max(
+            group,
+            key=lambda f: (SEVERITY_ORDER.get(f.severity.value, 0), f.category.name),
+        ).category
+
     def _reconcile_description(self, group: list[Finding]) -> str:
         """Concatenate unique descriptions from all sources, sorted for stability."""
         seen: set[str] = set()
@@ -173,16 +194,14 @@ class DefaultConsolidationPolicy:
     @staticmethod
     def _build_sources(group: list[Finding]) -> list[SourceEvidence]:
         """Build SourceEvidence list from group members."""
-        sources: list[SourceEvidence] = []
-        for finding in group:
-            sources.append(
-                SourceEvidence(
-                    tool=finding.tool,
-                    check_id=finding.native_check_id,
-                    raw_data=dict(finding.raw_data),
-                )
+        return [
+            SourceEvidence(
+                tool=finding.tool,
+                check_id=finding.native_check_id,
+                raw_data=dict(finding.raw_data),
             )
-        return sources
+            for finding in group
+        ]
 
     @staticmethod
     def _merge_benchmark_refs(group: list[Finding]) -> list[str]:
@@ -231,9 +250,17 @@ class DefaultConsolidationPolicy:
             # default rather than min(corroboration_scores), which could assign a
             # multi-tool tier to a single-tool finding and inflate confidence.
             applicable = [k for k in corroboration_scores if k <= distinct_tools]
-            corroboration = corroboration_scores[max(applicable)] if applicable else 0.4
+            if applicable:
+                corroboration = corroboration_scores[max(applicable)]
+            else:
+                corroboration = 0.4
+                logger.debug(
+                    "No corroboration tier <= %d tools; using conservative default (0.4)",
+                    distinct_tools,
+                )
         else:
             corroboration = 0.4
+            logger.debug("No corroboration_scores configured; using default (0.4)")
 
         # Data freshness: default to 1.0 (fresh) -- actual staleness
         # is computed by the pipeline stage that has access to timestamps

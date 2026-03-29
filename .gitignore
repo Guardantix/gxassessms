@@ -21,6 +21,7 @@ venv/
 .coverage
 htmlcov/
 .pytest_cache/
+.hypothesis/
 
 # Node
 node_modules/

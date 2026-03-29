@@ -103,4 +103,13 @@ class QAStrategy(Protocol):
 
 @runtime_checkable
 class ConsolidationRule(Protocol):
+    """Extension point for consolidation rules.
+
+    Invariants (architecture spec Section 11):
+    1. len(output) <= len(input)
+    2. Every input finding traceable in exactly one output
+    3. Severity never decreases during merge
+    4. No dedup key appears in more than one output group
+    """
+
     def consolidate(self, findings: list[Finding]) -> list[ConsolidatedFinding]: ...
