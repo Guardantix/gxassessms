@@ -14,7 +14,7 @@ import json
 import logging
 import uuid
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from gxassessms.core.config.config import EngagementConfig
 from gxassessms.core.config.datetime_utils import utc_now
@@ -31,6 +31,24 @@ from gxassessms.pipeline.stages import STAGE_STATE_MAP, Stage, get_stages_from
 from gxassessms.pipeline.state import EngagementLock, EngagementState, PipelineEvent
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_payload(event: Any) -> dict[str, Any]:
+    """Extract the payload dict from an event row or mock object.
+
+    EventRepo.get_events_by_type() returns list[dict[str, Any]] where
+    the 'payload' value is a JSON string. Tests mock events as objects
+    with a .payload dict attribute. We handle both cases.
+    """
+    # Real EventRepo returns dict rows; use dict key access
+    if isinstance(event, dict):
+        raw: str | dict[str, Any] = event["payload"]  # pyright: ignore[reportUnknownVariableType]
+        if isinstance(raw, str):
+            result: dict[str, Any] = json.loads(raw)
+            return result
+        return raw  # type: ignore[no-any-return]
+    # Mock objects use attribute access
+    return dict(event.payload)  # type: ignore[union-attr]
 
 
 class Orchestrator:
@@ -142,6 +160,7 @@ class Orchestrator:
                 actor=actor,
                 payload={
                     "finding_id": finding_id,
+                    "field": "severity",
                     "new_severity": new_severity.value,
                     "reason": reason,
                 },
@@ -175,7 +194,7 @@ class Orchestrator:
                 actor=actor,
                 payload={
                     "finding_key": finding.finding_key,
-                    "finding_data": finding_dict,
+                    "severity": finding.severity.value,
                 },
             )
             self._event_repo.append(event)
@@ -213,14 +232,16 @@ class Orchestrator:
 
         Looks for events where the 'to' field matches the stage's completed
         state, and returns the content_hash from the most recent one.
+
+        EventRepo.get_events_by_type() returns list[dict] where 'payload'
+        is a JSON string. Tests may mock events as objects with a .payload
+        dict attribute. We handle both.
         """
         _, completed_state = STAGE_STATE_MAP[stage]
         events = self._event_repo.get_events_by_type(engagement_id, "state_transition")
         last_hash: str | None = None
         for event in events:
-            # Real repo returns dicts; tests mock objects with .payload attr.
-            # Use getattr to handle both, then cast for type safety.
-            payload = cast(dict[str, Any], getattr(event, "payload", event))
+            payload = _extract_payload(event)
             if payload.get("to") == completed_state.value:
                 last_hash = payload.get("content_hash")
         return last_hash

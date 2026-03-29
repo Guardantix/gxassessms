@@ -141,18 +141,39 @@ def run_stages(
                     orchestrator=orchestrator,
                 )
 
-                # Transition to COMPLETED state
-                orchestrator._transition_state(
-                    engagement_id,
-                    running_state,
-                    completed_state,
-                    content_hash=stage_hash,
-                )
-                current_state = completed_state
-
-                # Auto-advance QA if using NoOp strategy
-                if stage == Stage.QA_REVIEW and orchestrator._should_auto_advance_qa(qa_strategy):
-                    logger.info("NoOp QA strategy detected -- auto-advancing past QA")
+                # QA_REVIEW: only advance to QA_APPROVED if noop strategy.
+                # Real QA strategies leave the engagement at QA_REVIEW
+                # for human review; the pipeline stops here.
+                if stage == Stage.QA_REVIEW:
+                    if orchestrator._should_auto_advance_qa(qa_strategy):
+                        logger.info(
+                            "No-op QA strategy -- auto-advancing QA_REVIEW -> QA_APPROVED for %s",
+                            engagement_id,
+                        )
+                        orchestrator._transition_state(
+                            engagement_id,
+                            running_state,
+                            completed_state,
+                            content_hash=stage_hash,
+                        )
+                        current_state = completed_state
+                    else:
+                        logger.info(
+                            "QA review complete for %s. Engagement held "
+                            "at QA_REVIEW for human approval.",
+                            engagement_id,
+                        )
+                        current_state = running_state
+                        break
+                else:
+                    # All non-QA stages: transition to completed state
+                    orchestrator._transition_state(
+                        engagement_id,
+                        running_state,
+                        completed_state,
+                        content_hash=stage_hash,
+                    )
+                    current_state = completed_state
 
             except PipelineError:
                 # PipelineError is already structured; re-raise as-is
