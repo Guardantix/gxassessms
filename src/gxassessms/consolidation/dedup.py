@@ -71,8 +71,9 @@ class UnionFindDedup:
         # groups is a list of lists; each inner list is a cluster of Findings
 
     The engine instance is reusable -- each call to group() starts fresh.
-    Empty-string and whitespace-only dedup keys are silently filtered
-    to prevent false merges.
+    Empty-string and whitespace-only dedup keys are filtered to prevent
+    false merges (a warning is logged when a finding has no valid keys
+    remaining).
     """
 
     def group(self, findings: list[Finding]) -> list[list[Finding]]:
@@ -104,6 +105,12 @@ class UnionFindDedup:
                 if stripped:
                     key_to_indices[stripped].append(idx)
                     valid_key_count += 1
+                else:
+                    logger.debug(
+                        "Finding %s: filtered empty/whitespace dedup key %r",
+                        finding.finding_key,
+                        key,
+                    )
             if valid_key_count == 0:
                 logger.warning(
                     "Finding %s has no valid dedup keys after whitespace filtering; "

@@ -9,6 +9,11 @@ the architecture spec (Section 11):
 3. Severity never decreases during merge (takes highest)
 4. No dedup key appears in more than one consolidated finding
 
+TestDedupGroupInvariants verifies invariants 1, 2, 4 at the dedup engine layer.
+TestConsolidationRuleInvariants verifies invariants 1, 2, 3 at the full pipeline.
+Invariant 4 holds transitively at the full pipeline level since consolidation
+produces one output per dedup group.
+
 Ref: architecture spec Section 11 (Testing Architecture), property-based testing.
 """
 
@@ -124,7 +129,7 @@ _POLICY_RULES: dict = {
     "provenance_scores": {
         "human-overridden": 1.0,
         "system-generated": 0.7,
-        "ai-adjusted": 0.5,
+        "AI-adjusted": 0.5,
     },
 }
 
@@ -199,6 +204,25 @@ class TestConsolidationRuleInvariants:
         assert len(consolidated) <= len(findings)
 
     @given(findings=_findings_list_strategy)
+    @settings(max_examples=100)
+    def test_every_input_finding_traceable_via_sources(self, findings: list[Finding]) -> None:
+        """Invariant 2: every input finding appears in exactly one consolidated
+        finding's sources (traceable via native_check_id -> SourceEvidence.check_id).
+        """
+        policy = DefaultConsolidationPolicy(rules=_POLICY_RULES)
+        rule = DefaultConsolidationRule(policy=policy)
+        consolidated = rule.consolidate(findings=findings)
+
+        all_source_check_ids: list[str] = []
+        for cf in consolidated:
+            for source in cf.sources:
+                all_source_check_ids.append(source.check_id)
+
+        input_check_ids = [f.native_check_id for f in findings]
+
+        assert sorted(all_source_check_ids) == sorted(input_check_ids)
+
+    @given(findings=_findings_list_strategy)
     @settings(max_examples=200)
     def test_severity_never_decreases(self, findings: list[Finding]) -> None:
         """Invariant 3: severity of consolidated finding >= all source severities.
@@ -224,25 +248,6 @@ class TestConsolidationRuleInvariants:
                 f"severity {max_input_severity} in group"
             )
 
-    @given(findings=_findings_list_strategy)
-    @settings(max_examples=100)
-    def test_every_input_finding_traceable_via_sources(self, findings: list[Finding]) -> None:
-        """Invariant 2: every input finding appears in exactly one consolidated
-        finding's sources (traceable via native_check_id -> SourceEvidence.check_id).
-        """
-        policy = DefaultConsolidationPolicy(rules=_POLICY_RULES)
-        rule = DefaultConsolidationRule(policy=policy)
-        consolidated = rule.consolidate(findings=findings)
-
-        all_source_check_ids: list[str] = []
-        for cf in consolidated:
-            for source in cf.sources:
-                all_source_check_ids.append(source.check_id)
-
-        input_check_ids = [f.native_check_id for f in findings]
-
-        assert sorted(all_source_check_ids) == sorted(input_check_ids)
-
 
 # ---------------------------------------------------------------------------
 # Idempotency and stability
@@ -266,18 +271,10 @@ class TestConsolidationStability:
         result2 = rule2.consolidate(findings=findings)
 
         assert len(result1) == len(result2)
-
-        sevs1 = sorted(cf.severity.value for cf in result1)
-        sevs2 = sorted(cf.severity.value for cf in result2)
-        assert sevs1 == sevs2
-
-        keys1 = sorted(cf.finding_key for cf in result1)
-        keys2 = sorted(cf.finding_key for cf in result2)
-        assert keys1 == keys2
-
-        src_counts1 = sorted(len(cf.sources) for cf in result1)
-        src_counts2 = sorted(len(cf.sources) for cf in result2)
-        assert src_counts1 == src_counts2
+        for cf1, cf2 in zip(result1, result2, strict=True):
+            assert cf1.finding_key == cf2.finding_key
+            assert cf1.severity == cf2.severity
+            assert len(cf1.sources) == len(cf2.sources)
 
     @given(findings=_findings_list_strategy)
     @settings(max_examples=50)

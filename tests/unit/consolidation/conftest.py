@@ -87,6 +87,6 @@ def consolidation_rules() -> dict:
         "provenance_scores": {
             "human-overridden": 1.0,
             "system-generated": 0.7,
-            "ai-adjusted": 0.5,
+            "AI-adjusted": 0.5,
         },
     }
