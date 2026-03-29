@@ -31,10 +31,19 @@ from gxassessms.core.contracts.errors import (
     GxAssessError as GxAssessError,
 )
 from gxassessms.core.contracts.errors import (
+    InvalidRawOutputError as InvalidRawOutputError,
+)
+from gxassessms.core.contracts.errors import (
+    InvalidTransitionError as InvalidTransitionError,
+)
+from gxassessms.core.contracts.errors import (
     LockTimeoutError as LockTimeoutError,
 )
 from gxassessms.core.contracts.errors import (
     MigrationError as MigrationError,
+)
+from gxassessms.core.contracts.errors import (
+    MissingRawOutputError as MissingRawOutputError,
 )
 from gxassessms.core.contracts.errors import (
     ParseError as ParseError,
@@ -44,6 +53,9 @@ from gxassessms.core.contracts.errors import (
 )
 from gxassessms.core.contracts.errors import (
     PersistenceError as PersistenceError,
+)
+from gxassessms.core.contracts.errors import (
+    PipelineError as PipelineError,
 )
 from gxassessms.core.contracts.errors import (
     PrerequisiteError as PrerequisiteError,
@@ -62,6 +74,9 @@ from gxassessms.core.contracts.errors import (
 )
 from gxassessms.core.contracts.errors import (
     ReportError as ReportError,
+)
+from gxassessms.core.contracts.errors import (
+    StaleStageError as StaleStageError,
 )
 from gxassessms.core.contracts.errors import (
     TokenBudgetExhaustedError as TokenBudgetExhaustedError,
