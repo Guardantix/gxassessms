@@ -196,9 +196,9 @@ def parse(
 def normalize(
     observations: list[ToolObservation],
     policy: Any,  # NormalizationPolicy
-    adapter_severity_map: dict[str, dict[str, str]] | None = None,
-    adapter_category_map: dict[str, dict[str, str]] | None = None,
-    adapter_dedup_keys: dict[str, list[str]] | None = None,
+    adapter_severity_map: dict[tuple[str, str], str] | None = None,
+    adapter_category_map: dict[str, str] | None = None,
+    adapter_dedup_keys: dict[str, str] | None = None,
 ) -> list[Finding]:
     """Normalize ToolObservations into domain Findings using policy.
 
@@ -209,12 +209,12 @@ def normalize(
     Args:
         observations: Parsed ToolObservations from the parse stage.
         policy: NormalizationPolicy implementation.
-        adapter_severity_map: Per-adapter severity overrides
-            (adapter_name -> check_id -> severity).
-        adapter_category_map: Per-adapter category overrides
-            (adapter_name -> check_id -> category).
-        adapter_dedup_keys: Per-adapter dedup key definitions
-            (adapter_name -> key list).
+        adapter_severity_map: Flat severity lookup table
+            ((native_severity, status) -> severity).
+        adapter_category_map: Flat category lookup table
+            (prefix/check_id -> category).
+        adapter_dedup_keys: Flat dedup key lookup table
+            (native_check_id -> finding_key).
 
     Returns:
         List of normalized Findings.

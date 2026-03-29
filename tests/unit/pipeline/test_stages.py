@@ -339,9 +339,9 @@ class TestNormalizeStage:
         policy = MagicMock()
         expected_findings = [_make_finding()]
         policy.normalize.return_value = expected_findings
-        severity_map = {"ScubaGear": {"MS.AAD.3.1v1": "HIGH"}}
-        category_map = {"ScubaGear": {"MS.AAD.3.1v1": "IDENTITY_ACCESS"}}
-        dedup_keys = {"ScubaGear": ["finding_key"]}
+        severity_map: dict[tuple[str, str], str] = {("Shall", "FAIL"): "CRITICAL"}
+        category_map: dict[str, str] = {"aad": "IDENTITY_ACCESS"}
+        dedup_keys: dict[str, str] = {"MS.AAD.3.1v1": "cis:m365:1.1.1"}
         results = normalize(
             observations,
             policy,

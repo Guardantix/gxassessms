@@ -51,7 +51,7 @@ class TestLoadRawOutputs:
     def test_loads_from_engagement_dir(self, tmp_path: Path) -> None:
         eng_dir = tmp_path / "eng-001"
         eng_dir.mkdir()
-        raw_dir = eng_dir / "raw"
+        raw_dir = eng_dir / "raw-output"
         raw_dir.mkdir()
 
         # Write a raw output manifest
@@ -72,7 +72,7 @@ class TestLoadRawOutputs:
     def test_empty_raw_dir_raises(self, tmp_path: Path) -> None:
         eng_dir = tmp_path / "eng-003"
         eng_dir.mkdir()
-        raw_dir = eng_dir / "raw"
+        raw_dir = eng_dir / "raw-output"
         raw_dir.mkdir()
         with pytest.raises(MissingRawOutputError):
             load_raw_outputs(eng_dir)

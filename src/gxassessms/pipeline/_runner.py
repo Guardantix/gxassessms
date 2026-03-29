@@ -270,37 +270,54 @@ def _require_in_memory(name: str, data: list[Any], stage: Stage) -> None:
 
 def _build_adapter_severity_map(
     adapters: list[Any],
-) -> dict[str, dict[str, str]]:
-    """Extract per-adapter severity mappings if available."""
-    result: dict[str, dict[str, str]] = {}
+) -> dict[tuple[str, str], str]:
+    """Merge per-adapter severity mappings into a flat lookup table.
+
+    Each adapter may expose a severity_map property: dict mapping
+    (native_severity, status) -> Severity value. We merge all adapters
+    into one flat dict for the NormalizationPolicy.
+    """
+    result: dict[tuple[str, str], str] = {}
     for adapter in adapters:
         mapping = getattr(adapter, "severity_map", None)
         if mapping is not None:
-            result[adapter.tool_name] = mapping
+            for key, value in mapping.items():
+                result[key] = value.value if hasattr(value, "value") else str(value)
     return result
 
 
 def _build_adapter_category_map(
     adapters: list[Any],
-) -> dict[str, dict[str, str]]:
-    """Extract per-adapter category mappings if available."""
-    result: dict[str, dict[str, str]] = {}
+) -> dict[str, str]:
+    """Merge per-adapter category mappings into a flat lookup table.
+
+    Each adapter may expose a category_map property: dict mapping
+    prefix/check_id -> Category value. We merge all adapters into
+    one flat dict for the NormalizationPolicy.
+    """
+    result: dict[str, str] = {}
     for adapter in adapters:
         mapping = getattr(adapter, "category_map", None)
         if mapping is not None:
-            result[adapter.tool_name] = mapping
+            for key, value in mapping.items():
+                result[key] = value.value if hasattr(value, "value") else str(value)
     return result
 
 
 def _build_adapter_dedup_keys(
     adapters: list[Any],
-) -> dict[str, list[str]]:
-    """Extract per-adapter dedup key definitions if available."""
-    result: dict[str, list[str]] = {}
+) -> dict[str, str]:
+    """Merge per-adapter dedup key rules into a flat lookup table.
+
+    Each adapter may expose a dedup_key_rules property: dict mapping
+    native_check_id -> canonical finding_key. We merge all adapters
+    into one flat dict for the NormalizationPolicy.
+    """
+    result: dict[str, str] = {}
     for adapter in adapters:
-        keys = getattr(adapter, "dedup_keys", None)
-        if keys is not None:
-            result[adapter.tool_name] = keys
+        rules = getattr(adapter, "dedup_key_rules", None)
+        if rules is not None:
+            result.update(rules)
     return result
 
 

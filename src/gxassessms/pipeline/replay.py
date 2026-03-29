@@ -47,7 +47,7 @@ def load_raw_outputs(engagement_dir: Path) -> list[RawToolOutput]:
     Raises:
         MissingRawOutputError: If the raw directory is missing or empty.
     """
-    raw_dir = engagement_dir / "raw"
+    raw_dir = engagement_dir / "raw-output"
     if not raw_dir.exists():
         raise MissingRawOutputError(
             message=(
@@ -56,7 +56,7 @@ def load_raw_outputs(engagement_dir: Path) -> list[RawToolOutput]:
             engagement_id=engagement_dir.name,
         )
 
-    manifest_files = sorted(raw_dir.glob("*.json"))
+    manifest_files = sorted(raw_dir.rglob("*.json"))
     if not manifest_files:
         raise MissingRawOutputError(
             message=(
