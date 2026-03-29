@@ -24,7 +24,15 @@ from gxassessms.core.domain.enums import EngagementState as EngagementState  # r
 
 logger = logging.getLogger(__name__)
 
-EventType = Literal["state_transition", "override", "ai_modification", "rerun"]
+EventType = Literal[
+    "state_transition",
+    "override",
+    "ai_modification",
+    "rerun",
+    "manual_finding_added",
+    "lock_broken",
+    "stale_recovery",
+]
 
 
 @dataclass(frozen=True)

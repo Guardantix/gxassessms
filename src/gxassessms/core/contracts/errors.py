@@ -169,3 +169,34 @@ class InvalidTransitionError(PersistenceError):
         self.from_state = from_state
         self.to_state = to_state
         super().__init__(message)
+
+
+# ---------------------------------------------------------------------------
+# Pipeline errors
+# ---------------------------------------------------------------------------
+
+
+class PipelineError(GxAssessError):
+    """Base for pipeline execution errors."""
+
+    def __init__(
+        self,
+        message: str,
+        engagement_id: str = "",
+        stage: str = "",
+    ) -> None:
+        self.engagement_id = engagement_id
+        self.stage = stage
+        super().__init__(message)
+
+
+class StaleStageError(PipelineError):
+    """Stage found in RUNNING state from a previous (killed) process."""
+
+
+class InvalidRawOutputError(PipelineError):
+    """Persisted raw output fails re-validation during replay."""
+
+
+class MissingRawOutputError(PipelineError):
+    """Raw output files missing from filesystem during replay."""
