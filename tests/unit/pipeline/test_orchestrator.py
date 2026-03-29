@@ -286,6 +286,62 @@ class TestOrchestratorOverrides:
 
 
 # ---------------------------------------------------------------------------
+# Stale state detection and recovery tests
+# ---------------------------------------------------------------------------
+
+
+class TestStaleStateDetection:
+    def test_detect_stale_running_returns_true_for_running_states(
+        self, orchestrator: Orchestrator
+    ) -> None:
+        assert orchestrator._detect_stale_running("eng-001", EngagementState.COLLECTING) is True
+        assert orchestrator._detect_stale_running("eng-001", EngagementState.PARSING) is True
+        assert orchestrator._detect_stale_running("eng-001", EngagementState.NORMALIZING) is True
+
+    def test_detect_stale_running_returns_false_for_completed_states(
+        self, orchestrator: Orchestrator
+    ) -> None:
+        assert orchestrator._detect_stale_running("eng-001", EngagementState.CREATED) is False
+        assert orchestrator._detect_stale_running("eng-001", EngagementState.COLLECTED) is False
+        assert orchestrator._detect_stale_running("eng-001", EngagementState.COMPLETE) is False
+
+
+class TestStaleStateRecovery:
+    def test_recovery_calls_force_update_state(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """Recovery must use force_update_state, not update_state, to bypass validation."""
+        from gxassessms.pipeline._runner import _recover_stale_state
+
+        _recover_stale_state(orchestrator, "eng-001", EngagementState.COLLECTING)
+
+        mock_engagement_repo.force_update_state.assert_called_once_with(
+            "eng-001", EngagementState.CREATED
+        )
+        # Normal update_state should NOT be called during recovery
+        mock_engagement_repo.update_state.assert_not_called()
+
+    def test_recovery_records_stale_recovery_event(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        from gxassessms.pipeline._runner import _recover_stale_state
+
+        _recover_stale_state(orchestrator, "eng-001", EngagementState.PARSING)
+
+        mock_event_repo.append.assert_called_once()
+        event = mock_event_repo.append.call_args[0][0]
+        assert event.event_type == "stale_recovery"
+        assert event.payload["from"] == "PARSING"
+        assert event.payload["to"] == "COLLECTED"
+
+
+# ---------------------------------------------------------------------------
 # NoOp QA auto-advance tests
 # ---------------------------------------------------------------------------
 

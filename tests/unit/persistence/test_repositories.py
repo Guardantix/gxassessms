@@ -137,6 +137,36 @@ class TestEngagementRepoUpdateState:
         assert exc_info.value.to_state == "PARSED"
 
 
+class TestEngagementRepoForceUpdateState:
+    def test_force_update_state_bypasses_validation(self, engagement_repo: EngagementRepo) -> None:
+        """force_update_state skips transition validation for crash recovery."""
+        eng_id = engagement_repo.create(
+            client_name="Test",
+            tenant_id="tenant-001",
+            config_snapshot={},
+        )
+        # CREATED -> COLLECTING is a valid forward transition
+        engagement_repo.update_state(eng_id, EngagementState.COLLECTING)
+        # COLLECTING -> CREATED is a backward transition (invalid normally)
+        engagement_repo.force_update_state(eng_id, EngagementState.CREATED)
+        eng = engagement_repo.get(eng_id)
+        assert eng["state"] == "CREATED"
+
+    def test_force_update_state_nonexistent_raises(self, engagement_repo: EngagementRepo) -> None:
+        with pytest.raises(PersistenceError):
+            engagement_repo.force_update_state("nonexistent-id", EngagementState.COLLECTING)
+
+    def test_force_update_state_sets_updated_at(self, engagement_repo: EngagementRepo) -> None:
+        eng_id = engagement_repo.create(
+            client_name="Test",
+            tenant_id="tenant-001",
+            config_snapshot={},
+        )
+        engagement_repo.force_update_state(eng_id, EngagementState.COLLECTING)
+        eng = engagement_repo.get(eng_id)
+        assert eng["updated_at"] is not None
+
+
 class TestEngagementRepoListByClient:
     def test_list_by_client(self, engagement_repo: EngagementRepo) -> None:
         engagement_repo.create(

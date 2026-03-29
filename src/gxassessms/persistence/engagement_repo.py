@@ -89,6 +89,32 @@ class EngagementRepo:
             )
         logger.info("Updated engagement %s state to %s", engagement_id, state.value)
 
+    def force_update_state(self, engagement_id: str, state: EngagementState) -> None:
+        """Update engagement state without transition validation.
+
+        Used exclusively for crash recovery where backward transitions
+        (e.g. COLLECTING -> CREATED) are required. Normal code paths
+        should use update_state() which enforces the state machine.
+        """
+        now = format_utc(utc_now())
+        with self._db.connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM engagements WHERE engagement_id = ?",
+                (engagement_id,),
+            ).fetchone()
+            if row is None:
+                raise PersistenceError(f"Engagement not found: {engagement_id}")
+
+            conn.execute(
+                "UPDATE engagements SET state = ?, updated_at = ? WHERE engagement_id = ?",
+                (state.value, now, engagement_id),
+            )
+        logger.info(
+            "Force-updated engagement %s state to %s (bypass validation)",
+            engagement_id,
+            state.value,
+        )
+
     def list_by_client(self, client_name: str) -> list[dict[str, Any]]:
         """List all engagements for a client."""
         with self._db.connect() as conn:

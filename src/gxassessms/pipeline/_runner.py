@@ -234,7 +234,7 @@ def _recover_stale_state(
     )
 
     # Bypass normal transition validation (backwards transition)
-    orchestrator._engagement_repo.update_state(engagement_id, recovery_state)
+    orchestrator._engagement_repo.force_update_state(engagement_id, recovery_state)
 
     event = PipelineEvent(
         event_id=str(uuid.uuid4()),
@@ -361,6 +361,6 @@ def _compute_stage_hash(
     elif stage == Stage.RENDER:
         data = []  # Render stage hash is based on input, not output files
     else:
-        data = []
+        raise ValueError(f"Unhandled stage for hashing: {stage.value}")
 
     return orchestrator._compute_content_hash(data)
