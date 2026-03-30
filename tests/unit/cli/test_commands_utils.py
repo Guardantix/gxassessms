@@ -154,3 +154,94 @@ class TestAnalyticsCoverage:
             or "private package" in result.output.lower()
             or "requires" in result.output.lower()
         )
+
+
+# ---------------------------------------------------------------------------
+# Integration tests -- verify all commands are registered and accessible
+# ---------------------------------------------------------------------------
+
+
+class TestCLIIntegration:
+    """Verify all expected commands are registered on the main CLI group."""
+
+    def test_all_top_level_commands_registered(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--help"])
+        assert result.exit_code == 0
+
+        expected_commands = [
+            "run",
+            "collect",
+            "consolidate",
+            "report",
+            "replay",
+            "review",
+            "engagement",
+            "preflight",
+            "adapters",
+            "analytics",
+        ]
+        for cmd in expected_commands:
+            assert cmd in result.output, f"Command '{cmd}' not in help output"
+
+    def test_engagement_subcommands_registered(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "--help"])
+        assert result.exit_code == 0
+        for subcmd in ["create", "list", "status", "archive", "restore", "purge", "export"]:
+            assert subcmd in result.output, f"Subcommand 'engagement {subcmd}' not in help output"
+
+    def test_adapters_subcommands_registered(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["adapters", "--help"])
+        assert result.exit_code == 0
+        for subcmd in ["list", "check", "scaffold"]:
+            assert subcmd in result.output, f"Subcommand 'adapters {subcmd}' not in help output"
+
+    def test_analytics_subcommands_registered(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["analytics", "--help"])
+        assert result.exit_code == 0
+        for subcmd in ["tuning", "cost", "coverage"]:
+            assert subcmd in result.output, f"Subcommand 'analytics {subcmd}' not in help output"
+
+
+class TestCLIErrorHandling:
+    """Verify consistent error handling across commands."""
+
+    def test_run_bad_config_exit_code(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["run", "/nonexistent.yaml"])
+        assert result.exit_code != 0
+
+    def test_collect_bad_config_exit_code(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["collect", "/nonexistent.yaml"])
+        assert result.exit_code != 0
+
+    def test_consolidate_bad_config_exit_code(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["consolidate", "--engagement-id", "eng-001", "/nonexistent.yaml"]
+        )
+        assert result.exit_code != 0
+
+    def test_report_bad_config_exit_code(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["report", "--engagement-id", "eng-001", "/nonexistent.yaml"])
+        assert result.exit_code != 0
+
+    def test_preflight_bad_config_exit_code(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["preflight", "/nonexistent.yaml"])
+        assert result.exit_code != 0
+
+    def test_engagement_create_bad_config_exit_code(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "create", "/nonexistent.yaml"])
+        assert result.exit_code != 0
+
+    def test_engagement_purge_no_confirm_exit_code(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "purge", "eng-001"])
+        assert result.exit_code != 0
