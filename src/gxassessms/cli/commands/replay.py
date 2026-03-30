@@ -4,24 +4,27 @@ Usage:
     mseco replay <engagement-id>
     mseco replay <engagement-id> --from parse
     mseco replay <engagement-id> --from consolidate
+    mseco replay <engagement-id> --from qa
+    mseco replay <engagement-id> --from report
 
 Loads persisted raw output from the engagement directory and re-enters
 the pipeline at PARSE or later. Does not re-run tool collection.
+
+Stage choice mapping:
+    parse      -> Stage.PARSE
+    consolidate -> Stage.CONSOLIDATE
+    qa         -> Stage.QA_REVIEW
+    report     -> Stage.RENDER
 """
 
 from __future__ import annotations
 
+import json
 import logging
 
 import click
 
-from gxassessms.cli._helpers import (
-    build_orchestrator,
-    discover_all_plugins,
-    discover_cli_adapters,
-    discover_plugin,
-    get_artifact_manager,
-)
+import gxassessms.cli._helpers as _helpers
 from gxassessms.cli.output import console
 from gxassessms.core.contracts.errors import GxAssessError
 
@@ -53,6 +56,7 @@ def replay_cmd(engagement_id: str, from_stage: str) -> None:
     Does NOT re-execute tools (use 'mseco run --rerun' for that).
     """
     try:
+        from gxassessms.core.config.config import EngagementConfig
         from gxassessms.pipeline.replay import ReplayEngine
         from gxassessms.pipeline.stages import Stage
 
@@ -67,7 +71,16 @@ def replay_cmd(engagement_id: str, from_stage: str) -> None:
         replay_engine = ReplayEngine()
         replay_engine.validate_start_stage(start_stage)
 
-        artifacts = get_artifact_manager()
+        # Load config from the engagement's persisted snapshot so RENDER
+        # has access to client_name, report_formats, etc.
+        repo = _helpers.get_engagement_repo()
+        engagement = repo.get(engagement_id)
+        snapshot = engagement.get("config_snapshot", "{}")
+        if isinstance(snapshot, str):
+            snapshot = json.loads(snapshot)
+        config = EngagementConfig.model_validate(snapshot)
+
+        artifacts = _helpers.get_artifact_manager()
         eng_dir = artifacts.get_engagement_dir(engagement_id)
         if not eng_dir.exists():
             console.print(
@@ -80,18 +93,18 @@ def replay_cmd(engagement_id: str, from_stage: str) -> None:
             f"[bold]Replaying engagement {engagement_id} from {start_stage.value}...[/bold]"
         )
 
-        orchestrator = build_orchestrator()
-        adapters = discover_cli_adapters()
+        orchestrator = _helpers.build_orchestrator()
+        adapters = _helpers.discover_cli_adapters()
 
         orchestrator.run_from(
             engagement_id=engagement_id,
-            config=None,
+            config=config,
             start_stage=start_stage,
             adapters=adapters,
-            normalization_policy=discover_plugin("gxassessms.policies"),
-            consolidation_rule=discover_plugin("gxassessms.consolidation_rules"),
-            qa_strategy=discover_plugin("gxassessms.qa_strategies"),
-            renderers=discover_all_plugins("gxassessms.renderers"),
+            normalization_policy=_helpers.discover_plugin("gxassessms.policies"),
+            consolidation_rule=_helpers.discover_plugin("gxassessms.consolidation_rules"),
+            qa_strategy=_helpers.discover_plugin("gxassessms.qa_strategies"),
+            renderers=_helpers.discover_all_plugins("gxassessms.renderers"),
         )
 
         console.print("\n[bright_green]Replay complete.[/bright_green]")

@@ -47,7 +47,7 @@ def _write_config(tmp_path: Path) -> Path:
             "scubagear": True,
         },
     }
-    config_path.write_text(yaml.dump(config_data))
+    config_path.write_text(yaml.dump(config_data), encoding="utf-8")
     return config_path
 
 
@@ -447,10 +447,110 @@ class TestReplayCommand:
         result = runner.invoke(cli, ["replay", "--help"])
         assert "--from" in result.output or "from" in result.output.lower()
 
-    def test_from_option_validates_stage_names(self) -> None:
+    def test_from_option_shows_valid_choices_in_help(self) -> None:
+        """--from option help text should list the valid stage choices."""
         runner = CliRunner()
         result = runner.invoke(cli, ["replay", "--help"])
         assert result.exit_code == 0
+        assert "parse" in result.output.lower()
+        assert "consolidate" in result.output.lower()
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_all_plugins", autospec=True)
+    def test_replay_happy_path_loads_config_from_snapshot(
+        self,
+        mock_all_plugins: MagicMock,
+        mock_plugin: MagicMock,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        mock_artifacts: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """replay should load config from engagement snapshot, not require a config arg."""
+        import json
+
+        config_snapshot = {
+            "client_name": "Acme Corp",
+            "tenant_id": "00000000-0000-0000-0000-000000000001",
+            "auth": {
+                "method": "client_credential",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+                "client_id": "00000000-0000-0000-0000-000000000002",
+                "client_secret_env": "GX_SECRET",  # pragma: allowlist secret
+            },
+            "tools": {},
+            "max_parallel": 4,
+            "report_formats": ["docx"],
+            "report_theme": "basic",
+            "qa_model": "claude-sonnet-4-6",
+            "qa_token_budget": 100000,
+        }
+        mock_repo.return_value.get.return_value = {
+            "engagement_id": "eng-replay-001",
+            "config_snapshot": json.dumps(config_snapshot),
+        }
+        mock_artifacts.return_value.get_engagement_dir.return_value = tmp_path
+        mock_discover.return_value = []
+        mock_plugin.return_value = None
+        mock_all_plugins.return_value = []
+        mock_build.return_value.run_from.return_value = None
+        runner = CliRunner()
+        result = runner.invoke(cli, ["replay", "eng-replay-001"])
+        assert result.exit_code == 0
+        # run_from should NOT receive config=None
+        call_kwargs = mock_build.return_value.run_from.call_args
+        assert call_kwargs.kwargs.get("config") is not None
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    def test_replay_engagement_not_found_exits_nonzero(
+        self,
+        mock_artifacts: MagicMock,
+        mock_repo: MagicMock,
+    ) -> None:
+        """replay should exit nonzero with a clear message when engagement dir not found."""
+        import json
+
+        config_snapshot = {
+            "client_name": "Test Corp",
+            "tenant_id": "00000000-0000-0000-0000-000000000001",
+            "auth": {
+                "method": "client_credential",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+                "client_id": "00000000-0000-0000-0000-000000000002",
+                "client_secret_env": "GX_SECRET",  # pragma: allowlist secret
+            },
+            "tools": {},
+            "max_parallel": 4,
+            "report_formats": ["docx"],
+            "report_theme": "basic",
+            "qa_model": "claude-sonnet-4-6",
+            "qa_token_budget": 100000,
+        }
+        mock_repo.return_value.get.return_value = {
+            "engagement_id": "eng-missing-001",
+            "config_snapshot": json.dumps(config_snapshot),
+        }
+        # Return a path that does not exist on disk
+        mock_artifacts.return_value.get_engagement_dir.return_value = Path(
+            "/tmp/nonexistent-engagement-dir-xyz"  # noqa: S108
+        )
+        runner = CliRunner()
+        result = runner.invoke(cli, ["replay", "eng-missing-001"])
+        assert result.exit_code != 0
+        # Should mention missing raw output, not just crash
+        assert "raw output" in result.output.lower() or "collection" in result.output.lower()
+
+    def test_from_option_rejects_invalid_stage_name(self) -> None:
+        """--from should reject stage names not in (parse, consolidate, qa, report)."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["replay", "eng-001", "--from", "badstage"])
+        assert result.exit_code != 0
 
 
 class TestReviewCommand:
@@ -524,7 +624,7 @@ class TestEngagementList:
         runner = CliRunner()
         result = runner.invoke(cli, ["engagement", "list"])
         assert result.exit_code == 0
-        assert "no engagements" in result.output.lower() or len(result.output) > 0
+        assert "no engagements" in result.output.lower()
 
 
 class TestEngagementStatus:
