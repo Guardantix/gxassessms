@@ -18,6 +18,8 @@ from __future__ import annotations
 import logging
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from gxassessms.adapters import AdapterRegistry
 from gxassessms.registry import DiscoveryError, DiscoveryResult
 
@@ -263,3 +265,101 @@ class TestDiscoverAllPlugins:
 
         assert result == []
         assert any("ep_error" in r.message for r in caplog.records)
+
+
+# ---------------------------------------------------------------------------
+# _load_policy_rules
+# ---------------------------------------------------------------------------
+
+
+class TestLoadPolicyRules:
+    def test_loads_real_normalization_yaml(self):
+        """Verifies importlib.resources path resolves the bundled YAML."""
+        from gxassessms.cli._helpers import _load_policy_rules
+
+        rules = _load_policy_rules("normalization.yaml")
+        assert isinstance(rules, dict)
+        assert "fallback_severity" in rules or "default_severity_map" in rules
+
+    def test_raises_config_error_on_missing_file(self):
+        from gxassessms.cli._helpers import _load_policy_rules
+        from gxassessms.core.contracts.errors import ConfigError
+
+        with pytest.raises(ConfigError, match="not found"):
+            _load_policy_rules("no_such_file.yaml")
+
+
+# ---------------------------------------------------------------------------
+# build_normalization_policy
+# ---------------------------------------------------------------------------
+
+
+class TestBuildNormalizationPolicy:
+    def test_returns_default_when_no_override_registered(self):
+        from gxassessms.cli._helpers import build_normalization_policy
+        from gxassessms.policy.normalization import DefaultNormalizationPolicy
+
+        with patch("gxassessms.registry.discover_entry_points") as md:
+            md.return_value = _make_result({})
+            with patch("gxassessms.cli._helpers._load_policy_rules", return_value={}):
+                policy = build_normalization_policy()
+        assert isinstance(policy, DefaultNormalizationPolicy)
+
+    def test_uses_override_when_registered(self):
+        from gxassessms.cli._helpers import build_normalization_policy
+
+        mock_cls = MagicMock(return_value=MagicMock())
+        with patch("gxassessms.registry.discover_entry_points") as md:
+            md.return_value = _make_result({"normalization": mock_cls})
+            with patch("gxassessms.cli._helpers._load_policy_rules", return_value={}):
+                build_normalization_policy()
+        mock_cls.assert_called_once_with(rules={})
+
+    def test_falls_back_on_override_type_error(self):
+        from gxassessms.cli._helpers import build_normalization_policy
+        from gxassessms.policy.normalization import DefaultNormalizationPolicy
+
+        with patch("gxassessms.registry.discover_entry_points") as md:
+            md.return_value = _make_result(
+                {"normalization": MagicMock(side_effect=TypeError("bad"))}
+            )
+            with patch("gxassessms.cli._helpers._load_policy_rules", return_value={}):
+                policy = build_normalization_policy()
+        assert isinstance(policy, DefaultNormalizationPolicy)
+
+    def test_builtin_class_registered_as_override_still_works(self):
+        from gxassessms.cli._helpers import build_normalization_policy
+        from gxassessms.policy.normalization import DefaultNormalizationPolicy
+
+        with patch("gxassessms.registry.discover_entry_points") as md:
+            md.return_value = _make_result({"normalization": DefaultNormalizationPolicy})
+            with patch("gxassessms.cli._helpers._load_policy_rules", return_value={}):
+                policy = build_normalization_policy()
+        assert isinstance(policy, DefaultNormalizationPolicy)
+
+
+# ---------------------------------------------------------------------------
+# build_consolidation_rule
+# ---------------------------------------------------------------------------
+
+
+class TestBuildConsolidationRule:
+    def test_returns_default_when_no_override_registered(self):
+        from gxassessms.cli._helpers import build_consolidation_rule
+        from gxassessms.consolidation.rules import DefaultConsolidationRule
+
+        with patch("gxassessms.registry.discover_entry_points") as md:
+            md.return_value = _make_result({})
+            with patch("gxassessms.cli._helpers._load_policy_rules", return_value={}):
+                rule = build_consolidation_rule()
+        assert isinstance(rule, DefaultConsolidationRule)
+
+    def test_uses_override_when_registered(self):
+        from gxassessms.cli._helpers import build_consolidation_rule
+
+        mock_cls = MagicMock(return_value=MagicMock())
+        with patch("gxassessms.registry.discover_entry_points") as md:
+            md.return_value = _make_result({"default": mock_cls})
+            with patch("gxassessms.cli._helpers._load_policy_rules", return_value={}):
+                build_consolidation_rule()
+        mock_cls.assert_called_once()

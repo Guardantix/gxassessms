@@ -38,7 +38,8 @@ logger = logging.getLogger(__name__)
     "--reparse",
     is_flag=True,
     default=False,
-    help="Re-parse raw output before normalizing (use when parser logic changes).",
+    help="Re-run from raw tool output (re-parse + re-normalize + re-consolidate). "
+    "Default re-consolidates from persisted parsed findings.",
 )
 def consolidate_cmd(config_path: str, engagement_id: str, reparse: bool) -> None:
     """Re-run normalization and deduplication from persisted raw output.
@@ -78,7 +79,7 @@ def consolidate_cmd(config_path: str, engagement_id: str, reparse: bool) -> None
                 a for a in adapters if getattr(a, "tool_name", "").lower() in enabled_tool_names
             ]
 
-        start_stage = Stage.PARSE if reparse else Stage.NORMALIZE
+        start_stage = Stage.PARSE if reparse else Stage.CONSOLIDATE
         console.print(
             f"[bold]Consolidating engagement {engagement_id} "
             f"from stage {start_stage.value}...[/bold]"
@@ -89,8 +90,8 @@ def consolidate_cmd(config_path: str, engagement_id: str, reparse: bool) -> None
             config=config,
             start_stage=start_stage,
             adapters=adapters,
-            normalization_policy=_helpers.discover_plugin("gxassessms.policies"),
-            consolidation_rule=_helpers.discover_plugin("gxassessms.consolidation_rules"),
+            normalization_policy=_helpers.build_normalization_policy(),
+            consolidation_rule=_helpers.build_consolidation_rule(),
             qa_strategy=_helpers.discover_plugin("gxassessms.qa_strategies"),
             renderers=[],
             stop_stage=Stage.CONSOLIDATE,

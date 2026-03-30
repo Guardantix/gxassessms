@@ -55,6 +55,7 @@ default = "gxassessms.consolidation.rules:DefaultConsolidationRule"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gxassessms"]
+artifacts = ["src/gxassessms/**/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

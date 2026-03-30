@@ -85,8 +85,16 @@ class TestRunCommand:
     @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.build_normalization_policy", autospec=True)
+    @patch("gxassessms.cli._helpers.build_consolidation_rule", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_all_plugins", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
     def test_run_creates_engagement_and_calls_orchestrator(
         self,
+        mock_plugin: MagicMock,
+        mock_all_plugins: MagicMock,
+        mock_cons_rule: MagicMock,
+        mock_norm_policy: MagicMock,
         mock_discover: MagicMock,
         mock_build: MagicMock,
         mock_repo: MagicMock,
@@ -98,6 +106,8 @@ class TestRunCommand:
         mock_discover.return_value = [mock_adapter]
         mock_repo.return_value.create.return_value = "eng-test-001"
         mock_build.return_value.run.return_value = None
+        mock_all_plugins.return_value = []
+        mock_plugin.return_value = MagicMock()
         runner = CliRunner()
         result = runner.invoke(cli, ["run", str(config_path)])
         assert result.exit_code == 0
@@ -162,8 +172,16 @@ class TestRunCommand:
     @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.build_normalization_policy", autospec=True)
+    @patch("gxassessms.cli._helpers.build_consolidation_rule", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_all_plugins", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
     def test_run_failure_shows_engagement_id_for_retry(
         self,
+        mock_plugin: MagicMock,
+        mock_all_plugins: MagicMock,
+        mock_cons_rule: MagicMock,
+        mock_norm_policy: MagicMock,
         mock_discover: MagicMock,
         mock_build: MagicMock,
         mock_repo: MagicMock,
@@ -176,6 +194,8 @@ class TestRunCommand:
         mock_discover.return_value = [MagicMock()]
         mock_repo.return_value.create.return_value = "eng-run-fail-001"
         mock_build.return_value.run.side_effect = GxAssessError("network error")
+        mock_all_plugins.return_value = []
+        mock_plugin.return_value = MagicMock()
         runner = CliRunner()
         result = runner.invoke(cli, ["run", str(config_path)])
         assert result.exit_code != 0
@@ -338,15 +358,20 @@ class TestConsolidateCommand:
 
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.build_normalization_policy", autospec=True)
+    @patch("gxassessms.cli._helpers.build_consolidation_rule", autospec=True)
     @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
     def test_consolidate_happy_path_calls_run_from_with_stop_stage(
         self,
         mock_plugin: MagicMock,
+        mock_cons_rule: MagicMock,
+        mock_norm_policy: MagicMock,
         mock_discover: MagicMock,
         mock_build: MagicMock,
         tmp_path: Path,
     ) -> None:
-        """consolidate should call run_from with stop_stage=Stage.CONSOLIDATE."""
+        """consolidate should call run_from with stop_stage=Stage.CONSOLIDATE
+        and start_stage=Stage.CONSOLIDATE (default, no --reparse)."""
         from gxassessms.pipeline.stages import Stage
 
         config_path = _write_config(tmp_path)
@@ -358,13 +383,18 @@ class TestConsolidateCommand:
         assert result.exit_code == 0
         call_kwargs = mock_build.return_value.run_from.call_args
         assert call_kwargs.kwargs.get("stop_stage") == Stage.CONSOLIDATE
+        assert call_kwargs.kwargs.get("start_stage") == Stage.CONSOLIDATE
 
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.build_normalization_policy", autospec=True)
+    @patch("gxassessms.cli._helpers.build_consolidation_rule", autospec=True)
     @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
     def test_consolidate_failure_shows_engagement_id(
         self,
         mock_plugin: MagicMock,
+        mock_cons_rule: MagicMock,
+        mock_norm_policy: MagicMock,
         mock_discover: MagicMock,
         mock_build: MagicMock,
         tmp_path: Path,
@@ -384,10 +414,14 @@ class TestConsolidateCommand:
 
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.build_normalization_policy", autospec=True)
+    @patch("gxassessms.cli._helpers.build_consolidation_rule", autospec=True)
     @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
     def test_consolidate_reparse_uses_parse_start_stage(
         self,
         mock_plugin: MagicMock,
+        mock_cons_rule: MagicMock,
+        mock_norm_policy: MagicMock,
         mock_discover: MagicMock,
         mock_build: MagicMock,
         tmp_path: Path,
@@ -465,12 +499,16 @@ class TestReplayCommand:
     @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.build_normalization_policy", autospec=True)
+    @patch("gxassessms.cli._helpers.build_consolidation_rule", autospec=True)
     @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
     @patch("gxassessms.cli._helpers.discover_all_plugins", autospec=True)
     def test_replay_happy_path_loads_config_from_snapshot(
         self,
         mock_all_plugins: MagicMock,
         mock_plugin: MagicMock,
+        mock_cons_rule: MagicMock,
+        mock_norm_policy: MagicMock,
         mock_discover: MagicMock,
         mock_build: MagicMock,
         mock_artifacts: MagicMock,

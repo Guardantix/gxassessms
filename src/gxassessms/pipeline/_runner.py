@@ -100,12 +100,23 @@ def run_stages(
             current_state = orchestrator._get_current_state(engagement_id)
             stages = orchestrator._get_stages_to_run(recovery_stage)
 
-        # In-memory pipeline data flows between stages
-        adapter_results: list[AdapterResult] = []
-        observations: list[ToolObservation] = []
-        findings: list[Finding] = []
-        consolidated_findings: list[ConsolidatedFinding] = []
-        qa_results: list[Any] = []
+        # In-memory pipeline data flows between stages.
+        # None = "upstream never ran"; [] = "upstream ran, produced zero results".
+        adapter_results: list[AdapterResult] | None = None
+        observations: list[ToolObservation] | None = None
+        findings: list[Finding] | None = None
+        consolidated_findings: list[ConsolidatedFinding] | None = None
+        qa_results: list[Any] | None = None
+
+        # Seed in-memory state from persistence when resuming mid-pipeline.
+        # Spec line 1646: orchestrator.run_from() is responsible for rehydration.
+        _ra, _f, _cf = _rehydrate_upstream_state(start_stage, engagement_id, adapters, orchestrator)
+        if _ra is not None:
+            adapter_results = _ra
+        if _f is not None:
+            findings = _f
+        if _cf is not None:
+            consolidated_findings = _cf
 
         for stage in stages:
             running_state, completed_state = STAGE_STATE_MAP[stage]
@@ -120,10 +131,12 @@ def run_stages(
 
                 elif stage == Stage.PARSE:
                     _require_in_memory("adapter_results", adapter_results, stage)
+                    assert adapter_results is not None  # noqa: S101 -- narrowing for type checker
                     observations = parse(adapter_results, adapters)
 
                 elif stage == Stage.NORMALIZE:
                     _require_in_memory("observations", observations, stage)
+                    assert observations is not None  # noqa: S101 -- narrowing for type checker
                     severity_map = _build_adapter_severity_map(adapters)
                     category_map = _build_adapter_category_map(adapters)
                     dedup_keys = _build_adapter_dedup_keys(adapters)
@@ -134,17 +147,26 @@ def run_stages(
                         adapter_category_map=category_map,
                         adapter_dedup_keys=dedup_keys,
                     )
+                    # Persist: replaces prior parsed findings in one transaction.
+                    orchestrator._finding_repo.save_parsed_findings(engagement_id, findings)
 
                 elif stage == Stage.CONSOLIDATE:
                     _require_in_memory("findings", findings, stage)
+                    assert findings is not None  # noqa: S101 -- narrowing for type checker
                     consolidated_findings = consolidate(findings, consolidation_rule)
+                    # Persist: replaces prior consolidated findings in one transaction.
+                    orchestrator._finding_repo.save_consolidated_findings(
+                        engagement_id, consolidated_findings
+                    )
 
                 elif stage == Stage.QA_REVIEW:
                     _require_in_memory("consolidated_findings", consolidated_findings, stage)
+                    assert consolidated_findings is not None  # noqa: S101 -- narrowing for type checker
                     qa_results = qa_review(consolidated_findings, qa_strategy)
 
                 elif stage == Stage.RENDER:
                     _require_in_memory("consolidated_findings", consolidated_findings, stage)
+                    assert consolidated_findings is not None  # noqa: S101 -- narrowing for type checker
                     report_dir = output_dir or Path("output")
                     payload = _build_report_payload(engagement_id, config, consolidated_findings)
                     _execute_render(payload, renderers, report_dir)
@@ -152,11 +174,11 @@ def run_stages(
                 # Compute content hash for the stage output
                 stage_hash = _compute_stage_hash(
                     stage,
-                    adapter_results=adapter_results,
-                    observations=observations,
-                    findings=findings,
-                    consolidated_findings=consolidated_findings,
-                    qa_results=qa_results,
+                    adapter_results=adapter_results or [],
+                    observations=observations or [],
+                    findings=findings or [],
+                    consolidated_findings=consolidated_findings or [],
+                    qa_results=qa_results or [],
                     orchestrator=orchestrator,
                 )
 
@@ -203,7 +225,7 @@ def run_stages(
                     orchestrator._transition_state(
                         engagement_id, running_state, EngagementState.FAILED
                     )
-                except GxAssessError, RuntimeError, OSError:
+                except (GxAssessError, RuntimeError, OSError):  # fmt: skip
                     logger.error("Failed to transition %s to FAILED", engagement_id, exc_info=True)
                 raise
             except (
@@ -225,7 +247,7 @@ def run_stages(
                     orchestrator._transition_state(
                         engagement_id, running_state, EngagementState.FAILED
                     )
-                except GxAssessError, RuntimeError, OSError:
+                except (GxAssessError, RuntimeError, OSError):  # fmt: skip
                     logger.error("Failed to transition %s to FAILED", engagement_id, exc_info=True)
                 raise PipelineError(
                     message=f"Stage {stage.value} failed: {e}",
@@ -290,12 +312,68 @@ def _recover_stale_state(
     return recovery_stage
 
 
-def _require_in_memory(name: str, data: list[Any], stage: Stage) -> None:
-    """Validate that upstream data exists in memory for a stage.
+def _rehydrate_upstream_state(
+    start_stage: Stage,
+    engagement_id: str,
+    adapters: list[Any],
+    orchestrator: Any,
+) -> tuple[
+    list[AdapterResult] | None,
+    list[Finding] | None,
+    list[ConsolidatedFinding] | None,
+]:
+    """Load persisted upstream data when resuming the pipeline mid-stage.
 
-    Raises PipelineError if the data list is empty and the stage requires it.
+    Returns a 3-tuple of (adapter_results, findings, consolidated_findings).
+    Each element is None if not relevant to start_stage.
+
+    Raises:
+        PipelineError: If start_stage is NORMALIZE (observations not persisted)
+            or if required upstream data cannot be loaded.
     """
-    if not data:
+    if start_stage == Stage.COLLECT:
+        return None, None, None
+
+    if start_stage == Stage.PARSE:
+        from gxassessms.pipeline.replay import (
+            ReplayEngine,
+            load_raw_outputs,
+            validate_raw_outputs,
+        )
+
+        eng_dir = orchestrator._artifact_manager.get_engagement_dir(engagement_id)
+        raw_outputs = load_raw_outputs(eng_dir)
+        validate_raw_outputs(raw_outputs, adapters, engagement_id)
+        adapter_results = ReplayEngine().build_adapter_results(raw_outputs)
+        return adapter_results, None, None
+
+    if start_stage == Stage.NORMALIZE:
+        raise PipelineError(
+            message=(
+                "Cannot resume from NORMALIZE: ToolObservation data is not persisted. "
+                "Use Stage.CONSOLIDATE to re-consolidate from persisted parsed findings, "
+                "or Stage.PARSE to re-run from raw tool output (mseco consolidate --reparse)."
+            ),
+            engagement_id=engagement_id,
+            stage=Stage.NORMALIZE.value,
+        )
+
+    if start_stage == Stage.CONSOLIDATE:
+        findings = orchestrator._finding_repo.get_parsed_as_findings(engagement_id)
+        return None, findings, None
+
+    # QA_REVIEW or RENDER
+    consolidated = orchestrator._finding_repo.get_consolidated_as_findings(engagement_id)
+    return None, None, consolidated
+
+
+def _require_in_memory(name: str, data: list[Any] | None, stage: Stage) -> None:
+    """Validate that upstream data was produced by a prior stage in this run.
+
+    Checks for None (never set) rather than empty list (set, but upstream
+    produced zero results). Empty list is valid -- e.g., all controls passed.
+    """
+    if data is None:
         raise PipelineError(
             message=(
                 f"Stage {stage.value} requires {name} from a prior stage, "

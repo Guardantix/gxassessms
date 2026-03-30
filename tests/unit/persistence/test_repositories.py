@@ -685,6 +685,153 @@ class TestFindingRepoManualFinding:
         assert finding_repo.get_parsed(eng_id) == []
 
 
+# ── FindingRepo Typed Methods ─────────────────────────────────────────
+
+
+def _make_finding(finding_key: str = "cis:m365:1.1.1"):
+    from gxassessms.core.domain.enums import Category, FindingStatus, Severity, ToolSource
+    from gxassessms.core.domain.models import Finding
+
+    return Finding(
+        observation_id="scubagear:obs-1",
+        native_check_id="MS.AAD.1.1",
+        finding_key=finding_key,
+        tool=ToolSource.SCUBAGEAR,
+        title="Test Finding",
+        severity=Severity.HIGH,
+        status=FindingStatus.FAIL,
+        category=Category.IDENTITY_ACCESS,
+        description="Test description",
+        dedup_keys=[finding_key],
+        benchmark_refs=["CIS 1.1"],
+        raw_data={"x": 1},
+    )
+
+
+def _make_consolidated_finding():
+    from gxassessms.core.domain.enums import Category, FindingStatus, Severity, ToolSource
+    from gxassessms.core.domain.models import (
+        ConfidenceScore,
+        ConsolidatedFinding,
+        SourceEvidence,
+    )
+
+    return ConsolidatedFinding(
+        finding_instance_id="cf-typed-001",
+        finding_key="cis:m365:1.1.1",
+        title="Consolidated Test",
+        severity=Severity.CRITICAL,
+        status=FindingStatus.FAIL,
+        category=Category.IDENTITY_ACCESS,
+        description="Consolidated description",
+        sources=[
+            SourceEvidence(
+                tool=ToolSource.SCUBAGEAR,
+                check_id="MS.AAD.3.1v1",
+                raw_data={"result": "Fail"},
+            ),
+        ],
+        confidence=ConfidenceScore(
+            evidence_strength=0.9,
+            corroborating_tools=1,
+            data_freshness=1.0,
+            provenance="system-generated",
+            overall=0.88,
+        ),
+        benchmark_refs=["CIS M365 1.1.1"],
+        root_cause="No MFA policy",
+        remediation="Enable MFA",
+    )
+
+
+class TestFindingRepoTypedMethods:
+    def test_save_parsed_findings_round_trip(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(client_name="Test", tenant_id="t-001", config_snapshot={})
+        f = _make_finding()
+        finding_repo.save_parsed_findings(eng_id, [f])
+        loaded = finding_repo.get_parsed_as_findings(eng_id)
+        assert len(loaded) == 1
+        lf = loaded[0]
+        assert lf.finding_key == "cis:m365:1.1.1"
+        assert lf.tool.value == "ScubaGear"
+        assert lf.native_check_id == "MS.AAD.1.1"
+        assert lf.severity.value == "HIGH"
+        assert lf.dedup_keys == ["cis:m365:1.1.1"]
+        assert lf.benchmark_refs == ["CIS 1.1"]
+        assert lf.raw_data == {"x": 1}
+
+    def test_save_parsed_findings_replaces_prior_batch(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(client_name="Test", tenant_id="t-001", config_snapshot={})
+        finding_repo.save_parsed_findings(eng_id, [_make_finding(finding_key="old")])
+        finding_repo.save_parsed_findings(eng_id, [_make_finding(finding_key="new")])
+        loaded = finding_repo.get_parsed_as_findings(eng_id)
+        assert len(loaded) == 1
+        assert loaded[0].finding_key == "new"
+
+    def test_save_parsed_findings_empty_list_clears_prior(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(client_name="Test", tenant_id="t-001", config_snapshot={})
+        finding_repo.save_parsed_findings(eng_id, [_make_finding()])
+        finding_repo.save_parsed_findings(eng_id, [])
+        assert finding_repo.get_parsed_as_findings(eng_id) == []
+
+    def test_save_parsed_findings_does_not_affect_other_engagements(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+    ) -> None:
+        eng1 = engagement_repo.create(client_name="Test", tenant_id="t-001", config_snapshot={})
+        eng2 = engagement_repo.create(client_name="Test2", tenant_id="t-002", config_snapshot={})
+        finding_repo.save_parsed_findings(eng1, [_make_finding(finding_key="key1")])
+        finding_repo.save_parsed_findings(eng2, [_make_finding(finding_key="key2")])
+        finding_repo.save_parsed_findings(eng1, [])
+        assert len(finding_repo.get_parsed_as_findings(eng2)) == 1
+
+    def test_get_parsed_as_findings_empty_when_none_saved(
+        self,
+        finding_repo: FindingRepo,
+    ) -> None:
+        result = finding_repo.get_parsed_as_findings("nonexistent-engagement")
+        assert result == []
+
+    def test_save_consolidated_findings_round_trip(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(client_name="Test", tenant_id="t-001", config_snapshot={})
+        cf = _make_consolidated_finding()
+        finding_repo.save_consolidated_findings(eng_id, [cf])
+        loaded = finding_repo.get_consolidated_as_findings(eng_id)
+        assert len(loaded) == 1
+        lf = loaded[0]
+        assert lf.finding_instance_id == cf.finding_instance_id
+        assert lf.severity == cf.severity
+        assert len(lf.sources) == len(cf.sources)
+        assert lf.confidence.overall == pytest.approx(cf.confidence.overall)
+
+    def test_save_consolidated_replaces_prior(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(client_name="Test", tenant_id="t-001", config_snapshot={})
+        finding_repo.save_consolidated_findings(eng_id, [_make_consolidated_finding()])
+        finding_repo.save_consolidated_findings(eng_id, [])
+        assert finding_repo.get_consolidated_as_findings(eng_id) == []
+
+
 # ── CoverageRepo ──────────────────────────────────────────────────────
 
 

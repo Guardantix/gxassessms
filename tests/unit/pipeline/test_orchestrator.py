@@ -150,6 +150,11 @@ def mock_db() -> MagicMock:
 
 
 @pytest.fixture
+def mock_artifact_manager() -> MagicMock:
+    return MagicMock()
+
+
+@pytest.fixture
 def orchestrator(
     mock_engagement_repo: MagicMock,
     mock_event_repo: MagicMock,
@@ -157,6 +162,7 @@ def orchestrator(
     mock_coverage_repo: MagicMock,
     mock_lock: MagicMock,
     mock_db: MagicMock,
+    mock_artifact_manager: MagicMock,
 ) -> Orchestrator:
     return Orchestrator(
         engagement_repo=mock_engagement_repo,
@@ -165,6 +171,7 @@ def orchestrator(
         coverage_repo=mock_coverage_repo,
         lock=mock_lock,
         db=mock_db,
+        artifact_manager=mock_artifact_manager,
     )
 
 
@@ -186,6 +193,7 @@ class TestOrchestratorConstruction:
                 coverage_repo=MagicMock(),
                 lock=MagicMock(),
                 db=MagicMock(),
+                artifact_manager=MagicMock(),
             )
 
 
@@ -904,3 +912,87 @@ class TestExtractPayload:
         event = {"payload": "{not valid json"}
         with pytest.raises(PersistenceError, match="Corrupt"):
             _extract_payload(event)
+
+
+# ---------------------------------------------------------------------------
+# Rehydration tests
+# ---------------------------------------------------------------------------
+
+ENG = "eng-001"
+
+
+class TestRehydrateUpstreamState:
+    """Unit tests for _rehydrate_upstream_state()."""
+
+    def test_collect_returns_all_none(self, orchestrator: Orchestrator) -> None:
+        from gxassessms.pipeline._runner import _rehydrate_upstream_state
+
+        ra, f, cf = _rehydrate_upstream_state(Stage.COLLECT, ENG, [], orchestrator)
+        assert ra is None
+        assert f is None
+        assert cf is None
+
+    def test_parse_loads_raw_outputs_and_builds_adapter_results(
+        self,
+        orchestrator: Orchestrator,
+        mock_artifact_manager: MagicMock,
+    ) -> None:
+        from gxassessms.pipeline._runner import _rehydrate_upstream_state
+
+        with (
+            patch("gxassessms.pipeline.replay.load_raw_outputs") as ml,
+            patch("gxassessms.pipeline.replay.validate_raw_outputs"),
+            patch("gxassessms.pipeline.replay.ReplayEngine") as me,
+        ):
+            ml.return_value = []
+            me.return_value.build_adapter_results.return_value = [MagicMock()]
+            ra, f, cf = _rehydrate_upstream_state(Stage.PARSE, ENG, [], orchestrator)
+            mock_artifact_manager.get_engagement_dir.assert_called_once_with(ENG)
+            ml.assert_called_once()
+        assert ra is not None
+        assert f is None
+        assert cf is None
+
+    def test_normalize_raises_pipeline_error(self, orchestrator: Orchestrator) -> None:
+        from gxassessms.pipeline._runner import _rehydrate_upstream_state
+
+        with pytest.raises(PipelineError, match="ToolObservation data is not persisted"):
+            _rehydrate_upstream_state(Stage.NORMALIZE, ENG, [], orchestrator)
+
+    def test_consolidate_loads_parsed_findings(
+        self,
+        orchestrator: Orchestrator,
+        mock_finding_repo: MagicMock,
+    ) -> None:
+        from gxassessms.pipeline._runner import _rehydrate_upstream_state
+
+        mock_finding_repo.get_parsed_as_findings.return_value = [_make_finding()]
+        ra, f, cf = _rehydrate_upstream_state(Stage.CONSOLIDATE, ENG, [], orchestrator)
+        mock_finding_repo.get_parsed_as_findings.assert_called_once_with(ENG)
+        assert ra is None
+        assert f is not None
+        assert cf is None
+
+    def test_render_loads_consolidated_findings(
+        self,
+        orchestrator: Orchestrator,
+        mock_finding_repo: MagicMock,
+    ) -> None:
+        from gxassessms.pipeline._runner import _rehydrate_upstream_state
+
+        mock_finding_repo.get_consolidated_as_findings.return_value = [_make_consolidated()]
+        _ra, _f, cf = _rehydrate_upstream_state(Stage.RENDER, ENG, [], orchestrator)
+        mock_finding_repo.get_consolidated_as_findings.assert_called_once_with(ENG)
+        assert cf is not None
+
+    def test_empty_findings_from_db_does_not_raise(
+        self,
+        orchestrator: Orchestrator,
+        mock_finding_repo: MagicMock,
+    ) -> None:
+        """[] from DB is valid (all controls passed) -- must not raise."""
+        from gxassessms.pipeline._runner import _rehydrate_upstream_state
+
+        mock_finding_repo.get_parsed_as_findings.return_value = []
+        _ra, f, _cf = _rehydrate_upstream_state(Stage.CONSOLIDATE, ENG, [], orchestrator)
+        assert f == []

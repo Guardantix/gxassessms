@@ -113,8 +113,8 @@ def replay_cmd(engagement_id: str, from_stage: str) -> None:
             config=config,
             start_stage=start_stage,
             adapters=adapters,
-            normalization_policy=_helpers.discover_plugin("gxassessms.policies"),
-            consolidation_rule=_helpers.discover_plugin("gxassessms.consolidation_rules"),
+            normalization_policy=_helpers.build_normalization_policy(),
+            consolidation_rule=_helpers.build_consolidation_rule(),
             qa_strategy=_helpers.discover_plugin("gxassessms.qa_strategies"),
             renderers=_helpers.discover_all_plugins("gxassessms.renderers"),
         )

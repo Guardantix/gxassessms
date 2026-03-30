@@ -43,6 +43,8 @@ def build_orchestrator() -> Any:
             f"Failed to initialize data directory: {e}. Check disk space and directory permissions."
         ) from e
 
+    from gxassessms.persistence import ArtifactManager
+
     return Orchestrator(
         engagement_repo=EngagementRepo(db),
         event_repo=EventRepo(db),
@@ -50,6 +52,7 @@ def build_orchestrator() -> Any:
         coverage_repo=CoverageRepo(db),
         lock=EngagementLock(engagements_root),
         db=db,
+        artifact_manager=ArtifactManager(engagements_root),
     )
 
 
@@ -206,3 +209,92 @@ def discover_all_plugins(group: str) -> list[Any]:
             except (TypeError, ValueError, RuntimeError) as exc:
                 logger.warning("Failed to instantiate %s plugin %s: %s", group, name, exc)
     return instances
+
+
+def _load_policy_rules(filename: str) -> dict[str, Any]:
+    """Load a YAML rules file bundled with the gxassessms.policy package.
+
+    Works in both editable installs and wheels (uses importlib.resources).
+    Raises ConfigError on missing or malformed file.
+    """
+    import importlib.resources
+
+    import yaml
+
+    from gxassessms.core.contracts.errors import ConfigError
+
+    try:
+        pkg = importlib.resources.files("gxassessms.policy")
+        text = (pkg / "rules" / filename).read_text(encoding="utf-8")
+        return yaml.safe_load(text)  # type: ignore[no-any-return]
+    except (FileNotFoundError, OSError) as exc:
+        raise ConfigError(
+            f"Policy rules file not found: {filename}. "
+            "Package may be misconfigured (missing YAML artifacts in wheel)."
+        ) from exc
+    except yaml.YAMLError as exc:
+        raise ConfigError(f"Failed to parse policy rules file {filename}: {exc}") from exc
+
+
+def build_normalization_policy() -> Any:
+    """Return a NormalizationPolicy for the CLI.
+
+    Checks gxassessms.policies entry point for a 'normalization' override.
+    Falls back to DefaultNormalizationPolicy on missing override or failure.
+    """
+    from gxassessms.policy.normalization import DefaultNormalizationPolicy
+    from gxassessms.registry import discover_entry_points
+
+    result = discover_entry_points("gxassessms.policies")
+    for err in result.errors:
+        logger.warning(
+            "Plugin discovery error in gxassessms.policies: %s: %s",
+            err.plugin_name,
+            err.message,
+        )
+    rules = _load_policy_rules("normalization.yaml")
+    cls = result.get("normalization")
+    if cls is not None:
+        try:
+            return cls(rules=rules)
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "Failed to instantiate normalization policy %s: %s; "
+                "falling back to DefaultNormalizationPolicy",
+                getattr(cls, "__name__", cls),
+                exc,
+            )
+    return DefaultNormalizationPolicy(rules=rules)
+
+
+def build_consolidation_rule() -> Any:
+    """Return a ConsolidationRule for the CLI.
+
+    Checks gxassessms.consolidation_rules entry point for a 'default' override.
+    Falls back to DefaultConsolidationRule on missing override or failure.
+    """
+    from gxassessms.consolidation.rules import DefaultConsolidationRule
+    from gxassessms.policy.consolidation import DefaultConsolidationPolicy
+    from gxassessms.registry import discover_entry_points
+
+    result = discover_entry_points("gxassessms.consolidation_rules")
+    for err in result.errors:
+        logger.warning(
+            "Plugin discovery error in gxassessms.consolidation_rules: %s: %s",
+            err.plugin_name,
+            err.message,
+        )
+    consolidation_rules = _load_policy_rules("consolidation.yaml")
+    policy = DefaultConsolidationPolicy(rules=consolidation_rules)
+    cls = result.get("default")
+    if cls is not None:
+        try:
+            return cls(policy=policy)
+        except (TypeError, ValueError) as exc:
+            logger.warning(
+                "Failed to instantiate consolidation rule %s: %s; "
+                "falling back to DefaultConsolidationRule",
+                getattr(cls, "__name__", cls),
+                exc,
+            )
+    return DefaultConsolidationRule(policy=policy)

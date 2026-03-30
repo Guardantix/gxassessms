@@ -22,6 +22,7 @@ from gxassessms.core.contracts.errors import PersistenceError
 from gxassessms.core.domain.enums import Severity
 from gxassessms.core.domain.models import Finding
 from gxassessms.persistence import (
+    ArtifactManager,
     CoverageRepo,
     DatabaseManager,
     EngagementRepo,
@@ -70,6 +71,7 @@ class Orchestrator:
         coverage_repo: CoverageRepo,
         lock: EngagementLock,
         db: DatabaseManager,
+        artifact_manager: ArtifactManager,
     ) -> None:
         if engagement_repo is None:  # type: ignore[comparison-overlap]
             raise TypeError("engagement_repo is required")
@@ -80,6 +82,7 @@ class Orchestrator:
         self._coverage_repo = coverage_repo
         self._lock = lock
         self._db = db
+        self._artifact_manager = artifact_manager
 
     # ------------------------------------------------------------------
     # State transitions

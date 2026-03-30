@@ -149,8 +149,8 @@ def run_cmd(
         run_kwargs = {
             "config": config,
             "adapters": adapters,
-            "normalization_policy": _helpers.discover_plugin("gxassessms.policies"),
-            "consolidation_rule": _helpers.discover_plugin("gxassessms.consolidation_rules"),
+            "normalization_policy": _helpers.build_normalization_policy(),
+            "consolidation_rule": _helpers.build_consolidation_rule(),
             "qa_strategy": _helpers.discover_plugin("gxassessms.qa_strategies"),
             "renderers": _helpers.discover_all_plugins("gxassessms.renderers"),
         }
