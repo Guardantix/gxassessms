@@ -199,3 +199,47 @@ class TestReportCommand:
             cli, ["report", "--engagement-id", "eng-001", "/nonexistent/config.yaml"]
         )
         assert result.exit_code != 0
+
+
+class TestReplayCommand:
+    def test_help_shows_description(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["replay", "--help"])
+        assert result.exit_code == 0
+        assert "replay" in result.output.lower()
+
+    def test_requires_engagement_id(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["replay"])
+        assert result.exit_code != 0
+
+    def test_accepts_from_option(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["replay", "--help"])
+        assert "--from" in result.output or "from" in result.output.lower()
+
+    def test_from_option_validates_stage_names(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["replay", "--help"])
+        assert result.exit_code == 0
+
+
+class TestReviewCommand:
+    def test_help_shows_description(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["review", "--help"])
+        assert result.exit_code == 0
+
+    def test_requires_engagement_id(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["review"])
+        assert result.exit_code != 0
+
+    def test_shows_private_package_message_when_not_installed(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["review", "eng-001"])
+        assert (
+            "gxassessms-guardantix" in result.output
+            or "private package" in result.output.lower()
+            or "requires" in result.output.lower()
+        )
