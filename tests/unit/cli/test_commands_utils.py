@@ -52,7 +52,7 @@ class TestPreflightCommand:
             },
             "tools": {"scubagear": True},
         }
-        config_path.write_text(yaml.dump(config_data))
+        config_path.write_text(yaml.dump(config_data), encoding="utf-8")
         mock_discover.return_value = []
 
         runner = CliRunner()

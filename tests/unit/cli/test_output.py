@@ -117,6 +117,16 @@ class TestMakeFindingsSummaryTable:
         counts = {"CRITICAL": 2, "HIGH": 3}
         table = make_findings_summary_table(counts)
         assert table is not None
+        from io import StringIO
+
+        from rich.console import Console
+
+        buf = StringIO()
+        c = Console(file=buf, width=200)
+        c.print(table)
+        output = buf.getvalue()
+        # CRITICAL(2) + HIGH(3) = 5; LOW/MEDIUM/INFO are 0
+        assert "5" in output
 
 
 class TestMakeEngagementStatusTable:

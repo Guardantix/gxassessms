@@ -45,6 +45,7 @@ class TestSetupLogging:
         """JSONLogFormatter.format() includes 'exception' key when exc_info is set."""
         import json
         import logging
+        import sys
 
         from gxassessms.cli.main import JSONLogFormatter
 
@@ -52,6 +53,7 @@ class TestSetupLogging:
         try:
             raise ValueError("test error")
         except ValueError:
+            exc_info = sys.exc_info()
             record = logging.LogRecord(
                 name="test",
                 level=logging.ERROR,
@@ -59,7 +61,7 @@ class TestSetupLogging:
                 lineno=0,
                 msg="something broke",
                 args=(),
-                exc_info=True,
+                exc_info=exc_info,
             )
         output = formatter.format(record)
         data = json.loads(output)
