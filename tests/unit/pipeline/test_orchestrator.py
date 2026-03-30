@@ -797,7 +797,7 @@ class TestRunFromStopStage:
                 qa_strategy=None,
                 renderers=[],
             )
-        assert mock_run_stages.call_args.kwargs.get("stop_stage") is None
+        assert mock_run_stages.call_args.kwargs["stop_stage"] is None
 
 
 class TestRunStagesStopStage:
@@ -840,7 +840,7 @@ class TestRunStagesStopStage:
             patch("gxassessms.pipeline._runner.qa_review", return_value=[]),
             patch("gxassessms.pipeline._runner.render", return_value=None),
             patch("gxassessms.pipeline._runner._compute_stage_hash", return_value="abc123"),
-            patch("gxassessms.pipeline._runner._execute_render"),
+            patch("gxassessms.pipeline._runner._execute_render") as mock_execute_render,
             patch("gxassessms.pipeline._runner._build_report_payload", return_value=MagicMock()),
             patch("gxassessms.pipeline._runner._require_in_memory", return_value=None),
             patch.object(orchestrator, "_should_auto_advance_qa", return_value=True),
@@ -859,6 +859,29 @@ class TestRunStagesStopStage:
             )
 
         mock_parse.assert_called_once()
+        mock_execute_render.assert_called_once()
+
+    def test_run_stages_raises_for_stop_stage_qa_review(self, orchestrator: Orchestrator) -> None:
+        """run_stages() must raise ValueError if stop_stage=Stage.QA_REVIEW.
+
+        QA_REVIEW has a human-approval state machine; it cannot be expressed
+        as a simple stop point. The guard must fire before the lock is acquired.
+        """
+        from gxassessms.pipeline._runner import run_stages
+
+        with pytest.raises(ValueError, match=r"stop_stage=Stage\.QA_REVIEW is not supported"):
+            run_stages(
+                orchestrator=orchestrator,
+                engagement_id="eng-001",
+                config=_make_config(),
+                adapters=[],
+                normalization_policy=None,
+                consolidation_rule=None,
+                qa_strategy=None,
+                renderers=[],
+                start_stage=Stage.COLLECT,
+                stop_stage=Stage.QA_REVIEW,
+            )
 
 
 # ---------------------------------------------------------------------------

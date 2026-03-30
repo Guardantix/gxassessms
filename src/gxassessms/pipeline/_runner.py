@@ -72,7 +72,23 @@ def run_stages(
         stop_stage: Optional stage to stop after. If provided, the pipeline
             halts after this stage completes (state is left in the completed
             state for stop_stage). Defaults to None (run to completion).
+
+            Note: ``stop_stage=Stage.QA_REVIEW`` is not supported and raises
+            ``ValueError``. QA_REVIEW has special state-machine handling
+            (human-approval gate) that cannot be expressed as a simple stop
+            point. Use ``stop_stage=Stage.CONSOLIDATE`` to halt before QA, or
+            omit ``stop_stage`` to run to completion.
+
+    Raises:
+        ValueError: If ``stop_stage=Stage.QA_REVIEW`` is passed.
     """
+    if stop_stage is Stage.QA_REVIEW:
+        raise ValueError(
+            "stop_stage=Stage.QA_REVIEW is not supported: QA_REVIEW has special "
+            "state-machine handling. Use stop_stage=Stage.CONSOLIDATE to halt "
+            "before QA, or omit stop_stage to run to completion."
+        )
+
     stages = orchestrator._get_stages_to_run(start_stage)
 
     with orchestrator._lock.hold(engagement_id):
