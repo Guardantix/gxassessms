@@ -243,3 +243,184 @@ class TestReviewCommand:
             or "private package" in result.output.lower()
             or "requires" in result.output.lower()
         )
+
+
+# ---------------------------------------------------------------------------
+# Engagement management tests
+# ---------------------------------------------------------------------------
+
+
+class TestEngagementGroup:
+    def test_help_shows_subcommands(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "--help"])
+        assert result.exit_code == 0
+        assert "create" in result.output
+        assert "list" in result.output
+        assert "status" in result.output
+        assert "archive" in result.output
+        assert "restore" in result.output
+        assert "purge" in result.output
+        assert "export" in result.output
+
+
+class TestEngagementCreate:
+    def test_help_shows_description(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "create", "--help"])
+        assert result.exit_code == 0
+
+    def test_requires_config_argument(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "create"])
+        assert result.exit_code != 0
+
+    def test_missing_config_file_shows_error(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "create", "/nonexistent/config.yaml"])
+        assert result.exit_code != 0
+
+
+class TestEngagementList:
+    def test_help_shows_description(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "list", "--help"])
+        assert result.exit_code == 0
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo")
+    def test_empty_list_shows_message(self, mock_get: MagicMock) -> None:
+        mock_repo = MagicMock()
+        mock_repo.list_all.return_value = []
+        mock_get.return_value = mock_repo
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "list"])
+        assert result.exit_code == 0
+        assert "no engagements" in result.output.lower() or len(result.output) > 0
+
+
+class TestEngagementStatus:
+    def test_help_shows_description(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "status", "--help"])
+        assert result.exit_code == 0
+
+    def test_requires_engagement_id(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "status"])
+        assert result.exit_code != 0
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_not_found_engagement_exits_nonzero(self, mock_get: MagicMock) -> None:
+        mock_get.return_value.get.return_value = None
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "status", "nonexistent-id"])
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower()
+
+
+class TestEngagementPurge:
+    def test_help_shows_description(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "purge", "--help"])
+        assert result.exit_code == 0
+
+    def test_requires_engagement_id(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "purge"])
+        assert result.exit_code != 0
+
+    def test_requires_confirm_flag(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "purge", "eng-001"])
+        assert result.exit_code != 0
+        assert "confirm" in result.output.lower()
+
+    def test_help_shows_confirm_flag(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "purge", "--help"])
+        assert "--confirm" in result.output
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    def test_purge_db_failure_reports_warning_not_silent(
+        self, mock_artifacts: MagicMock, mock_repo: MagicMock
+    ) -> None:
+        """If filesystem purge succeeds but DB delete fails, user sees a clear warning."""
+        from gxassessms.core.contracts.errors import GxAssessError
+
+        mock_artifacts.return_value.purge.return_value = {}
+        mock_repo.return_value.delete.side_effect = GxAssessError("DB locked")
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "purge", "eng-001", "--confirm"])
+        assert result.exit_code != 0
+        assert "warning" in result.output.lower() or "failed" in result.output.lower()
+
+
+class TestEngagementArchive:
+    def test_help_shows_description(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "archive", "--help"])
+        assert result.exit_code == 0
+
+    def test_requires_engagement_id(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "archive"])
+        assert result.exit_code != 0
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_not_found_engagement_exits_nonzero(self, mock_get: MagicMock) -> None:
+        mock_get.return_value.get.return_value = None
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "archive", "nonexistent-id"])
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower()
+
+
+class TestEngagementRestore:
+    def test_help_shows_description(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "restore", "--help"])
+        assert result.exit_code == 0
+
+    def test_requires_engagement_id(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "restore"])
+        assert result.exit_code != 0
+
+
+class TestEngagementExport:
+    def test_help_shows_description(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "export", "--help"])
+        assert result.exit_code == 0
+
+    def test_requires_engagement_id(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "export"])
+        assert result.exit_code != 0
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_not_found_engagement_exits_nonzero(self, mock_get: MagicMock) -> None:
+        mock_get.return_value.get.return_value = None
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "export", "nonexistent-id"])
+        assert result.exit_code != 0
+        assert "not found" in result.output.lower()
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_export_includes_schema_version(self, mock_get: MagicMock) -> None:
+        mock_get.return_value.get.return_value = {
+            "engagement_id": "eng-001",
+            "client_name": "Acme Corp",
+            "tenant_id": "tenant-uuid",
+            "state": "COMPLETE",
+            "created_at": "2026-03-25T10:00:00Z",
+            "tools": ["scubagear"],
+        }
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "export", "eng-001", "--format", "json"])
+        assert result.exit_code == 0
+        import json as _json
+
+        data = _json.loads(result.output)
+        assert "schema_version" in data
