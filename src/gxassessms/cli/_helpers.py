@@ -58,7 +58,13 @@ def get_engagements_root() -> Path:
     from gxassessms.persistence import get_default_data_dir
 
     root = get_default_data_dir() / "engagements"
-    root.mkdir(parents=True, exist_ok=True)
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise GxAssessError(
+            f"Failed to create engagements directory: {e}. "
+            "Check disk space and directory permissions."
+        ) from e
     return root
 
 

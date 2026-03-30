@@ -76,8 +76,14 @@ def replay_cmd(engagement_id: str, from_stage: str) -> None:
         repo = _helpers.get_engagement_repo()
         engagement = repo.get(engagement_id)
         snapshot = engagement.get("config_snapshot", "{}")
-        if isinstance(snapshot, str):
-            snapshot = json.loads(snapshot)
+        try:
+            if isinstance(snapshot, str):
+                snapshot = json.loads(snapshot)
+        except json.JSONDecodeError as e:
+            raise GxAssessError(
+                f"Engagement {engagement_id!r} has a corrupt config snapshot "
+                f"and cannot be replayed: {e}"
+            ) from e
         config = EngagementConfig.model_validate(snapshot)
 
         artifacts = _helpers.get_artifact_manager()

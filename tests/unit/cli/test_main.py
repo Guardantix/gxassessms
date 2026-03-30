@@ -134,6 +134,7 @@ class TestTryRegister:
             _try_register("gxassessms.cli.commands.run", "nonexistent_cmd", "bad_cmd")
 
         assert "bad_cmd" in caplog.text or "nonexistent_cmd" in caplog.text
+        assert any(r.levelno == logging.ERROR for r in caplog.records)
         # CLI must still be functional (no exception raised)
 
     def test_try_register_logs_warning_on_missing_module(
