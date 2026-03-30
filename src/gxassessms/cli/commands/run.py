@@ -123,6 +123,17 @@ def run_cmd(
         orchestrator = _helpers.build_orchestrator()
         adapters = _helpers.discover_cli_adapters()
 
+        if not adapters:
+            console.print(
+                "[bright_red]Error:[/bright_red] No adapters discovered -- "
+                "install at least one adapter package (e.g., gxassessms-scubagear)."
+            )
+            console.print(
+                f"[dim]Engagement {engagement_id} was created. "
+                f"Use --engagement-id {engagement_id} to retry after installing adapters.[/dim]"
+            )
+            raise SystemExit(1)
+
         from gxassessms.pipeline.stages import Stage
 
         run_kwargs = {
@@ -149,5 +160,10 @@ def run_cmd(
 
     except GxAssessError as e:
         console.print(f"\n[bright_red]Pipeline failed:[/bright_red] {e}")
+        if engagement_id:
+            console.print(
+                f"[dim]Engagement ID: {engagement_id} -- "
+                f"use --engagement-id {engagement_id} to retry or resume.[/dim]"
+            )
         logger.error("Pipeline failed: %s", e)
         raise SystemExit(1) from None
