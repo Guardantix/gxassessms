@@ -106,3 +106,51 @@ class TestAdaptersScaffold:
         runner = CliRunner()
         result = runner.invoke(cli, ["adapters", "scaffold"])
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# Analytics tests (stub)
+# ---------------------------------------------------------------------------
+
+
+class TestAnalyticsGroup:
+    def test_help_shows_subcommands(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["analytics", "--help"])
+        assert result.exit_code == 0
+        assert "tuning" in result.output
+        assert "cost" in result.output
+        assert "coverage" in result.output
+
+
+class TestAnalyticsTuning:
+    def test_shows_private_package_message(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["analytics", "tuning"])
+        assert (
+            "gxassessms-guardantix" in result.output
+            or "private package" in result.output.lower()
+            or "requires" in result.output.lower()
+        )
+
+
+class TestAnalyticsCost:
+    def test_shows_private_package_message(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["analytics", "cost"])
+        assert (
+            "gxassessms-guardantix" in result.output
+            or "private package" in result.output.lower()
+            or "requires" in result.output.lower()
+        )
+
+
+class TestAnalyticsCoverage:
+    def test_shows_private_package_message(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["analytics", "coverage"])
+        assert (
+            "gxassessms-guardantix" in result.output
+            or "private package" in result.output.lower()
+            or "requires" in result.output.lower()
+        )
