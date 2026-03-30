@@ -684,6 +684,34 @@ class TestEngagementPurge:
         assert result.exit_code != 0
         assert "warning" in result.output.lower() or "failed" in result.output.lower()
 
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    def test_purge_success_shows_audit_path(
+        self, mock_artifacts: MagicMock, mock_repo: MagicMock
+    ) -> None:
+        """Successful purge prints the audit manifest path."""
+        mock_artifacts.return_value.purge.return_value = {
+            "audit_path": "/data/audits/eng-001-audit.json"
+        }
+        mock_repo.return_value.delete.return_value = None
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "purge", "eng-001", "--confirm"])
+        assert result.exit_code == 0
+        assert "/data/audits/eng-001-audit.json" in result.output
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    def test_purge_success_without_audit_path_still_exits_zero(
+        self, mock_artifacts: MagicMock, mock_repo: MagicMock
+    ) -> None:
+        """Successful purge exits 0 even if no audit_path in manifest."""
+        mock_artifacts.return_value.purge.return_value = {}
+        mock_repo.return_value.delete.return_value = None
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "purge", "eng-001", "--confirm"])
+        assert result.exit_code == 0
+        assert "purged" in result.output.lower()
+
 
 class TestEngagementArchive:
     def test_help_shows_description(self) -> None:

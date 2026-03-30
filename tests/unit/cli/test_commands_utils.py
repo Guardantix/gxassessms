@@ -108,6 +108,111 @@ class TestAdaptersScaffold:
         assert result.exit_code != 0
 
 
+class TestAdaptersCheckBehavior:
+    @patch("gxassessms.cli.commands.adapters.discover_cli_adapters", autospec=True)
+    def test_adapter_with_prerequisites_pass(self, mock_discover: MagicMock) -> None:
+        """Adapter with satisfied prerequisites shows PASS."""
+        adapter = MagicMock()
+        adapter.tool_name = "scubagear"
+        adapter.capabilities = frozenset({"collect", "parse", "prerequisites"})
+        adapter.check_prerequisites.return_value = {"satisfied": True, "message": "Found"}
+        mock_discover.return_value = [adapter]
+        runner = CliRunner()
+        result = runner.invoke(cli, ["adapters", "check"])
+        assert result.exit_code == 0
+        assert "PASS" in result.output
+
+    @patch("gxassessms.cli.commands.adapters.discover_cli_adapters", autospec=True)
+    def test_adapter_without_prerequisites_capability_shows_warn(
+        self, mock_discover: MagicMock
+    ) -> None:
+        """Adapter missing 'prerequisites' capability shows WARN."""
+        adapter = MagicMock()
+        adapter.tool_name = "mytool"
+        adapter.capabilities = frozenset({"collect", "parse"})
+        mock_discover.return_value = [adapter]
+        runner = CliRunner()
+        result = runner.invoke(cli, ["adapters", "check"])
+        assert result.exit_code == 0
+        assert "WARN" in result.output or "warn" in result.output.lower()
+
+    @patch("gxassessms.cli.commands.adapters.discover_cli_adapters", autospec=True)
+    def test_adapter_prerequisites_not_satisfied_shows_fail(self, mock_discover: MagicMock) -> None:
+        """Adapter with unsatisfied prerequisites shows FAIL."""
+        adapter = MagicMock()
+        adapter.tool_name = "maester"
+        adapter.capabilities = frozenset({"collect", "parse", "prerequisites"})
+        adapter.check_prerequisites.return_value = {
+            "satisfied": False,
+            "message": "Maester not installed",
+        }
+        mock_discover.return_value = [adapter]
+        runner = CliRunner()
+        result = runner.invoke(cli, ["adapters", "check"])
+        assert result.exit_code == 0
+        assert "FAIL" in result.output or "fail" in result.output.lower()
+
+    @patch("gxassessms.cli.commands.adapters.discover_cli_adapters", autospec=True)
+    def test_adapter_check_prerequisites_raises_shows_fail(self, mock_discover: MagicMock) -> None:
+        """If check_prerequisites() raises RuntimeError, the adapter shows FAIL with the error."""
+        adapter = MagicMock()
+        adapter.tool_name = "flaky_tool"
+        adapter.capabilities = frozenset({"prerequisites"})
+        adapter.check_prerequisites.side_effect = RuntimeError("subprocess failed")
+        mock_discover.return_value = [adapter]
+        runner = CliRunner()
+        result = runner.invoke(cli, ["adapters", "check"])
+        assert result.exit_code == 0
+        assert "FAIL" in result.output or "fail" in result.output.lower()
+        assert "subprocess failed" in result.output
+
+
+class TestAdaptersScaffoldValidation:
+    def test_scaffold_rejects_name_starting_with_digit(self, tmp_path: Path) -> None:
+        """Scaffold name must start with a letter."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["adapters", "scaffold", "123invalid", "--output-dir", str(tmp_path)]
+        )
+        assert result.exit_code != 0
+        assert "invalid" in result.output.lower() or "name" in result.output.lower()
+
+    def test_scaffold_rejects_name_with_path_separator(self, tmp_path: Path) -> None:
+        """Scaffold name must not contain path separators (fails regex validation)."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["adapters", "scaffold", "evil/path", "--output-dir", str(tmp_path)]
+        )
+        assert result.exit_code != 0
+
+    def test_scaffold_creates_expected_files(self, tmp_path: Path) -> None:
+        """Successful scaffold creates adapter.py, parser.py, mappings.py, fixtures/."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["adapters", "scaffold", "mytool", "--output-dir", str(tmp_path)]
+        )
+        assert result.exit_code == 0
+        adapter_dir = tmp_path / "mytool"
+        assert (adapter_dir / "__init__.py").exists()
+        assert (adapter_dir / "adapter.py").exists()
+        assert (adapter_dir / "parser.py").exists()
+        assert (adapter_dir / "mappings.py").exists()
+        assert (adapter_dir / "fixtures").is_dir()
+        adapter_content = (adapter_dir / "adapter.py").read_text(encoding="utf-8")
+        assert "class MytoolAdapter" in adapter_content
+        assert 'tool_name: str = "mytool"' in adapter_content
+
+    def test_scaffold_fails_if_directory_already_exists(self, tmp_path: Path) -> None:
+        """Scaffold exits nonzero if the target directory already exists."""
+        (tmp_path / "existing_tool").mkdir()
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["adapters", "scaffold", "existing_tool", "--output-dir", str(tmp_path)]
+        )
+        assert result.exit_code != 0
+        assert "already exists" in result.output.lower() or "exists" in result.output.lower()
+
+
 # ---------------------------------------------------------------------------
 # Analytics tests (stub)
 # ---------------------------------------------------------------------------
