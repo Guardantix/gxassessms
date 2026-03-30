@@ -128,6 +128,11 @@ def run_stages(
                 # Execute stage logic
                 if stage == Stage.COLLECT:
                     adapter_results = collect(config, adapters)
+                    # Persist raw outputs so replay/consolidate --reparse can
+                    # load them later via load_raw_outputs().
+                    orchestrator._artifact_manager.save_raw_outputs(
+                        engagement_id, config.client_name, adapter_results
+                    )
 
                 elif stage == Stage.PARSE:
                     _require_in_memory("adapter_results", adapter_results, stage)
