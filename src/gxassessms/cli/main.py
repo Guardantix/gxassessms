@@ -173,6 +173,14 @@ def _try_register(module_path: str, symbol: str, name: str) -> None:
         cli.add_command(cmd, name)  # type: ignore[arg-type]
     except ImportError as _e:
         _log.warning("Skipping CLI command '%s': %s", name, _e)
+    except AttributeError as _e:
+        _log.error(
+            "CLI command '%s' registered with missing symbol '%s' in '%s': %s",
+            name,
+            symbol,
+            module_path,
+            _e,
+        )
 
 
 def _register_commands() -> None:

@@ -2,6 +2,7 @@
 
 import logging
 
+import pytest
 from click.testing import CliRunner
 
 from gxassessms.cli.main import cli, setup_logging
@@ -40,6 +41,32 @@ class TestSetupLogging:
         # The JSON formatter is our custom one
         assert has_json
 
+    def test_json_formatter_includes_exception_info(self) -> None:
+        """JSONLogFormatter.format() includes 'exception' key when exc_info is set."""
+        import json
+        import logging
+
+        from gxassessms.cli.main import JSONLogFormatter
+
+        formatter = JSONLogFormatter()
+        try:
+            raise ValueError("test error")
+        except ValueError:
+            record = logging.LogRecord(
+                name="test",
+                level=logging.ERROR,
+                pathname="",
+                lineno=0,
+                msg="something broke",
+                args=(),
+                exc_info=True,
+            )
+        output = formatter.format(record)
+        data = json.loads(output)
+        assert "exception" in data
+        assert "test error" in data["exception"]
+        assert data["level"] == "ERROR"
+
 
 # ---------------------------------------------------------------------------
 # CLI group tests
@@ -57,7 +84,7 @@ class TestCLIGroup:
         runner = CliRunner()
         result = runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
-        assert "0.1.0" in result.output or "version" in result.output.lower()
+        assert "0.1.0" in result.output
 
     def test_cli_accepts_config_option(self) -> None:
         runner = CliRunner()
@@ -84,3 +111,38 @@ class TestCLIGroup:
         runner = CliRunner()
         result = runner.invoke(cli, ["nonexistent"])
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# _try_register tests
+# ---------------------------------------------------------------------------
+
+
+class TestTryRegister:
+    def test_try_register_logs_error_on_missing_symbol(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_try_register should log ERROR (not raise) when the symbol is absent."""
+        import logging
+
+        from gxassessms.cli.main import _try_register
+
+        # gxassessms.cli.commands.run exists but "nonexistent_cmd" doesn't
+        with caplog.at_level(logging.ERROR, logger="gxassessms.cli.main"):
+            _try_register("gxassessms.cli.commands.run", "nonexistent_cmd", "bad_cmd")
+
+        assert "bad_cmd" in caplog.text or "nonexistent_cmd" in caplog.text
+        # CLI must still be functional (no exception raised)
+
+    def test_try_register_logs_warning_on_missing_module(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """_try_register should log WARNING (not raise) on ImportError."""
+        import logging
+
+        from gxassessms.cli.main import _try_register
+
+        with caplog.at_level(logging.WARNING, logger="gxassessms.cli.main"):
+            _try_register("gxassessms.cli.commands.does_not_exist", "cmd", "missing_cmd")
+
+        assert "missing_cmd" in caplog.text

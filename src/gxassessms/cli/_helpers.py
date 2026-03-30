@@ -11,6 +11,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from gxassessms.core.contracts.errors import GxAssessError
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,10 +33,15 @@ def build_orchestrator() -> Any:
     from gxassessms.pipeline.orchestrator import Orchestrator
     from gxassessms.pipeline.state import EngagementLock
 
-    db = DatabaseManager()
-    db.initialize()
-    engagements_root = get_default_data_dir() / "engagements"
-    engagements_root.mkdir(parents=True, exist_ok=True)
+    try:
+        db = DatabaseManager()
+        db.initialize()
+        engagements_root = get_default_data_dir() / "engagements"
+        engagements_root.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise GxAssessError(
+            f"Failed to initialize data directory: {e}. Check disk space and directory permissions."
+        ) from e
 
     return Orchestrator(
         engagement_repo=EngagementRepo(db),
@@ -59,8 +66,13 @@ def get_engagement_repo() -> Any:
     """Build and return an EngagementRepo instance."""
     from gxassessms.persistence import DatabaseManager, EngagementRepo
 
-    db = DatabaseManager()
-    db.initialize()
+    try:
+        db = DatabaseManager()
+        db.initialize()
+    except OSError as e:
+        raise GxAssessError(
+            f"Failed to initialize database: {e}. Check disk space and directory permissions."
+        ) from e
     return EngagementRepo(db)
 
 

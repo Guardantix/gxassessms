@@ -47,9 +47,8 @@ def engagement_group() -> None:
 def create_cmd(config_path: str) -> None:
     """Create a new engagement from a config file.
 
-    Validates the config (steps 1-2 of preflight: config validation
-    and prerequisite checks), creates the engagement record and
-    directory structure, and snapshots the config.
+    Validates the config (required fields and auth method), then creates
+    the engagement record, directory structure, and config snapshot.
     """
     path = Path(config_path)
     if not path.exists():

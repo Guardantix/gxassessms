@@ -46,7 +46,12 @@ def _get_analytics_plugin() -> Any | None:
         cls = ep_list[0].load()
         return cls()
     except Exception as e:
-        logger.warning("Failed to load analytics plugin: %s", e)
+        logger.warning(
+            "Analytics plugin failed to load from '%s': %s",
+            "gxassessms.analytics",
+            e,
+            exc_info=True,
+        )
         return None
 
 
