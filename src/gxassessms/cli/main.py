@@ -160,42 +160,36 @@ def cli(
 # ---------------------------------------------------------------------------
 
 
+def _try_register(module_path: str, symbol: str, name: str) -> None:
+    """Import a single command symbol and register it; log and skip on ImportError.
+
+    Each command is registered independently so a missing module only omits
+    that command -- it does not prevent the rest from loading.
+    """
+    _log = logging.getLogger(__name__)
+    try:
+        mod = __import__(module_path, fromlist=[symbol])
+        cmd = getattr(mod, symbol)
+        cli.add_command(cmd, name)  # type: ignore[arg-type]
+    except ImportError as _e:
+        _log.warning("Skipping CLI command '%s': %s", name, _e)
+
+
 def _register_commands() -> None:
-    """Import and register all subcommand modules."""
-    from gxassessms.cli.commands.adapters import adapters_group  # type: ignore[import-not-found]
-    from gxassessms.cli.commands.analytics import analytics_group  # type: ignore[import-not-found]
-    from gxassessms.cli.commands.collect import collect_cmd  # type: ignore[import-not-found]
-    from gxassessms.cli.commands.consolidate import (  # type: ignore[import-not-found]
-        consolidate_cmd,  # type: ignore[reportUnknownVariableType]
-    )
-    from gxassessms.cli.commands.engagement import (  # type: ignore[import-not-found]
-        engagement_group,  # type: ignore[reportUnknownVariableType]
-    )
-    from gxassessms.cli.commands.preflight import preflight_cmd  # type: ignore[import-not-found]
-    from gxassessms.cli.commands.replay import replay_cmd  # type: ignore[import-not-found]
-    from gxassessms.cli.commands.report import report_cmd  # type: ignore[import-not-found]
-    from gxassessms.cli.commands.review import review_cmd  # type: ignore[import-not-found]
-    from gxassessms.cli.commands.run import run_cmd  # type: ignore[import-not-found]
-
-    cli.add_command(run_cmd, "run")  # type: ignore[arg-type]
-    cli.add_command(collect_cmd, "collect")  # type: ignore[arg-type]
-    cli.add_command(consolidate_cmd, "consolidate")  # type: ignore[arg-type]
-    cli.add_command(report_cmd, "report")  # type: ignore[arg-type]
-    cli.add_command(replay_cmd, "replay")  # type: ignore[arg-type]
-    cli.add_command(review_cmd, "review")  # type: ignore[arg-type]
-    cli.add_command(engagement_group, "engagement")  # type: ignore[arg-type]
-    cli.add_command(preflight_cmd, "preflight")  # type: ignore[arg-type]
-    cli.add_command(adapters_group, "adapters")  # type: ignore[arg-type]
-    cli.add_command(analytics_group, "analytics")  # type: ignore[arg-type]
+    """Import and register all subcommand modules, one at a time."""
+    _try_register("gxassessms.cli.commands.run", "run_cmd", "run")
+    _try_register("gxassessms.cli.commands.collect", "collect_cmd", "collect")
+    _try_register("gxassessms.cli.commands.consolidate", "consolidate_cmd", "consolidate")
+    _try_register("gxassessms.cli.commands.report", "report_cmd", "report")
+    _try_register("gxassessms.cli.commands.replay", "replay_cmd", "replay")
+    _try_register("gxassessms.cli.commands.review", "review_cmd", "review")
+    _try_register("gxassessms.cli.commands.engagement", "engagement_group", "engagement")
+    _try_register("gxassessms.cli.commands.preflight", "preflight_cmd", "preflight")
+    _try_register("gxassessms.cli.commands.adapters", "adapters_group", "adapters")
+    _try_register("gxassessms.cli.commands.analytics", "analytics_group", "analytics")
 
 
-try:
-    _register_commands()
-except ImportError as _e:
-    # A broken command module should not prevent the whole CLI from starting.
-    # The broken command simply won't be registered; its absence will surface
-    # as "No such command" at invocation rather than a startup crash.
-    logging.getLogger(__name__).warning("Failed to register one or more CLI commands: %s", _e)
+_register_commands()
 
 
 def main() -> None:
