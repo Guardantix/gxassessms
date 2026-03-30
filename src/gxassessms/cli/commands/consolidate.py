@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 @click.command("consolidate")
 @click.argument(
     "config_path",
-    type=click.Path(exists=False),
+    type=click.Path(exists=True, dir_okay=False),
 )
 @click.option(
     "--engagement-id",
@@ -51,9 +51,6 @@ def consolidate_cmd(config_path: str, engagement_id: str, reparse: bool) -> None
     engagement's persisted raw output.
     """
     path = Path(config_path)
-    if not path.exists():
-        console.print(f"[bright_red]Error:[/bright_red] Config file not found: {path}")
-        raise SystemExit(1)
 
     try:
         config = load_config(path)

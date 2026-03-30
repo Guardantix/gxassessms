@@ -9,6 +9,7 @@ No business logic -- only display formatting.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 from rich.console import Console
@@ -218,9 +219,10 @@ def print_preflight_result(
     con.print(table)
 
     # Summary line
-    pass_count = sum(1 for r in results if r.get("status") == "PASS")
-    fail_count = sum(1 for r in results if r.get("status") == "FAIL")
-    warn_count = sum(1 for r in results if r.get("status") == "WARN")
+    status_counts = Counter(r.get("status") for r in results)
+    pass_count = status_counts.get("PASS", 0)
+    fail_count = status_counts.get("FAIL", 0)
+    warn_count = status_counts.get("WARN", 0)
 
     if fail_count > 0:
         con.print(

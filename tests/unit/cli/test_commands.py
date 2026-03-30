@@ -317,10 +317,11 @@ class TestConsolidateCommand:
         result = runner.invoke(cli, ["consolidate", "--help"])
         assert "--reparse" in result.output
 
-    def test_requires_engagement_id_option(self) -> None:
+    def test_requires_engagement_id_option(self, tmp_path: Path) -> None:
         """consolidate requires --engagement-id since it operates on existing data."""
+        config_path = _write_config(tmp_path)
         runner = CliRunner()
-        result = runner.invoke(cli, ["consolidate", "/some/config.yaml"])
+        result = runner.invoke(cli, ["consolidate", str(config_path)])
         assert result.exit_code != 0
         assert "engagement-id" in result.output.lower() or "missing" in result.output.lower()
 
@@ -415,10 +416,11 @@ class TestReportCommand:
         result = runner.invoke(cli, ["report"])
         assert result.exit_code != 0
 
-    def test_requires_engagement_id_option(self) -> None:
+    def test_requires_engagement_id_option(self, tmp_path: Path) -> None:
         """report requires --engagement-id since it operates on existing findings."""
+        config_path = _write_config(tmp_path)
         runner = CliRunner()
-        result = runner.invoke(cli, ["report", "/some/config.yaml"])
+        result = runner.invoke(cli, ["report", str(config_path)])
         assert result.exit_code != 0
         assert "engagement-id" in result.output.lower() or "missing" in result.output.lower()
 

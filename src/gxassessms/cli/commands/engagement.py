@@ -42,7 +42,7 @@ def engagement_group() -> None:
 @engagement_group.command("create")
 @click.argument(
     "config_path",
-    type=click.Path(exists=False),
+    type=click.Path(exists=True, dir_okay=False),
 )
 def create_cmd(config_path: str) -> None:
     """Create a new engagement from a config file.
@@ -51,9 +51,6 @@ def create_cmd(config_path: str) -> None:
     the engagement record, directory structure, and config snapshot.
     """
     path = Path(config_path)
-    if not path.exists():
-        console.print(f"[bright_red]Error:[/bright_red] Config file not found: {path}")
-        raise SystemExit(1)
 
     try:
         config = load_config(path)

@@ -177,7 +177,7 @@ def _check_renderers() -> list[dict[str, str]]:
 @click.command("preflight")
 @click.argument(
     "config_path",
-    type=click.Path(exists=False),
+    type=click.Path(exists=True, dir_okay=False),
 )
 def preflight_cmd(config_path: str) -> None:
     """Run preflight validation: config, prerequisites, auth, and renderers.
@@ -190,9 +190,6 @@ def preflight_cmd(config_path: str) -> None:
     4. Renderer dependency chain -- Node.js and npm packages
     """
     path = Path(config_path)
-    if not path.exists():
-        console.print(f"[bright_red]Error:[/bright_red] Config file not found: {path}")
-        raise SystemExit(1)
 
     try:
         config = load_config(path)
