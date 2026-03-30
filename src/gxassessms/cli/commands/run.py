@@ -109,6 +109,7 @@ def run_cmd(
         return
 
     try:
+        newly_created = engagement_id is None
         if engagement_id is None:
             repo = _helpers.get_engagement_repo()
             engagement_id = repo.create(
@@ -128,10 +129,16 @@ def run_cmd(
                 "[bright_red]Error:[/bright_red] No adapters discovered -- "
                 "install at least one adapter package (e.g., gxassessms-scubagear)."
             )
-            console.print(
-                f"[dim]Engagement {engagement_id} was created. "
-                f"Use --engagement-id {engagement_id} to retry after installing adapters.[/dim]"
-            )
+            if newly_created:
+                console.print(
+                    f"[dim]Engagement {engagement_id} was created. "
+                    f"Use --engagement-id {engagement_id} to retry after installing adapters.[/dim]"
+                )
+            else:
+                console.print(
+                    f"[dim]Engagement ID: {engagement_id} -- "
+                    f"use --engagement-id {engagement_id} to retry after installing adapters.[/dim]"
+                )
             raise SystemExit(1)
 
         from gxassessms.pipeline.stages import Stage

@@ -134,6 +134,28 @@ class TestRunCommand:
         assert result.exit_code != 0
         assert "adapter" in result.output.lower()
         mock_build.return_value.run.assert_not_called()
+        mock_build.return_value.run_from.assert_not_called()
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    def test_run_empty_adapter_with_existing_engagement_id_no_was_created_message(
+        self,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """With --engagement-id and empty adapters, message should not say 'was created'."""
+        config_path = _write_config(tmp_path)
+        mock_discover.return_value = []
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["run", "--engagement-id", "eng-existing-run-001", str(config_path)]
+        )
+        assert result.exit_code != 0
+        assert "was created" not in result.output
+        assert "eng-existing-run-001" in result.output
 
     @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
@@ -234,6 +256,27 @@ class TestCollectCommand:
         assert "adapter" in result.output.lower()
         # Should NOT call run_from on zero adapters
         mock_build.return_value.run_from.assert_not_called()
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    def test_collect_empty_adapter_with_existing_engagement_id_no_was_created_message(
+        self,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """With --engagement-id and empty adapters, message should not say 'was created'."""
+        config_path = _write_config(tmp_path)
+        mock_discover.return_value = []
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["collect", "--engagement-id", "eng-existing-001", str(config_path)]
+        )
+        assert result.exit_code != 0
+        assert "was created" not in result.output
+        assert "eng-existing-001" in result.output
 
     @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
