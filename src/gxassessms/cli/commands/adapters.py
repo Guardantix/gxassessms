@@ -154,7 +154,9 @@ def scaffold_cmd(name: str, output_dir: str) -> None:
     # Create directory structure
     output_path.mkdir(parents=True)
     (output_path / "fixtures").mkdir()
-    (output_path / "__init__.py").write_text(f'"""Adapter for {name} assessment tool."""\n')
+    (output_path / "__init__.py").write_text(
+        f'"""Adapter for {name} assessment tool."""\n', encoding="utf-8"
+    )
 
     # adapter.py template
     class_name = name.title().replace("_", "")
@@ -218,7 +220,7 @@ class {class_name}Adapter:
         return []
 '''
 
-    (output_path / "adapter.py").write_text(adapter_template)
+    (output_path / "adapter.py").write_text(adapter_template, encoding="utf-8")
 
     # parser.py template
     parser_template = f'''"""{name} parser -- tool-specific output parsing.
@@ -239,7 +241,7 @@ def parse_output(raw_data: dict) -> list[ToolObservation]:
     return []
 '''
 
-    (output_path / "parser.py").write_text(parser_template)
+    (output_path / "parser.py").write_text(parser_template, encoding="utf-8")
 
     # mappings.py template
     mappings_template = f'''"""{name} mappings -- severity, category, and dedup key mappings.
@@ -267,10 +269,10 @@ DEDUP_KEYS: dict[str, str] = {{
 }}
 '''
 
-    (output_path / "mappings.py").write_text(mappings_template)
+    (output_path / "mappings.py").write_text(mappings_template, encoding="utf-8")
 
     # fixtures placeholder
-    (output_path / "fixtures" / ".gitkeep").write_text("")
+    (output_path / "fixtures" / ".gitkeep").write_text("", encoding="utf-8")
 
     console.print(f"[bright_green]Adapter scaffolded:[/bright_green] {output_path}")
     console.print("\nCreated:")

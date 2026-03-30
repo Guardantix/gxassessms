@@ -16,9 +16,20 @@ BANNED_BROAD_EXCEPTIONS = {
     "BaseException",
 }
 
+# Files allowed to use `except Exception` with documented justification:
+# - cli/main.py: _get_version() catches any importlib.metadata failure
+# - cli/commands/review.py: delegates to private package via entry points
+# - cli/commands/analytics.py: delegates to private package via entry points
+# These catch Exception because we cannot predict what external packages raise.
+BROAD_EXCEPT_ALLOWED_FILES = {
+    SRC_ROOT / "cli" / "main.py",
+    SRC_ROOT / "cli" / "commands" / "review.py",
+    SRC_ROOT / "cli" / "commands" / "analytics.py",
+}
+
 
 def _collect_python_files() -> list[Path]:
-    return list(SRC_ROOT.rglob("*.py"))
+    return [p for p in SRC_ROOT.rglob("*.py") if p not in BROAD_EXCEPT_ALLOWED_FILES]
 
 
 def _find_broad_except_clauses(filepath: Path) -> list[str]:
