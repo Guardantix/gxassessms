@@ -116,6 +116,21 @@ def _check_prerequisites(
                 }
             )
 
+    # Check for enabled tools that have no discovered adapter
+    discovered_tool_names = {getattr(a, "tool_name", "").lower() for a in adapters}
+    for tool_name in enabled_tools:
+        if tool_name.lower() not in discovered_tool_names:
+            results.append(
+                {
+                    "check": f"{tool_name} prerequisites",
+                    "status": "FAIL",
+                    "message": (
+                        f"Tool '{tool_name}' is enabled in config but no adapter "
+                        f"package is installed. Install gxassessms-{tool_name} to proceed."
+                    ),
+                }
+            )
+
     return results
 
 

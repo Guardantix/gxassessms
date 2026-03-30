@@ -53,7 +53,11 @@ class TestPreflightCommand:
             "tools": {"scubagear": True},
         }
         config_path.write_text(yaml.dump(config_data), encoding="utf-8")
-        mock_discover.return_value = []
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_adapter.capabilities = frozenset({"prerequisites"})
+        mock_adapter.check_prerequisites.return_value = {"satisfied": True, "message": "OK"}
+        mock_discover.return_value = [mock_adapter]
 
         runner = CliRunner()
         result = runner.invoke(

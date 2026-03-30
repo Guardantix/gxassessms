@@ -102,6 +102,12 @@ def replay_cmd(engagement_id: str, from_stage: str) -> None:
         orchestrator = _helpers.build_orchestrator()
         adapters = _helpers.discover_cli_adapters()
 
+        if config.tools:
+            enabled_tool_names = {name.lower() for name, tc in config.tools.items() if tc.enabled}
+            adapters = [
+                a for a in adapters if getattr(a, "tool_name", "").lower() in enabled_tool_names
+            ]
+
         orchestrator.run_from(
             engagement_id=engagement_id,
             config=config,

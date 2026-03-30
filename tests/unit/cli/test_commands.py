@@ -93,7 +93,9 @@ class TestRunCommand:
         tmp_path: Path,
     ) -> None:
         config_path = _write_config(tmp_path)
-        mock_discover.return_value = [MagicMock()]
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]
         mock_repo.return_value.create.return_value = "eng-test-001"
         mock_build.return_value.run.return_value = None
         runner = CliRunner()
@@ -226,7 +228,9 @@ class TestCollectCommand:
         from gxassessms.pipeline.stages import Stage
 
         config_path = _write_config(tmp_path)
-        mock_discover.return_value = [MagicMock()]  # One adapter
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]  # One adapter matching enabled tools
         mock_repo.return_value.create.return_value = "eng-collect-001"
         mock_build.return_value.run_from.return_value = None
         runner = CliRunner()

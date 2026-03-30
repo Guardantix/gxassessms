@@ -121,6 +121,12 @@ def run_cmd(
         orchestrator = _helpers.build_orchestrator()
         adapters = _helpers.discover_cli_adapters()
 
+        if config.tools:
+            enabled_tool_names = {name.lower() for name, tc in config.tools.items() if tc.enabled}
+            adapters = [
+                a for a in adapters if getattr(a, "tool_name", "").lower() in enabled_tool_names
+            ]
+
         if not adapters:
             console.print(
                 "[bright_red]Error:[/bright_red] No adapters discovered -- "

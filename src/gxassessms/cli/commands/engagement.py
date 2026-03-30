@@ -208,7 +208,18 @@ def purge_cmd(engagement_id: str, confirm: bool) -> None:
 
     try:
         artifacts = _helpers.get_artifact_manager()
-        manifest = artifacts.purge(engagement_id)
+        eng_dir = artifacts.get_engagement_dir(engagement_id)
+
+        manifest: dict[str, Any]
+        if eng_dir.exists():
+            manifest = artifacts.purge(engagement_id)
+        else:
+            # Directory already removed (partial purge) — clean up DB record only
+            console.print(
+                "[yellow]Note:[/yellow] Engagement directory already removed. "
+                "Cleaning up database record."
+            )
+            manifest = {}
 
         repo = _helpers.get_engagement_repo()
         try:

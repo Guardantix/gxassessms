@@ -72,6 +72,12 @@ def consolidate_cmd(config_path: str, engagement_id: str, reparse: bool) -> None
         orchestrator = _helpers.build_orchestrator()
         adapters = _helpers.discover_cli_adapters()
 
+        if config.tools:
+            enabled_tool_names = {name.lower() for name, tc in config.tools.items() if tc.enabled}
+            adapters = [
+                a for a in adapters if getattr(a, "tool_name", "").lower() in enabled_tool_names
+            ]
+
         start_stage = Stage.PARSE if reparse else Stage.NORMALIZE
         console.print(
             f"[bold]Consolidating engagement {engagement_id} "
