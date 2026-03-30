@@ -50,6 +50,7 @@ def run_stages(
     renderers: list[Any],
     start_stage: Stage,
     output_dir: Path | None = None,
+    stop_stage: Stage | None = None,
 ) -> None:
     """Execute pipeline stages sequentially under lock.
 
@@ -68,6 +69,9 @@ def run_stages(
         renderers: List of ReportRenderer implementations.
         start_stage: Stage to begin execution from.
         output_dir: Optional output directory for rendered reports.
+        stop_stage: Optional stage to stop after. If provided, the pipeline
+            halts after this stage completes (state is left in the completed
+            state for stop_stage). Defaults to None (run to completion).
     """
     stages = orchestrator._get_stages_to_run(start_stage)
 
@@ -173,6 +177,9 @@ def run_stages(
                         content_hash=stage_hash,
                     )
                     current_state = completed_state
+                    # Stop here if a stop_stage was specified
+                    if stop_stage is not None and stage == stop_stage:
+                        break
 
             except PipelineError:
                 # Protect original error -- transition failure is secondary

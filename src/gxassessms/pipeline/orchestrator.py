@@ -342,10 +342,13 @@ class Orchestrator:
         qa_strategy: Any,
         renderers: list[Any],
         output_dir: Path | None = None,
+        stop_stage: Stage | None = None,
     ) -> None:
         """Run the pipeline from a specific stage onward.
 
         Used for resumption after failure or re-running from a checkpoint.
+        Pass stop_stage to halt after a specific stage completes (e.g. to
+        run only collect without crashing on missing normalization/QA strategies).
 
         Args:
             engagement_id: Engagement to execute.
@@ -357,6 +360,8 @@ class Orchestrator:
             qa_strategy: QAStrategy implementation.
             renderers: List of ReportRenderer implementations.
             output_dir: Optional output directory for rendered reports.
+            stop_stage: Optional stage to stop after. Defaults to None (run
+                to completion).
         """
         from gxassessms.pipeline._runner import run_stages
 
@@ -371,4 +376,5 @@ class Orchestrator:
             renderers=renderers,
             start_stage=start_stage,
             output_dir=output_dir,
+            stop_stage=stop_stage,
         )

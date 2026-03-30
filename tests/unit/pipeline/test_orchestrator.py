@@ -762,6 +762,106 @@ class TestOrchestratorRunFrom:
 
 
 # ---------------------------------------------------------------------------
+# stop_stage tests
+# ---------------------------------------------------------------------------
+
+
+class TestRunFromStopStage:
+    def test_run_from_passes_stop_stage_to_run_stages(self, orchestrator: Orchestrator) -> None:
+        """run_from() should pass stop_stage through to run_stages()."""
+        with patch("gxassessms.pipeline._runner.run_stages") as mock_run_stages:
+            orchestrator.run_from(
+                engagement_id="eng-test",
+                config=_make_config(),
+                start_stage=Stage.COLLECT,
+                adapters=[],
+                normalization_policy=None,
+                consolidation_rule=None,
+                qa_strategy=None,
+                renderers=[],
+                stop_stage=Stage.COLLECT,
+            )
+        mock_run_stages.assert_called_once()
+        assert mock_run_stages.call_args.kwargs["stop_stage"] == Stage.COLLECT
+
+    def test_run_from_stop_stage_defaults_to_none(self, orchestrator: Orchestrator) -> None:
+        """run_from() stop_stage defaults to None (run to completion)."""
+        with patch("gxassessms.pipeline._runner.run_stages") as mock_run_stages:
+            orchestrator.run_from(
+                engagement_id="eng-test",
+                config=_make_config(),
+                start_stage=Stage.COLLECT,
+                adapters=[],
+                normalization_policy=None,
+                consolidation_rule=None,
+                qa_strategy=None,
+                renderers=[],
+            )
+        assert mock_run_stages.call_args.kwargs.get("stop_stage") is None
+
+
+class TestRunStagesStopStage:
+    def test_run_stages_stops_after_collect_stage(self, orchestrator: Orchestrator) -> None:
+        """run_stages() with stop_stage=COLLECT should call collect but NOT parse."""
+        from gxassessms.pipeline._runner import run_stages
+
+        with (
+            patch("gxassessms.pipeline._runner.collect", return_value=[]) as mock_collect,
+            patch("gxassessms.pipeline._runner.parse") as mock_parse,
+            patch("gxassessms.pipeline._runner._compute_stage_hash", return_value="abc123"),
+        ):
+            run_stages(
+                orchestrator=orchestrator,
+                engagement_id="eng-001",
+                config=_make_config(),
+                adapters=[],
+                normalization_policy=None,
+                consolidation_rule=None,
+                qa_strategy=None,
+                renderers=[],
+                start_stage=Stage.COLLECT,
+                stop_stage=Stage.COLLECT,
+            )
+
+        mock_collect.assert_called_once()
+        mock_parse.assert_not_called()
+
+    def test_run_stages_without_stop_stage_runs_all_stages(
+        self, orchestrator: Orchestrator
+    ) -> None:
+        """run_stages() with no stop_stage runs all stages from COLLECT."""
+        from gxassessms.pipeline._runner import run_stages
+
+        with (
+            patch("gxassessms.pipeline._runner.collect", return_value=[]),
+            patch("gxassessms.pipeline._runner.parse", return_value=[]) as mock_parse,
+            patch("gxassessms.pipeline._runner.normalize", return_value=[]),
+            patch("gxassessms.pipeline._runner.consolidate", return_value=[]),
+            patch("gxassessms.pipeline._runner.qa_review", return_value=[]),
+            patch("gxassessms.pipeline._runner.render", return_value=None),
+            patch("gxassessms.pipeline._runner._compute_stage_hash", return_value="abc123"),
+            patch("gxassessms.pipeline._runner._execute_render"),
+            patch("gxassessms.pipeline._runner._build_report_payload", return_value=MagicMock()),
+            patch("gxassessms.pipeline._runner._require_in_memory", return_value=None),
+            patch.object(orchestrator, "_should_auto_advance_qa", return_value=True),
+        ):
+            run_stages(
+                orchestrator=orchestrator,
+                engagement_id="eng-001",
+                config=_make_config(),
+                adapters=[],
+                normalization_policy=None,
+                consolidation_rule=None,
+                qa_strategy=None,
+                renderers=[],
+                start_stage=Stage.COLLECT,
+                stop_stage=None,
+            )
+
+        mock_parse.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
 # _extract_payload tests
 # ---------------------------------------------------------------------------
 
