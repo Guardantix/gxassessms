@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 @click.option(
     "--force-stage",
     type=click.Choice(
-        ["COLLECT", "PARSE", "NORMALIZE", "CONSOLIDATE", "QA_REVIEW", "RENDER"],
+        ["COLLECT", "PARSE", "CONSOLIDATE", "QA_REVIEW", "RENDER"],
         case_sensitive=False,
     ),
     default=None,
@@ -74,6 +74,20 @@ def run_cmd(
     Re-running on a COMPLETE engagement is a no-op unless --force-stage
     or --rerun is provided.
     """
+    if force_stage and engagement_id is None:
+        console.print(
+            "[bright_red]Error:[/bright_red] --force-stage requires --engagement-id. "
+            "Specify an existing engagement to force-restart a stage."
+        )
+        raise SystemExit(1)
+
+    if rerun and engagement_id is None:
+        console.print(
+            "[bright_red]Error:[/bright_red] --rerun requires --engagement-id. "
+            "Specify an existing engagement to re-run."
+        )
+        raise SystemExit(1)
+
     path = Path(config_path)
 
     try:
@@ -126,6 +140,16 @@ def run_cmd(
             adapters = [
                 a for a in adapters if getattr(a, "tool_name", "").lower() in enabled_tool_names
             ]
+            # Verify all enabled tools have matching adapters
+            discovered_names = {getattr(a, "tool_name", "").lower() for a in adapters}
+            missing = enabled_tool_names - discovered_names
+            if missing:
+                for name in sorted(missing):
+                    console.print(
+                        f"[bright_red]Error:[/bright_red] Tool '{name}' is enabled in config "
+                        f"but no adapter is installed. Install gxassessms-{name}."
+                    )
+                raise SystemExit(1)
 
         if not adapters:
             console.print(
@@ -157,10 +181,12 @@ def run_cmd(
 
         if rerun:
             console.print("[bold]Re-running all stages...[/bold]")
+            orchestrator.reset_for_rerun(engagement_id, Stage.COLLECT)
             orchestrator.run(engagement_id=engagement_id, **run_kwargs)
         elif force_stage:
             stage = Stage(force_stage.upper())
             console.print(f"[bold]Forcing re-run from stage {stage.value}...[/bold]")
+            orchestrator.reset_for_rerun(engagement_id, stage)
             orchestrator.run_from(engagement_id=engagement_id, start_stage=stage, **run_kwargs)
         else:
             orchestrator.run(engagement_id=engagement_id, **run_kwargs)

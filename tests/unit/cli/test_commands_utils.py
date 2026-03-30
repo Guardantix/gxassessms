@@ -37,6 +37,42 @@ class TestPreflightCommand:
         assert result.exit_code != 0
 
     @patch("gxassessms.cli._helpers.discover_cli_adapters")
+    def test_mixed_case_tool_name_still_matches(
+        self, mock_discover: MagicMock, tmp_path: Path
+    ) -> None:
+        """Adapter with lowercase tool_name matches mixed-case config key."""
+        config_path = tmp_path / "config.yaml"
+        config_data = {
+            "client": {
+                "name": "Test",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+            },
+            "auth": {
+                "method": "client_credential",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+                "client_id": "00000000-0000-0000-0000-000000000002",
+                "client_secret_env": "GX_SECRET",  # pragma: allowlist secret
+            },
+            "tools": {"ScubaGear": True},
+        }
+        config_path.write_text(yaml.dump(config_data), encoding="utf-8")
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_adapter.capabilities = frozenset({"prerequisites"})
+        mock_adapter.check_prerequisites.return_value = {"satisfied": True, "message": "OK"}
+        mock_discover.return_value = [mock_adapter]
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["preflight", str(config_path)],
+            env={"GX_SECRET": "test-value"},  # pragma: allowlist secret
+            catch_exceptions=False,
+        )
+        # Should NOT report missing adapter -- case normalization makes them match
+        assert "no adapter" not in result.output.lower()
+        assert result.exit_code == 0
+
+    @patch("gxassessms.cli._helpers.discover_cli_adapters")
     def test_valid_config_shows_pass(self, mock_discover: MagicMock, tmp_path: Path) -> None:
         config_path = tmp_path / "config.yaml"
         config_data = {
@@ -67,6 +103,307 @@ class TestPreflightCommand:
             catch_exceptions=False,
         )
         assert result.exit_code == 0
+
+    @patch("gxassessms.cli.commands.preflight.validate_config")
+    @patch("gxassessms.cli._helpers.discover_cli_adapters")
+    def test_config_validation_errors_show_fail(
+        self, mock_discover: MagicMock, mock_validate: MagicMock, tmp_path: Path
+    ) -> None:
+        """Config validation errors produce FAIL results and exit nonzero."""
+        config_path = tmp_path / "config.yaml"
+        config_data = {
+            "client": {
+                "name": "Test",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+            },
+            "auth": {
+                "method": "client_credential",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+                "client_id": "00000000-0000-0000-0000-000000000002",
+                "client_secret_env": "GX_SECRET",  # pragma: allowlist secret
+            },
+            "tools": {"scubagear": True},
+        }
+        config_path.write_text(yaml.dump(config_data), encoding="utf-8")
+        mock_validate.return_value = (["tenant_id is required"], [])
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_adapter.capabilities = frozenset({"prerequisites"})
+        mock_adapter.check_prerequisites.return_value = {"satisfied": True, "message": "OK"}
+        mock_discover.return_value = [mock_adapter]
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["preflight", str(config_path)],
+            env={"GX_SECRET": "test-value"},  # pragma: allowlist secret
+        )
+        assert "FAIL" in result.output
+        assert "tenant_id" in result.output
+        assert result.exit_code == 1
+
+    @patch("gxassessms.cli._helpers.discover_cli_adapters")
+    def test_no_tools_enabled_shows_warning(self, mock_discover: MagicMock, tmp_path: Path) -> None:
+        """Config with no enabled tools produces a validation warning."""
+        config_path = tmp_path / "config.yaml"
+        config_data = {
+            "client": {
+                "name": "Test",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+            },
+            "auth": {
+                "method": "client_credential",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+                "client_id": "00000000-0000-0000-0000-000000000002",
+                "client_secret_env": "GX_SECRET",  # pragma: allowlist secret
+            },
+            "tools": {},
+        }
+        config_path.write_text(yaml.dump(config_data), encoding="utf-8")
+        mock_discover.return_value = []
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["preflight", str(config_path)],
+            env={"GX_SECRET": "test-value"},  # pragma: allowlist secret
+            catch_exceptions=False,
+        )
+        assert "WARN" in result.output
+        assert "No tools" in result.output or "no tools" in result.output.lower()
+
+    @patch("gxassessms.cli._helpers.discover_cli_adapters")
+    def test_adapter_not_in_enabled_tools_skipped(
+        self, mock_discover: MagicMock, tmp_path: Path
+    ) -> None:
+        """Adapter whose tool_name doesn't match any enabled tool is skipped."""
+        config_path = tmp_path / "config.yaml"
+        config_data = {
+            "client": {
+                "name": "Test",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+            },
+            "auth": {
+                "method": "client_credential",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+                "client_id": "00000000-0000-0000-0000-000000000002",
+                "client_secret_env": "GX_SECRET",  # pragma: allowlist secret
+            },
+            "tools": {"scubagear": True},
+        }
+        config_path.write_text(yaml.dump(config_data), encoding="utf-8")
+        # Adapter that matches the enabled tool
+        matching_adapter = MagicMock()
+        matching_adapter.tool_name = "scubagear"
+        matching_adapter.capabilities = frozenset({"prerequisites"})
+        matching_adapter.check_prerequisites.return_value = {
+            "satisfied": True,
+            "message": "OK",
+        }
+        # Adapter that does NOT match any enabled tool -- should be skipped
+        extra_adapter = MagicMock()
+        extra_adapter.tool_name = "maester"
+        extra_adapter.capabilities = frozenset({"prerequisites"})
+        mock_discover.return_value = [matching_adapter, extra_adapter]
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["preflight", str(config_path)],
+            env={"GX_SECRET": "test-value"},  # pragma: allowlist secret
+            catch_exceptions=False,
+        )
+        # "maester" adapter should not appear in output -- it was skipped
+        assert "maester" not in result.output.lower()
+        # The matching adapter's check_prerequisites was called
+        matching_adapter.check_prerequisites.assert_called_once()
+        # The skipped adapter's check_prerequisites was NOT called
+        extra_adapter.check_prerequisites.assert_not_called()
+        assert result.exit_code == 0
+
+    @patch("gxassessms.cli._helpers.discover_cli_adapters")
+    def test_adapter_without_prerequisites_via_preflight(
+        self, mock_discover: MagicMock, tmp_path: Path
+    ) -> None:
+        """Adapter missing 'prerequisites' capability shows WARN in preflight."""
+        config_path = tmp_path / "config.yaml"
+        config_data = {
+            "client": {
+                "name": "Test",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+            },
+            "auth": {
+                "method": "client_credential",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+                "client_id": "00000000-0000-0000-0000-000000000002",
+                "client_secret_env": "GX_SECRET",  # pragma: allowlist secret
+            },
+            "tools": {"scubagear": True},
+        }
+        config_path.write_text(yaml.dump(config_data), encoding="utf-8")
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_adapter.capabilities = frozenset({"collect", "parse"})  # no "prerequisites"
+        mock_discover.return_value = [mock_adapter]
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["preflight", str(config_path)],
+            env={"GX_SECRET": "test-value"},  # pragma: allowlist secret
+            catch_exceptions=False,
+        )
+        assert "WARN" in result.output
+        assert "does not declare prerequisites" in result.output.lower()
+
+    @patch("gxassessms.cli._helpers.discover_cli_adapters")
+    def test_adapter_prerequisites_not_satisfied_via_preflight(
+        self, mock_discover: MagicMock, tmp_path: Path
+    ) -> None:
+        """Adapter with unsatisfied prerequisites shows FAIL in preflight."""
+        config_path = tmp_path / "config.yaml"
+        config_data = {
+            "client": {
+                "name": "Test",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+            },
+            "auth": {
+                "method": "client_credential",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+                "client_id": "00000000-0000-0000-0000-000000000002",
+                "client_secret_env": "GX_SECRET",  # pragma: allowlist secret
+            },
+            "tools": {"scubagear": True},
+        }
+        config_path.write_text(yaml.dump(config_data), encoding="utf-8")
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_adapter.capabilities = frozenset({"prerequisites"})
+        mock_adapter.check_prerequisites.return_value = {
+            "satisfied": False,
+            "message": "ScubaGear not installed",
+        }
+        mock_discover.return_value = [mock_adapter]
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["preflight", str(config_path)],
+            env={"GX_SECRET": "test-value"},  # pragma: allowlist secret
+        )
+        assert "FAIL" in result.output
+        assert "ScubaGear not installed" in result.output
+        assert result.exit_code == 1
+
+    @patch("gxassessms.cli._helpers.discover_cli_adapters")
+    def test_missing_adapter_via_preflight(self, mock_discover: MagicMock, tmp_path: Path) -> None:
+        """Enabled tool with no discovered adapter shows FAIL."""
+        config_path = tmp_path / "config.yaml"
+        config_data = {
+            "client": {
+                "name": "Test",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+            },
+            "auth": {
+                "method": "client_credential",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+                "client_id": "00000000-0000-0000-0000-000000000002",
+                "client_secret_env": "GX_SECRET",  # pragma: allowlist secret
+            },
+            "tools": {"scubagear": True},
+        }
+        config_path.write_text(yaml.dump(config_data), encoding="utf-8")
+        mock_discover.return_value = []  # No adapters discovered
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["preflight", str(config_path)],
+            env={"GX_SECRET": "test-value"},  # pragma: allowlist secret
+        )
+        assert "FAIL" in result.output
+        assert "no adapter" in result.output.lower()
+        assert result.exit_code == 1
+
+    @patch("gxassessms.cli._helpers.discover_cli_adapters")
+    def test_auth_env_var_not_set(self, mock_discover: MagicMock, tmp_path: Path) -> None:
+        """Missing auth env var shows FAIL and exit nonzero."""
+        config_path = tmp_path / "config.yaml"
+        config_data = {
+            "client": {
+                "name": "Test",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+            },
+            "auth": {
+                "method": "client_credential",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+                "client_id": "00000000-0000-0000-0000-000000000002",
+                "client_secret_env": "GX_SECRET",  # pragma: allowlist secret
+            },
+            "tools": {"scubagear": True},
+        }
+        config_path.write_text(yaml.dump(config_data), encoding="utf-8")
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_adapter.capabilities = frozenset({"prerequisites"})
+        mock_adapter.check_prerequisites.return_value = {"satisfied": True, "message": "OK"}
+        mock_discover.return_value = [mock_adapter]
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["preflight", str(config_path)],
+            env={"GX_SECRET": ""},  # pragma: allowlist secret
+        )
+        assert "FAIL" in result.output
+        assert "GX_SECRET" in result.output
+        assert result.exit_code == 1
+
+    def test_config_error_in_preflight(self, tmp_path: Path) -> None:
+        """Invalid YAML triggers ConfigError and exits nonzero."""
+        config_path = tmp_path / "config.yaml"
+        config_path.write_text('not: valid: yaml: [["', encoding="utf-8")
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["preflight", str(config_path)])
+        assert "config error" in result.output.lower() or "invalid yaml" in result.output.lower()
+        assert result.exit_code == 1
+
+    @patch("shutil.which", return_value=None)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters")
+    def test_node_not_found_shows_warning(
+        self, mock_discover: MagicMock, mock_which: MagicMock, tmp_path: Path
+    ) -> None:
+        """Node.js not found produces WARN for renderer dependency."""
+        config_path = tmp_path / "config.yaml"
+        config_data = {
+            "client": {
+                "name": "Test",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+            },
+            "auth": {
+                "method": "client_credential",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+                "client_id": "00000000-0000-0000-0000-000000000002",
+                "client_secret_env": "GX_SECRET",  # pragma: allowlist secret
+            },
+            "tools": {"scubagear": True},
+        }
+        config_path.write_text(yaml.dump(config_data), encoding="utf-8")
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_adapter.capabilities = frozenset({"prerequisites"})
+        mock_adapter.check_prerequisites.return_value = {"satisfied": True, "message": "OK"}
+        mock_discover.return_value = [mock_adapter]
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["preflight", str(config_path)],
+            env={"GX_SECRET": "test-value"},  # pragma: allowlist secret
+        )
+        assert "WARN" in result.output
+        assert "Node.js not found" in result.output
 
 
 class TestAdaptersGroup:

@@ -996,3 +996,76 @@ class TestRehydrateUpstreamState:
         mock_finding_repo.get_parsed_as_findings.return_value = []
         _ra, f, _cf = _rehydrate_upstream_state(Stage.CONSOLIDATE, ENG, [], orchestrator)
         assert f == []
+
+
+# ---------------------------------------------------------------------------
+# reset_for_rerun tests
+# ---------------------------------------------------------------------------
+
+
+class TestResetForRerun:
+    def test_resets_complete_to_created_for_full_rerun(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """COMPLETE engagement resets to CREATED for Stage.COLLECT rerun."""
+        mock_engagement_repo.get.return_value = {"state": "COMPLETE"}
+        orchestrator.reset_for_rerun("eng-1", Stage.COLLECT)
+        mock_engagement_repo.force_update_state.assert_called_once_with(
+            "eng-1", EngagementState.CREATED
+        )
+        mock_event_repo.append.assert_called_once()
+        event = mock_event_repo.append.call_args[0][0]
+        assert event.event_type == "rerun"
+        assert event.payload["from_state"] == "COMPLETE"
+        assert event.payload["to_state"] == "CREATED"
+
+    def test_resets_failed_to_entry_state_of_target_stage(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """FAILED engagement resets to NORMALIZED for Stage.CONSOLIDATE."""
+        mock_engagement_repo.get.return_value = {"state": "FAILED"}
+        orchestrator.reset_for_rerun("eng-1", Stage.CONSOLIDATE)
+        mock_engagement_repo.force_update_state.assert_called_once_with(
+            "eng-1", EngagementState.NORMALIZED
+        )
+
+    def test_noops_when_already_at_entry_state(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """No DB write or event when state already matches entry state."""
+        mock_engagement_repo.get.return_value = {"state": "CREATED"}
+        orchestrator.reset_for_rerun("eng-1", Stage.COLLECT)
+        mock_engagement_repo.force_update_state.assert_not_called()
+        mock_event_repo.append.assert_not_called()
+
+    def test_resets_mid_pipeline_state(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """CONSOLIDATED engagement resets to CREATED for full rerun."""
+        mock_engagement_repo.get.return_value = {"state": "CONSOLIDATED"}
+        orchestrator.reset_for_rerun("eng-1", Stage.COLLECT)
+        mock_engagement_repo.force_update_state.assert_called_once_with(
+            "eng-1", EngagementState.CREATED
+        )
+
+    def test_raises_persistence_error_for_missing_engagement(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+    ) -> None:
+        """PersistenceError from repo propagates (engagement not found)."""
+        mock_engagement_repo.get.side_effect = PersistenceError("not found")
+        with pytest.raises(PersistenceError):
+            orchestrator.reset_for_rerun("nonexistent", Stage.COLLECT)

@@ -293,6 +293,52 @@ class Orchestrator:
         return current_state in running_states
 
     # ------------------------------------------------------------------
+    # Rerun reset
+    # ------------------------------------------------------------------
+
+    def reset_for_rerun(self, engagement_id: str, target_stage: Stage) -> None:
+        """Reset engagement state to allow re-execution from target_stage.
+
+        Used by --rerun and --force-stage CLI options. Bypasses normal
+        transition validation (like crash recovery) because the operator
+        is intentionally requesting re-execution from a terminal or
+        completed state.
+
+        No-ops if the engagement is already at the required entry state.
+        """
+        from gxassessms.pipeline.stages import get_stage_entry_state
+
+        current_state = self._get_current_state(engagement_id)
+        entry_state = get_stage_entry_state(target_stage)
+
+        if current_state == entry_state:
+            return  # Already at the right state
+
+        self._engagement_repo.force_update_state(engagement_id, entry_state)
+
+        event = PipelineEvent(
+            event_id=str(uuid.uuid4()),
+            engagement_id=engagement_id,
+            timestamp=utc_now(),
+            event_type="rerun",
+            actor="system",
+            payload={
+                "from_state": current_state.value,
+                "to_state": entry_state.value,
+                "target_stage": target_stage.value,
+                "reason": "operator_rerun",
+            },
+        )
+        self._event_repo.append(event)
+        logger.info(
+            "Reset engagement %s from %s to %s for rerun at %s",
+            engagement_id,
+            current_state.value,
+            entry_state.value,
+            target_stage.value,
+        )
+
+    # ------------------------------------------------------------------
     # Pipeline execution entry points
     # ------------------------------------------------------------------
 

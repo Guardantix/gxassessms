@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import click
 import yaml
@@ -266,6 +266,19 @@ def export_cmd(engagement_id: str, output_format: str) -> None:
             )
             raise SystemExit(1)
 
+        # Extract enabled tool names from config_snapshot (JSON blob).
+        # config_snapshot is json.dumps(config.model_dump()) -- always valid JSON
+        # with shape: {"tools": {"name": {"enabled": bool, ...}, ...}, ...}
+        raw_snap: Any = engagement.get("config_snapshot", "{}")
+        parsed: Any = json.loads(raw_snap) if isinstance(raw_snap, str) else raw_snap
+        snap = cast(dict[str, Any], parsed) if isinstance(parsed, dict) else {}
+        tools_config: dict[str, Any] = snap.get("tools", {}) if snap else {}
+        tool_names: list[str] = sorted(
+            str(name)
+            for name, tc in tools_config.items()
+            if isinstance(tc, dict) and cast(dict[str, Any], tc).get("enabled", False)
+        )
+
         metadata: dict[str, Any] = {
             "schema_version": "1.0",
             "engagement_id": engagement.get("engagement_id", ""),
@@ -273,7 +286,7 @@ def export_cmd(engagement_id: str, output_format: str) -> None:
             "tenant_id": engagement.get("tenant_id", ""),
             "state": engagement.get("state", ""),
             "created_at": engagement.get("created_at", ""),
-            "tools": engagement.get("tools", []),
+            "tools": tool_names,
         }
 
         if output_format == "json":

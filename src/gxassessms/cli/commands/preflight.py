@@ -71,7 +71,7 @@ def _check_prerequisites(
     """Check tool prerequisites via adapter.check_prerequisites()."""
     results: list[dict[str, str]] = []
 
-    enabled_tools = {name for name, tc in config.tools.items() if tc.enabled}
+    enabled_tools = {name.lower() for name, tc in config.tools.items() if tc.enabled}
 
     for adapter in adapters:
         tool_name = adapter.tool_name
