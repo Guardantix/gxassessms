@@ -78,6 +78,17 @@ def collect_cmd(config_path: str, engagement_id: str | None) -> None:
         orchestrator = _helpers.build_orchestrator()
         adapters = _helpers.discover_cli_adapters()
 
+        if not adapters:
+            console.print(
+                "[bright_red]Error:[/bright_red] No adapters discovered -- "
+                "install at least one adapter package (e.g., gxassessms-scubagear)."
+            )
+            console.print(
+                f"[dim]Engagement {engagement_id} was created. "
+                f"Use --engagement-id {engagement_id} to retry after installing adapters.[/dim]"
+            )
+            raise SystemExit(1)
+
         console.print(f"[bold]Collecting from {len(adapters)} adapter(s)...[/bold]")
 
         orchestrator.run_from(
@@ -89,6 +100,7 @@ def collect_cmd(config_path: str, engagement_id: str | None) -> None:
             consolidation_rule=None,
             qa_strategy=None,
             renderers=[],
+            stop_stage=Stage.COLLECT,
         )
 
         console.print("\n[bright_green]Collection complete.[/bright_green]")
@@ -96,5 +108,10 @@ def collect_cmd(config_path: str, engagement_id: str | None) -> None:
 
     except GxAssessError as e:
         console.print(f"\n[bright_red]Collection failed:[/bright_red] {e}")
+        if engagement_id:
+            console.print(
+                f"[dim]Engagement ID: {engagement_id} -- "
+                f"use --engagement-id {engagement_id} to retry.[/dim]"
+            )
         logger.error("Collection failed: %s", e)
         raise SystemExit(1) from None

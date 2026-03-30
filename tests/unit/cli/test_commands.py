@@ -93,7 +93,7 @@ class TestRunCommand:
         tmp_path: Path,
     ) -> None:
         config_path = _write_config(tmp_path)
-        mock_discover.return_value = []
+        mock_discover.return_value = [MagicMock()]
         mock_repo.return_value.create.return_value = "eng-test-001"
         mock_build.return_value.run.return_value = None
         runner = CliRunner()
@@ -102,13 +102,60 @@ class TestRunCommand:
         mock_repo.return_value.create.assert_called_once()
         mock_build.return_value.run.assert_called_once()
 
-    def test_dry_run_shows_config_valid_not_preflight_passed(self, tmp_path: Path) -> None:
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    def test_dry_run_shows_config_valid_not_preflight_passed(
+        self, mock_discover: MagicMock, tmp_path: Path
+    ) -> None:
         """Dry run should not claim 'Preflight passed' since no prereq checks run."""
+        mock_discover.return_value = []
         config_path = _write_config(tmp_path)
         runner = CliRunner()
         result = runner.invoke(cli, ["run", "--dry-run", str(config_path)])
+        assert result.exit_code == 0
         assert "preflight passed" not in result.output.lower()
-        assert "config valid" in result.output.lower() or result.exit_code == 0
+        assert "config valid" in result.output.lower()
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    def test_run_empty_adapter_list_exits_nonzero(
+        self,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """run should exit 1 with clear message when no adapters found."""
+        config_path = _write_config(tmp_path)
+        mock_discover.return_value = []
+        mock_repo.return_value.create.return_value = "eng-run-001"
+        runner = CliRunner()
+        result = runner.invoke(cli, ["run", str(config_path)])
+        assert result.exit_code != 0
+        assert "adapter" in result.output.lower()
+        mock_build.return_value.run.assert_not_called()
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    def test_run_failure_shows_engagement_id_for_retry(
+        self,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """On pipeline failure, engagement ID should appear in output for recovery."""
+        from gxassessms.core.contracts.errors import GxAssessError
+
+        config_path = _write_config(tmp_path)
+        mock_discover.return_value = [MagicMock()]
+        mock_repo.return_value.create.return_value = "eng-run-fail-001"
+        mock_build.return_value.run.side_effect = GxAssessError("network error")
+        runner = CliRunner()
+        result = runner.invoke(cli, ["run", str(config_path)])
+        assert result.exit_code != 0
+        assert "eng-run-fail-001" in result.output
 
     def test_accepts_force_stage_option(self) -> None:
         runner = CliRunner()
@@ -143,6 +190,73 @@ class TestCollectCommand:
         result = runner.invoke(cli, ["collect", "/nonexistent/config.yaml"])
         assert result.exit_code != 0
 
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    def test_collect_happy_path_calls_run_from_with_stop_stage(
+        self,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """collect should call run_from with stop_stage=Stage.COLLECT."""
+        from gxassessms.pipeline.stages import Stage
+
+        config_path = _write_config(tmp_path)
+        mock_discover.return_value = [MagicMock()]  # One adapter
+        mock_repo.return_value.create.return_value = "eng-collect-001"
+        mock_build.return_value.run_from.return_value = None
+        runner = CliRunner()
+        result = runner.invoke(cli, ["collect", str(config_path)])
+        assert result.exit_code == 0
+        mock_build.return_value.run_from.assert_called_once()
+        call_kwargs = mock_build.return_value.run_from.call_args
+        assert call_kwargs.kwargs.get("stop_stage") == Stage.COLLECT
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    def test_collect_empty_adapter_list_exits_nonzero(
+        self,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """collect should exit 1 with a clear message when no adapters found."""
+        config_path = _write_config(tmp_path)
+        mock_discover.return_value = []  # No adapters
+        mock_repo.return_value.create.return_value = "eng-collect-002"
+        runner = CliRunner()
+        result = runner.invoke(cli, ["collect", str(config_path)])
+        assert result.exit_code != 0
+        assert "adapter" in result.output.lower()
+        # Should NOT call run_from on zero adapters
+        mock_build.return_value.run_from.assert_not_called()
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    def test_collect_failure_shows_engagement_id_for_retry(
+        self,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """On pipeline failure, error message should include the engagement ID."""
+        from gxassessms.core.contracts.errors import GxAssessError
+
+        config_path = _write_config(tmp_path)
+        mock_discover.return_value = [MagicMock()]
+        mock_repo.return_value.create.return_value = "eng-collect-003"
+        mock_build.return_value.run_from.side_effect = GxAssessError("tool timeout")
+        runner = CliRunner()
+        result = runner.invoke(cli, ["collect", str(config_path)])
+        assert result.exit_code != 0
+        assert "eng-collect-003" in result.output
+
 
 class TestConsolidateCommand:
     def test_help_shows_description(self) -> None:
@@ -173,6 +287,78 @@ class TestConsolidateCommand:
             cli, ["consolidate", "--engagement-id", "eng-001", "/nonexistent/config.yaml"]
         )
         assert result.exit_code != 0
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
+    def test_consolidate_happy_path_calls_run_from_with_stop_stage(
+        self,
+        mock_plugin: MagicMock,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """consolidate should call run_from with stop_stage=Stage.CONSOLIDATE."""
+        from gxassessms.pipeline.stages import Stage
+
+        config_path = _write_config(tmp_path)
+        mock_discover.return_value = [MagicMock()]
+        mock_plugin.return_value = MagicMock()
+        mock_build.return_value.run_from.return_value = None
+        runner = CliRunner()
+        result = runner.invoke(cli, ["consolidate", "--engagement-id", "eng-001", str(config_path)])
+        assert result.exit_code == 0
+        call_kwargs = mock_build.return_value.run_from.call_args
+        assert call_kwargs.kwargs.get("stop_stage") == Stage.CONSOLIDATE
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
+    def test_consolidate_failure_shows_engagement_id(
+        self,
+        mock_plugin: MagicMock,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        from gxassessms.core.contracts.errors import GxAssessError
+
+        config_path = _write_config(tmp_path)
+        mock_discover.return_value = [MagicMock()]
+        mock_plugin.return_value = MagicMock()
+        mock_build.return_value.run_from.side_effect = GxAssessError("parse failed")
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["consolidate", "--engagement-id", "eng-cons-001", str(config_path)]
+        )
+        assert result.exit_code != 0
+        assert "eng-cons-001" in result.output
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
+    def test_consolidate_reparse_uses_parse_start_stage(
+        self,
+        mock_plugin: MagicMock,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--reparse flag should cause consolidate to start from Stage.PARSE."""
+        from gxassessms.pipeline.stages import Stage
+
+        config_path = _write_config(tmp_path)
+        mock_discover.return_value = [MagicMock()]
+        mock_plugin.return_value = MagicMock()
+        mock_build.return_value.run_from.return_value = None
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["consolidate", "--engagement-id", "eng-002", "--reparse", str(config_path)]
+        )
+        assert result.exit_code == 0
+        call_kwargs = mock_build.return_value.run_from.call_args
+        assert call_kwargs.kwargs.get("start_stage") == Stage.PARSE
+        assert call_kwargs.kwargs.get("stop_stage") == Stage.CONSOLIDATE
 
 
 class TestReportCommand:
