@@ -90,11 +90,16 @@ def consolidate_cmd(config_path: str, engagement_id: str, reparse: bool) -> None
             consolidation_rule=_helpers.discover_plugin("gxassessms.consolidation_rules"),
             qa_strategy=_helpers.discover_plugin("gxassessms.qa_strategies"),
             renderers=[],
+            stop_stage=Stage.CONSOLIDATE,
         )
 
         console.print("\n[bright_green]Consolidation complete.[/bright_green]")
 
     except GxAssessError as e:
         console.print(f"\n[bright_red]Consolidation failed:[/bright_red] {e}")
+        console.print(
+            f"[dim]Engagement ID: {engagement_id} -- "
+            f"use --engagement-id {engagement_id} to retry.[/dim]"
+        )
         logger.error("Consolidation failed: %s", e)
         raise SystemExit(1) from None
