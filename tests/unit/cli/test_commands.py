@@ -653,7 +653,9 @@ class TestConsolidateCommand:
         from gxassessms.pipeline.stages import Stage
 
         config_path = _write_config(tmp_path)
-        mock_discover.return_value = [MagicMock()]
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]
         mock_plugin.return_value = MagicMock()
         mock_build.return_value.run_from.return_value = None
         runner = CliRunner()
@@ -680,7 +682,9 @@ class TestConsolidateCommand:
         from gxassessms.core.contracts.errors import GxAssessError
 
         config_path = _write_config(tmp_path)
-        mock_discover.return_value = [MagicMock()]
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]
         mock_plugin.return_value = MagicMock()
         mock_build.return_value.run_from.side_effect = GxAssessError("parse failed")
         runner = CliRunner()
@@ -708,7 +712,9 @@ class TestConsolidateCommand:
         from gxassessms.pipeline.stages import Stage
 
         config_path = _write_config(tmp_path)
-        mock_discover.return_value = [MagicMock()]
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]
         mock_plugin.return_value = MagicMock()
         mock_build.return_value.run_from.return_value = None
         runner = CliRunner()
@@ -719,6 +725,101 @@ class TestConsolidateCommand:
         call_kwargs = mock_build.return_value.run_from.call_args
         assert call_kwargs.kwargs.get("start_stage") == Stage.PARSE
         assert call_kwargs.kwargs.get("stop_stage") == Stage.CONSOLIDATE
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.build_normalization_policy", autospec=True)
+    @patch("gxassessms.cli._helpers.build_consolidation_rule", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
+    def test_consolidate_calls_reset_for_rerun_before_run_from(
+        self,
+        mock_plugin: MagicMock,
+        mock_cons_rule: MagicMock,
+        mock_norm_policy: MagicMock,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """consolidate must reset state before run_from for terminal-state engagements."""
+        from gxassessms.pipeline.stages import Stage
+
+        config_path = _write_config(tmp_path)
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]
+        mock_plugin.return_value = MagicMock()
+        mock_build.return_value.run_from.return_value = None
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["consolidate", "--engagement-id", "eng-cons-reset", str(config_path)]
+        )
+        assert result.exit_code == 0
+        mock_build.return_value.reset_for_rerun.assert_called_once_with(
+            "eng-cons-reset", Stage.CONSOLIDATE
+        )
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.build_normalization_policy", autospec=True)
+    @patch("gxassessms.cli._helpers.build_consolidation_rule", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
+    def test_consolidate_reparse_resets_to_parse_stage(
+        self,
+        mock_plugin: MagicMock,
+        mock_cons_rule: MagicMock,
+        mock_norm_policy: MagicMock,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--reparse should reset to PARSE stage, not CONSOLIDATE."""
+        from gxassessms.pipeline.stages import Stage
+
+        config_path = _write_config(tmp_path)
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]
+        mock_plugin.return_value = MagicMock()
+        mock_build.return_value.run_from.return_value = None
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["consolidate", "--engagement-id", "eng-cons-reparse", "--reparse", str(config_path)],
+        )
+        assert result.exit_code == 0
+        mock_build.return_value.reset_for_rerun.assert_called_once_with(
+            "eng-cons-reparse", Stage.PARSE
+        )
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.filter_and_validate_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.build_normalization_policy", autospec=True)
+    @patch("gxassessms.cli._helpers.build_consolidation_rule", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
+    def test_consolidate_missing_enabled_adapter_exits_nonzero(
+        self,
+        mock_plugin: MagicMock,
+        mock_cons_rule: MagicMock,
+        mock_norm_policy: MagicMock,
+        mock_filter: MagicMock,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Enabled tool with no adapter -> exit 1, run_from not called."""
+        config_path = _write_config(tmp_path)
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]
+        mock_filter.side_effect = SystemExit(1)
+        mock_plugin.return_value = MagicMock()
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["consolidate", "--engagement-id", "eng-cons-missing", str(config_path)]
+        )
+        assert result.exit_code != 0
+        mock_build.return_value.run_from.assert_not_called()
 
 
 class TestReportCommand:

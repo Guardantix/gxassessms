@@ -73,11 +73,7 @@ def consolidate_cmd(config_path: str, engagement_id: str, reparse: bool) -> None
         orchestrator = _helpers.build_orchestrator()
         adapters = _helpers.discover_cli_adapters()
 
-        if config.tools:
-            enabled_tool_names = {name.lower() for name, tc in config.tools.items() if tc.enabled}
-            adapters = [
-                a for a in adapters if getattr(a, "tool_name", "").lower() in enabled_tool_names
-            ]
+        adapters = _helpers.filter_and_validate_adapters(config, adapters)
 
         start_stage = Stage.PARSE if reparse else Stage.CONSOLIDATE
         console.print(
@@ -85,6 +81,7 @@ def consolidate_cmd(config_path: str, engagement_id: str, reparse: bool) -> None
             f"from stage {start_stage.value}...[/bold]"
         )
 
+        orchestrator.reset_for_rerun(engagement_id, start_stage)
         orchestrator.run_from(
             engagement_id=engagement_id,
             config=config,
