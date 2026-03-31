@@ -27,6 +27,7 @@ import yaml
 from click.testing import CliRunner
 
 from gxassessms.cli.main import cli
+from gxassessms.pipeline.state import EngagementState
 
 
 def _write_config(tmp_path: Path) -> Path:
@@ -108,6 +109,10 @@ class TestRunCommand:
         mock_build.return_value.run.return_value = None
         mock_all_plugins.return_value = []
         mock_plugin.return_value = MagicMock()
+        from gxassessms.pipeline.stages import Stage
+
+        mock_build.return_value.determine_resume_stage.return_value = Stage.COLLECT
+        mock_build.return_value._get_current_state.return_value = EngagementState.CREATED
         runner = CliRunner()
         result = runner.invoke(cli, ["run", str(config_path)])
         assert result.exit_code == 0
@@ -195,6 +200,10 @@ class TestRunCommand:
         mock_adapter.tool_name = "scubagear"
         mock_discover.return_value = [mock_adapter]
         mock_repo.return_value.create.return_value = "eng-run-fail-001"
+        from gxassessms.pipeline.stages import Stage
+
+        mock_build.return_value.determine_resume_stage.return_value = Stage.COLLECT
+        mock_build.return_value._get_current_state.return_value = EngagementState.CREATED
         mock_build.return_value.run.side_effect = GxAssessError("network error")
         mock_all_plugins.return_value = []
         mock_plugin.return_value = MagicMock()
@@ -488,6 +497,10 @@ class TestRunCommand:
         mock_discover.return_value = [mock_adapter]
         mock_all_plugins.return_value = []
         mock_plugin.return_value = MagicMock()
+        from gxassessms.pipeline.stages import Stage
+
+        mock_build.return_value.determine_resume_stage.return_value = Stage.COLLECT
+        mock_build.return_value._get_current_state.return_value = EngagementState.CREATED
         mock_build.return_value.run.side_effect = GxAssessError("network error")
         mock_repo.return_value.create.return_value = "eng-err-001"
         runner = CliRunner()
@@ -495,6 +508,104 @@ class TestRunCommand:
         assert result.exit_code != 0
         assert "eng-err-001" in result.output
         assert "network error" in result.output.lower()
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.build_normalization_policy", autospec=True)
+    @patch("gxassessms.cli._helpers.build_consolidation_rule", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_all_plugins", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
+    def test_run_complete_engagement_is_noop(
+        self,
+        mock_plugin: MagicMock,
+        mock_all_plugins: MagicMock,
+        mock_cons_rule: MagicMock,
+        mock_norm_policy: MagicMock,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """mseco run --engagement-id on COMPLETE engagement prints message, doesn't run."""
+        config_path = _write_config(tmp_path)
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]
+        mock_plugin.return_value = MagicMock()
+        mock_all_plugins.return_value = []
+        mock_build.return_value.determine_resume_stage.return_value = None
+        mock_build.return_value._get_current_state.return_value = EngagementState.COMPLETE
+        runner = CliRunner()
+        result = runner.invoke(cli, ["run", "--engagement-id", "eng-done", str(config_path)])
+        assert result.exit_code == 0
+        assert "complete" in result.output.lower()
+        mock_build.return_value.run.assert_not_called()
+        mock_build.return_value.run_from.assert_not_called()
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.build_normalization_policy", autospec=True)
+    @patch("gxassessms.cli._helpers.build_consolidation_rule", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_all_plugins", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
+    def test_run_qa_review_engagement_prints_approval_message(
+        self,
+        mock_plugin: MagicMock,
+        mock_all_plugins: MagicMock,
+        mock_cons_rule: MagicMock,
+        mock_norm_policy: MagicMock,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """mseco run --engagement-id on QA_REVIEW engagement tells user to approve."""
+        config_path = _write_config(tmp_path)
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]
+        mock_plugin.return_value = MagicMock()
+        mock_all_plugins.return_value = []
+        mock_build.return_value.determine_resume_stage.return_value = None
+        mock_build.return_value._get_current_state.return_value = EngagementState.QA_REVIEW
+        runner = CliRunner()
+        result = runner.invoke(cli, ["run", "--engagement-id", "eng-qa", str(config_path)])
+        assert result.exit_code == 0
+        assert "qa" in result.output.lower()
+        mock_build.return_value.run.assert_not_called()
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.build_normalization_policy", autospec=True)
+    @patch("gxassessms.cli._helpers.build_consolidation_rule", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_all_plugins", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
+    def test_run_failed_engagement_resumes_from_failed_stage(
+        self,
+        mock_plugin: MagicMock,
+        mock_all_plugins: MagicMock,
+        mock_cons_rule: MagicMock,
+        mock_norm_policy: MagicMock,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """mseco run --engagement-id on FAILED engagement resumes from the failed stage."""
+        from gxassessms.pipeline.stages import Stage
+
+        config_path = _write_config(tmp_path)
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]
+        mock_plugin.return_value = MagicMock()
+        mock_all_plugins.return_value = []
+        mock_build.return_value.determine_resume_stage.return_value = Stage.NORMALIZE
+        mock_build.return_value._get_current_state.return_value = EngagementState.FAILED
+        runner = CliRunner()
+        result = runner.invoke(cli, ["run", "--engagement-id", "eng-fail", str(config_path)])
+        assert result.exit_code == 0
+        mock_build.return_value.reset_for_rerun.assert_called_once()
+        mock_build.return_value.run_from.assert_called_once()
+        call_kwargs = mock_build.return_value.run_from.call_args
+        assert call_kwargs[1]["start_stage"] == Stage.NORMALIZE
 
 
 class TestCollectCommand:
