@@ -28,7 +28,7 @@ from gxassessms.cli.output import (
     make_engagement_status_table,
 )
 from gxassessms.core.config.config import load_config, validate_config
-from gxassessms.core.contracts.errors import ConfigError, GxAssessError
+from gxassessms.core.contracts.errors import ConfigError, GxAssessError, PersistenceError
 
 logger = logging.getLogger(__name__)
 
@@ -208,15 +208,19 @@ def purge_cmd(engagement_id: str, confirm: bool) -> None:
 
     try:
         artifacts = _helpers.get_artifact_manager()
-        eng_dir = artifacts.get_engagement_dir(engagement_id)
 
         manifest: dict[str, Any]
-        if eng_dir.exists():
+        try:
+            eng_dir = artifacts.get_engagement_dir(engagement_id)
+        except PersistenceError:
+            eng_dir = None
+
+        if eng_dir is not None and eng_dir.exists():
             manifest = artifacts.purge(engagement_id)
         else:
-            # Directory already removed (partial purge) — clean up DB record only
+            # Directory missing or already removed -- clean up DB record only
             console.print(
-                "[yellow]Note:[/yellow] Engagement directory already removed. "
+                "[yellow]Note:[/yellow] Engagement directory not found. "
                 "Cleaning up database record."
             )
             manifest = {}

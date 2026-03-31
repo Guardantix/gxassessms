@@ -1455,7 +1455,26 @@ class TestEngagementPurge:
         runner = CliRunner()
         result = runner.invoke(cli, ["engagement", "purge", "eng-001", "--confirm"])
         assert result.exit_code == 0
-        assert "already removed" in result.output.lower()
+        assert "not found" in result.output.lower()
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    def test_purge_engagement_dir_never_created(
+        self, mock_artifacts: MagicMock, mock_repo: MagicMock
+    ) -> None:
+        """Purge should succeed when engagement dir was never created (DB-only cleanup)."""
+        from gxassessms.core.contracts.errors import PersistenceError
+
+        mock_artifacts.return_value.get_engagement_dir.side_effect = PersistenceError(
+            "Engagement directory not found for: eng-dbonly"
+        )
+        mock_repo.return_value.delete.return_value = None
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "purge", "eng-dbonly", "--confirm"])
+        assert result.exit_code == 0
+        assert "not found" in result.output.lower()
+        mock_repo.return_value.delete.assert_called_once_with("eng-dbonly")
+        mock_artifacts.return_value.purge.assert_not_called()
 
     @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
     def test_purge_outer_gxassess_error(self, mock_artifacts: MagicMock) -> None:
