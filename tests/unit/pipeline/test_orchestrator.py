@@ -552,6 +552,10 @@ class TestDomainErrorTransitionsToFailed:
             "config_snapshot": "{}",
         }
 
+        mock_event_repo.get_events_by_type.return_value = [
+            {"payload": '{"to": "NORMALIZED"}'},
+        ]
+
         mock_rule = MagicMock()
         mock_rule.consolidate.side_effect = ConsolidationError("Dedup conflict")
 
