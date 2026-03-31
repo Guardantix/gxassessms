@@ -874,6 +874,120 @@ class TestReplayCommand:
         result = runner.invoke(cli, ["replay", "eng-001", "--from", "badstage"])
         assert result.exit_code != 0
 
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.build_normalization_policy", autospec=True)
+    @patch("gxassessms.cli._helpers.build_consolidation_rule", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_all_plugins", autospec=True)
+    def test_replay_calls_reset_for_rerun_before_run_from(
+        self,
+        mock_all_plugins: MagicMock,
+        mock_plugin: MagicMock,
+        mock_cons_rule: MagicMock,
+        mock_norm_policy: MagicMock,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        mock_artifacts: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """replay must call reset_for_rerun before run_from to handle terminal states."""
+        import json
+
+        from gxassessms.pipeline.stages import Stage
+
+        config_snapshot = {
+            "client_name": "Test Corp",
+            "tenant_id": "00000000-0000-0000-0000-000000000001",
+            "auth": {
+                "method": "client_credential",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+                "client_id": "00000000-0000-0000-0000-000000000002",
+                "client_secret_env": "GX_SECRET",  # pragma: allowlist secret
+            },
+            "tools": {},
+            "max_parallel": 4,
+            "report_formats": ["docx"],
+            "report_theme": "basic",
+            "qa_model": "claude-sonnet-4-6",
+            "qa_token_budget": 100000,
+        }
+        mock_repo.return_value.get.return_value = {
+            "engagement_id": "eng-replay-reset-001",
+            "config_snapshot": json.dumps(config_snapshot),
+        }
+        mock_artifacts.return_value.get_engagement_dir.return_value = tmp_path
+        mock_discover.return_value = []
+        mock_plugin.return_value = None
+        mock_all_plugins.return_value = []
+        mock_build.return_value.run_from.return_value = None
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["replay", "eng-replay-reset-001"])
+        assert result.exit_code == 0
+        mock_build.return_value.reset_for_rerun.assert_called_once_with(
+            "eng-replay-reset-001", Stage.PARSE
+        )
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.filter_and_validate_adapters", autospec=True)
+    @patch("gxassessms.cli._helpers.build_normalization_policy", autospec=True)
+    @patch("gxassessms.cli._helpers.build_consolidation_rule", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_plugin", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_all_plugins", autospec=True)
+    def test_replay_missing_enabled_adapter_exits_nonzero(
+        self,
+        mock_all_plugins: MagicMock,
+        mock_plugin: MagicMock,
+        mock_cons_rule: MagicMock,
+        mock_norm_policy: MagicMock,
+        mock_filter: MagicMock,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        mock_artifacts: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Enabled tool with no adapter -> exit 1, run_from not called."""
+        import json
+
+        config_snapshot = {
+            "client_name": "Test Corp",
+            "tenant_id": "00000000-0000-0000-0000-000000000001",
+            "auth": {
+                "method": "client_credential",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+                "client_id": "00000000-0000-0000-0000-000000000002",
+                "client_secret_env": "GX_SECRET",  # pragma: allowlist secret
+            },
+            "tools": {"scubagear": True, "maester": True},
+            "max_parallel": 4,
+            "report_formats": ["docx"],
+            "report_theme": "basic",
+            "qa_model": "claude-sonnet-4-6",
+            "qa_token_budget": 100000,
+        }
+        mock_repo.return_value.get.return_value = {
+            "engagement_id": "eng-replay-missing-001",
+            "config_snapshot": json.dumps(config_snapshot),
+        }
+        mock_artifacts.return_value.get_engagement_dir.return_value = tmp_path
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]
+        mock_filter.side_effect = SystemExit(1)
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["replay", "eng-replay-missing-001"])
+        assert result.exit_code != 0
+        mock_build.return_value.run_from.assert_not_called()
+
 
 class TestReviewCommand:
     def test_help_shows_description(self) -> None:
