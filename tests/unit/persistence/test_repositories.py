@@ -798,6 +798,30 @@ class TestFindingRepoTypedMethods:
         finding_repo.save_parsed_findings(eng1, [])
         assert len(finding_repo.get_parsed_as_findings(eng2)) == 1
 
+    def test_save_parsed_findings_preserves_manual_findings(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(client_name="Test", tenant_id="t-001", config_snapshot={})
+        # Add a manual finding
+        finding_repo.add_manual_finding(
+            eng_id,
+            {
+                "title": "Analyst finding",
+                "severity": "HIGH",
+                "category": "Identity & Access",
+                "description": "Manually identified",
+            },
+        )
+        # Re-parse should replace tool findings but keep manual ones
+        finding_repo.save_parsed_findings(eng_id, [_make_finding()])
+        all_findings = finding_repo.get_parsed(eng_id)
+        tool_sources = {f["tool_source"] for f in all_findings}
+        assert "Manual" in tool_sources
+        assert "ScubaGear" in tool_sources
+        assert len(all_findings) == 2
+
     def test_get_parsed_as_findings_empty_when_none_saved(
         self,
         finding_repo: FindingRepo,

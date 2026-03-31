@@ -168,7 +168,10 @@ class FindingRepo:
             for f in findings
         ]
         with self._db.connect() as conn:
-            conn.execute("DELETE FROM findings WHERE engagement_id = ?", (engagement_id,))
+            conn.execute(
+                "DELETE FROM findings WHERE engagement_id = ? AND tool_source != ?",
+                (engagement_id, ToolSource.MANUAL.value),
+            )
             conn.executemany(
                 "INSERT INTO findings "
                 "(finding_id, engagement_id, observation_id, native_check_id, "
