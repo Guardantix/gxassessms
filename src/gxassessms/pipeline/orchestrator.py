@@ -354,6 +354,70 @@ class Orchestrator:
         )
 
     # ------------------------------------------------------------------
+    # Resume stage determination
+    # ------------------------------------------------------------------
+
+    def determine_resume_stage(self, engagement_id: str) -> Stage | None:
+        """Determine which stage to resume from based on current engagement state.
+
+        Returns the Stage to resume from, or None for terminal/waiting states:
+        - COMPLETE: no work to do (no-op)
+        - QA_REVIEW: awaiting human approval (cannot auto-resume)
+
+        For FAILED engagements, scans the event journal for the last failed
+        stage. Raises PipelineError if the failed stage cannot be determined.
+        """
+        current_state = self._get_current_state(engagement_id)
+
+        # Terminal / waiting states
+        if current_state in (EngagementState.COMPLETE, EngagementState.QA_REVIEW):
+            return None
+
+        # Completed states -> next stage
+        _COMPLETED_TO_NEXT: dict[EngagementState, Stage] = {
+            EngagementState.CREATED: Stage.COLLECT,
+            EngagementState.COLLECTED: Stage.PARSE,
+            EngagementState.PARSED: Stage.NORMALIZE,
+            EngagementState.NORMALIZED: Stage.CONSOLIDATE,
+            EngagementState.CONSOLIDATED: Stage.QA_REVIEW,
+            EngagementState.QA_APPROVED: Stage.RENDER,
+        }
+        if current_state in _COMPLETED_TO_NEXT:
+            return _COMPLETED_TO_NEXT[current_state]
+
+        # Running (*ING) states -> owning stage (stale recovery handles the rest)
+        for stage, (running, _completed) in STAGE_STATE_MAP.items():
+            if running == current_state:
+                return stage
+
+        # FAILED -> find last failed stage from event journal
+        if current_state == EngagementState.FAILED:
+            events = self._event_repo.get_events_by_type(engagement_id, "state_transition")
+            for event in reversed(events):
+                payload = _extract_payload(event)
+                if payload.get("to") == "FAILED":
+                    from_state_val = payload.get("from", "")
+                    for stage, (running, _) in STAGE_STATE_MAP.items():
+                        if running.value == from_state_val:
+                            return stage
+                    break
+            raise PipelineError(
+                message=(
+                    "Engagement is FAILED but the failed stage cannot be determined "
+                    "from the event journal. Use --force-stage to specify."
+                ),
+                engagement_id=engagement_id,
+                stage="",
+            )
+
+        # Unreachable for valid EngagementState values, but fail-closed
+        raise PipelineError(
+            message=f"Unexpected engagement state: {current_state.value}",
+            engagement_id=engagement_id,
+            stage="",
+        )
+
+    # ------------------------------------------------------------------
     # Pipeline execution entry points
     # ------------------------------------------------------------------
 

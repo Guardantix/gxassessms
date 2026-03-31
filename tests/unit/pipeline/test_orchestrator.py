@@ -1185,3 +1185,107 @@ class TestResetForRerun:
             mock_event_repo.get_events_by_type.reset_mock()
             orchestrator.reset_for_rerun("eng-1", stage)
             mock_event_repo.get_events_by_type.assert_not_called()
+
+
+class TestDetermineResumeStage:
+    """Tests for Orchestrator.determine_resume_stage()."""
+
+    def test_created_resumes_from_collect(
+        self, orchestrator: Orchestrator, mock_engagement_repo: MagicMock
+    ) -> None:
+        mock_engagement_repo.get.return_value = {"state": "CREATED"}
+        assert orchestrator.determine_resume_stage("eng-1") == Stage.COLLECT
+
+    def test_collected_resumes_from_parse(
+        self, orchestrator: Orchestrator, mock_engagement_repo: MagicMock
+    ) -> None:
+        mock_engagement_repo.get.return_value = {"state": "COLLECTED"}
+        assert orchestrator.determine_resume_stage("eng-1") == Stage.PARSE
+
+    def test_parsed_resumes_from_normalize(
+        self, orchestrator: Orchestrator, mock_engagement_repo: MagicMock
+    ) -> None:
+        mock_engagement_repo.get.return_value = {"state": "PARSED"}
+        assert orchestrator.determine_resume_stage("eng-1") == Stage.NORMALIZE
+
+    def test_normalized_resumes_from_consolidate(
+        self, orchestrator: Orchestrator, mock_engagement_repo: MagicMock
+    ) -> None:
+        mock_engagement_repo.get.return_value = {"state": "NORMALIZED"}
+        assert orchestrator.determine_resume_stage("eng-1") == Stage.CONSOLIDATE
+
+    def test_consolidated_resumes_from_qa_review(
+        self, orchestrator: Orchestrator, mock_engagement_repo: MagicMock
+    ) -> None:
+        mock_engagement_repo.get.return_value = {"state": "CONSOLIDATED"}
+        assert orchestrator.determine_resume_stage("eng-1") == Stage.QA_REVIEW
+
+    def test_qa_approved_resumes_from_render(
+        self, orchestrator: Orchestrator, mock_engagement_repo: MagicMock
+    ) -> None:
+        mock_engagement_repo.get.return_value = {"state": "QA_APPROVED"}
+        assert orchestrator.determine_resume_stage("eng-1") == Stage.RENDER
+
+    def test_complete_returns_none(
+        self, orchestrator: Orchestrator, mock_engagement_repo: MagicMock
+    ) -> None:
+        mock_engagement_repo.get.return_value = {"state": "COMPLETE"}
+        assert orchestrator.determine_resume_stage("eng-1") is None
+
+    def test_qa_review_returns_none(
+        self, orchestrator: Orchestrator, mock_engagement_repo: MagicMock
+    ) -> None:
+        mock_engagement_repo.get.return_value = {"state": "QA_REVIEW"}
+        assert orchestrator.determine_resume_stage("eng-1") is None
+
+    def test_failed_resumes_from_last_failed_stage(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        mock_engagement_repo.get.return_value = {"state": "FAILED"}
+        mock_event_repo.get_events_by_type.return_value = [
+            {"payload": '{"from": "CREATED", "to": "COLLECTING"}'},
+            {"payload": '{"from": "COLLECTING", "to": "COLLECTED"}'},
+            {"payload": '{"from": "COLLECTED", "to": "PARSING"}'},
+            {"payload": '{"from": "PARSING", "to": "FAILED"}'},
+        ]
+        assert orchestrator.determine_resume_stage("eng-1") == Stage.PARSE
+
+    def test_failed_with_no_journal_raises(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        mock_engagement_repo.get.return_value = {"state": "FAILED"}
+        mock_event_repo.get_events_by_type.return_value = []
+        with pytest.raises(PipelineError, match="cannot be determined"):
+            orchestrator.determine_resume_stage("eng-1")
+
+    def test_running_state_resumes_from_that_stage(
+        self, orchestrator: Orchestrator, mock_engagement_repo: MagicMock
+    ) -> None:
+        """Stale *ING states map to their owning stage (stale recovery handles rest)."""
+        mock_engagement_repo.get.return_value = {"state": "NORMALIZING"}
+        assert orchestrator.determine_resume_stage("eng-1") == Stage.NORMALIZE
+
+    def test_failed_multiple_times_uses_last_failure(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """Failed at PARSE, retried, then failed at NORMALIZE -> resume from NORMALIZE."""
+        mock_engagement_repo.get.return_value = {"state": "FAILED"}
+        mock_event_repo.get_events_by_type.return_value = [
+            {"payload": '{"from": "PARSING", "to": "FAILED"}'},
+            {"payload": '{"from": "CREATED", "to": "COLLECTING"}'},
+            {"payload": '{"from": "COLLECTING", "to": "COLLECTED"}'},
+            {"payload": '{"from": "COLLECTED", "to": "PARSING"}'},
+            {"payload": '{"from": "PARSING", "to": "PARSED"}'},
+            {"payload": '{"from": "PARSED", "to": "NORMALIZING"}'},
+            {"payload": '{"from": "NORMALIZING", "to": "FAILED"}'},
+        ]
+        assert orchestrator.determine_resume_stage("eng-1") == Stage.NORMALIZE
