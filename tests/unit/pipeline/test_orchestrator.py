@@ -991,11 +991,43 @@ class TestRehydrateUpstreamState:
 
         mock_event_repo.get_events_by_type.return_value = [
             {"payload": '{"to": "CONSOLIDATED"}'},
+            {"payload": '{"to": "QA_APPROVED"}'},
         ]
         mock_finding_repo.get_consolidated_as_findings.return_value = [_make_consolidated()]
         _ra, _f, cf = _rehydrate_upstream_state(Stage.RENDER, ENG, [], orchestrator)
         mock_finding_repo.get_consolidated_as_findings.assert_called_once_with(ENG)
         assert cf is not None
+
+    def test_render_requires_qa_approved_in_journal(
+        self,
+        orchestrator: Orchestrator,
+        mock_finding_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """RENDER rehydration succeeds when both CONSOLIDATED and QA_APPROVED exist."""
+        from gxassessms.pipeline._runner import _rehydrate_upstream_state
+
+        mock_event_repo.get_events_by_type.return_value = [
+            {"payload": '{"to": "CONSOLIDATED"}'},
+            {"payload": '{"to": "QA_APPROVED"}'},
+        ]
+        mock_finding_repo.get_consolidated_as_findings.return_value = [_make_consolidated()]
+        _ra, _f, cf = _rehydrate_upstream_state(Stage.RENDER, ENG, [], orchestrator)
+        assert cf is not None
+
+    def test_render_rejects_without_qa_approved_in_journal(
+        self,
+        orchestrator: Orchestrator,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """RENDER rehydration fails when CONSOLIDATED exists but QA_APPROVED does not."""
+        from gxassessms.pipeline._runner import _rehydrate_upstream_state
+
+        mock_event_repo.get_events_by_type.return_value = [
+            {"payload": '{"to": "CONSOLIDATED"}'},
+        ]
+        with pytest.raises(PipelineError, match="never completed"):
+            _rehydrate_upstream_state(Stage.RENDER, ENG, [], orchestrator)
 
     def test_empty_findings_from_db_does_not_raise(
         self,
