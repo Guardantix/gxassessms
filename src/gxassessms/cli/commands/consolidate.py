@@ -45,7 +45,7 @@ def consolidate_cmd(config_path: str, engagement_id: str, reparse: bool) -> None
     """Re-run normalization and deduplication from persisted raw output.
 
     Does not re-execute tools. Starts from PARSE (with --reparse) or
-    NORMALIZE (default). Useful when normalization logic or
+    CONSOLIDATE (default). Useful when normalization logic or
     cross-reference mappings change.
 
     Requires --engagement-id because consolidate operates on an existing
