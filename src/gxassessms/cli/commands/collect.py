@@ -95,6 +95,9 @@ def collect_cmd(config_path: str, engagement_id: str | None) -> None:
                 )
             raise SystemExit(1)
 
+        if not newly_created:
+            orchestrator.reset_for_rerun(engagement_id, Stage.COLLECT)
+
         console.print(f"[bold]Collecting from {len(adapters)} adapter(s)...[/bold]")
 
         orchestrator.run_from(

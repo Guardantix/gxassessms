@@ -642,6 +642,55 @@ class TestCollectCommand:
         assert "maester" in result.output.lower()
         mock_build.return_value.run_from.assert_not_called()
 
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    def test_collect_existing_engagement_calls_reset_for_rerun(
+        self,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """collect --engagement-id should reset state before run_from for retry."""
+        from gxassessms.pipeline.stages import Stage
+
+        config_path = _write_config(tmp_path)
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]
+        mock_build.return_value.run_from.return_value = None
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["collect", "--engagement-id", "eng-retry-001", str(config_path)]
+        )
+        assert result.exit_code == 0
+        mock_build.return_value.reset_for_rerun.assert_called_once_with(
+            "eng-retry-001", Stage.COLLECT
+        )
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    def test_collect_new_engagement_does_not_call_reset(
+        self,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """New engagement (no --engagement-id) should NOT call reset_for_rerun."""
+        config_path = _write_config(tmp_path)
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]
+        mock_repo.return_value.create.return_value = "eng-new-001"
+        mock_build.return_value.run_from.return_value = None
+        runner = CliRunner()
+        result = runner.invoke(cli, ["collect", str(config_path)])
+        assert result.exit_code == 0
+        mock_build.return_value.reset_for_rerun.assert_not_called()
+
 
 class TestConsolidateCommand:
     def test_help_shows_description(self) -> None:
