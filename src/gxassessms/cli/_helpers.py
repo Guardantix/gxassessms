@@ -113,6 +113,32 @@ def discover_cli_adapters() -> list[Any]:
     return instances
 
 
+def filter_and_validate_adapters(config: Any, adapters: list[Any]) -> list[Any]:
+    """Filter adapters to enabled tools and validate coverage.
+
+    Returns filtered adapter list. Raises SystemExit(1) with per-tool
+    error messages if any enabled tool has no matching adapter.
+    """
+    if not config.tools:
+        return adapters
+
+    enabled_tool_names = {name.lower() for name, tc in config.tools.items() if tc.enabled}
+    filtered = [a for a in adapters if getattr(a, "tool_name", "").lower() in enabled_tool_names]
+    discovered_names = {getattr(a, "tool_name", "").lower() for a in filtered}
+    missing = enabled_tool_names - discovered_names
+    if missing:
+        from rich.console import Console
+
+        console = Console(stderr=True)
+        for name in sorted(missing):
+            console.print(
+                f"[bright_red]Error:[/bright_red] Tool '{name}' is enabled in config "
+                f"but no adapter is installed. Install gxassessms-{name}."
+            )
+        raise SystemExit(1)
+    return filtered
+
+
 def discover_adapter_metadata() -> list[dict[str, Any]]:
     """Discover adapters and return their metadata dicts for display.
 
