@@ -76,11 +76,7 @@ def collect_cmd(config_path: str, engagement_id: str | None) -> None:
         orchestrator = _helpers.build_orchestrator()
         adapters = _helpers.discover_cli_adapters()
 
-        if config.tools:
-            enabled_tool_names = {name.lower() for name, tc in config.tools.items() if tc.enabled}
-            adapters = [
-                a for a in adapters if getattr(a, "tool_name", "").lower() in enabled_tool_names
-            ]
+        adapters = _helpers.filter_and_validate_adapters(config, adapters)
 
         if not adapters:
             console.print(

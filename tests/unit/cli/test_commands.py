@@ -594,13 +594,51 @@ class TestCollectCommand:
         from gxassessms.core.contracts.errors import GxAssessError
 
         config_path = _write_config(tmp_path)
-        mock_discover.return_value = [MagicMock()]
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]
         mock_repo.return_value.create.return_value = "eng-collect-003"
         mock_build.return_value.run_from.side_effect = GxAssessError("tool timeout")
         runner = CliRunner()
         result = runner.invoke(cli, ["collect", str(config_path)])
         assert result.exit_code != 0
         assert "eng-collect-003" in result.output
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
+    def test_collect_missing_enabled_adapter_exits_nonzero(
+        self,
+        mock_discover: MagicMock,
+        mock_build: MagicMock,
+        mock_repo: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Enabled tool with no discovered adapter -> exit 1 naming the missing tool."""
+        config_path = tmp_path / "config.yaml"
+        config_data = {
+            "client": {
+                "name": "Test",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+            },
+            "auth": {
+                "method": "client_credential",
+                "tenant_id": "00000000-0000-0000-0000-000000000001",
+                "client_id": "00000000-0000-0000-0000-000000000002",
+                "client_secret_env": "GX_SECRET",  # pragma: allowlist secret
+            },
+            "tools": {"scubagear": True, "maester": True},
+        }
+        config_path.write_text(yaml.dump(config_data), encoding="utf-8")
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]
+        mock_repo.return_value.create.return_value = "eng-collect-missing"
+        runner = CliRunner()
+        result = runner.invoke(cli, ["collect", str(config_path)])
+        assert result.exit_code != 0
+        assert "maester" in result.output.lower()
+        mock_build.return_value.run_from.assert_not_called()
 
 
 class TestConsolidateCommand:
