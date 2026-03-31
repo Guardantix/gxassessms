@@ -845,6 +845,44 @@ class TestFindingRepoTypedMethods:
         assert len(lf.sources) == len(cf.sources)
         assert lf.confidence.overall == pytest.approx(cf.confidence.overall)
 
+    def test_save_consolidated_findings_preserves_instance_ids(
+        self,
+        engagement_repo: EngagementRepo,
+        finding_repo: FindingRepo,
+    ) -> None:
+        eng_id = engagement_repo.create(client_name="Test", tenant_id="t-001", config_snapshot={})
+        cf = _make_consolidated_finding()
+        original_id = cf.finding_instance_id  # "cf-typed-001"
+        finding_repo.save_consolidated_findings(eng_id, [cf])
+
+        # Override the severity
+        finding_repo.override_severity(
+            finding_id=original_id,
+            new_severity=Severity.LOW,
+            reason="Analyst override",
+            actor="human:test",
+            engagement_id=eng_id,
+        )
+
+        # Reconsolidate: same finding_key but a fresh instance_id (simulating
+        # what DefaultConsolidationPolicy.merge_group() produces -- uuid4 each run).
+        cf2 = cf.model_copy(update={"finding_instance_id": "cf-reconsolidated-new"})
+        assert cf2.finding_instance_id != original_id  # sanity
+        assert cf2.finding_key == cf.finding_key  # same semantic identity
+        finding_repo.save_consolidated_findings(eng_id, [cf2])
+
+        # The persisted finding should keep the original instance_id
+        loaded = finding_repo.get_consolidated_as_findings(eng_id)
+        assert len(loaded) == 1
+        assert loaded[0].finding_instance_id == original_id
+
+        # Override record should still be linked
+        with finding_repo._db.connect() as conn:
+            overrides = conn.execute(
+                "SELECT * FROM overrides WHERE finding_id = ?", (original_id,)
+            ).fetchall()
+        assert len(overrides) == 1
+
     def test_save_consolidated_replaces_prior(
         self,
         engagement_repo: EngagementRepo,

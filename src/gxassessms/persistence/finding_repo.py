@@ -184,32 +184,45 @@ class FindingRepo:
     def save_consolidated_findings(
         self, engagement_id: str, findings: list[ConsolidatedFinding]
     ) -> None:
-        """Persist consolidated findings, replacing any prior batch for this engagement."""
-        records = [
-            (
-                f.finding_instance_id,
-                engagement_id,
-                f.finding_key,
-                f.title,
-                f.severity.value,
-                f.status.value,
-                f.category.value,
-                f.description,
-                json.dumps([s.model_dump(mode="json") for s in f.sources]),
-                json.dumps(f.confidence.model_dump(mode="json")),
-                json.dumps(f.benchmark_refs),
-                f.root_cause,
-                f.remediation,
-                f.narrative,
-                format_utc(utc_now()),
-            )
-            for f in findings
-        ]
+        """Persist consolidated findings, replacing any prior batch for this engagement.
+
+        Preserves finding_instance_id for existing finding_keys so that
+        override records and event log entries remain linked.
+        """
         with self._db.connect() as conn:
+            # Build map of existing finding_key -> finding_instance_id
+            existing_rows = conn.execute(
+                "SELECT finding_key, finding_instance_id FROM consolidated_findings "
+                "WHERE engagement_id = ?",
+                (engagement_id,),
+            ).fetchall()
+            existing_ids = {row["finding_key"]: row["finding_instance_id"] for row in existing_rows}
+
             conn.execute(
                 "DELETE FROM consolidated_findings WHERE engagement_id = ?",
                 (engagement_id,),
             )
+
+            records = [
+                (
+                    existing_ids.get(f.finding_key, f.finding_instance_id),
+                    engagement_id,
+                    f.finding_key,
+                    f.title,
+                    f.severity.value,
+                    f.status.value,
+                    f.category.value,
+                    f.description,
+                    json.dumps([s.model_dump(mode="json") for s in f.sources]),
+                    json.dumps(f.confidence.model_dump(mode="json")),
+                    json.dumps(f.benchmark_refs),
+                    f.root_cause,
+                    f.remediation,
+                    f.narrative,
+                    format_utc(utc_now()),
+                )
+                for f in findings
+            ]
             conn.executemany(
                 "INSERT INTO consolidated_findings "
                 "(finding_instance_id, engagement_id, finding_key, title, "
