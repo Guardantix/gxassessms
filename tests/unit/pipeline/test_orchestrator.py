@@ -963,9 +963,13 @@ class TestRehydrateUpstreamState:
         self,
         orchestrator: Orchestrator,
         mock_finding_repo: MagicMock,
+        mock_event_repo: MagicMock,
     ) -> None:
         from gxassessms.pipeline._runner import _rehydrate_upstream_state
 
+        mock_event_repo.get_events_by_type.return_value = [
+            {"payload": '{"to": "NORMALIZED"}'},
+        ]
         mock_finding_repo.get_parsed_as_findings.return_value = [_make_finding()]
         ra, f, cf = _rehydrate_upstream_state(Stage.CONSOLIDATE, ENG, [], orchestrator)
         mock_finding_repo.get_parsed_as_findings.assert_called_once_with(ENG)
@@ -977,9 +981,13 @@ class TestRehydrateUpstreamState:
         self,
         orchestrator: Orchestrator,
         mock_finding_repo: MagicMock,
+        mock_event_repo: MagicMock,
     ) -> None:
         from gxassessms.pipeline._runner import _rehydrate_upstream_state
 
+        mock_event_repo.get_events_by_type.return_value = [
+            {"payload": '{"to": "CONSOLIDATED"}'},
+        ]
         mock_finding_repo.get_consolidated_as_findings.return_value = [_make_consolidated()]
         _ra, _f, cf = _rehydrate_upstream_state(Stage.RENDER, ENG, [], orchestrator)
         mock_finding_repo.get_consolidated_as_findings.assert_called_once_with(ENG)
@@ -989,13 +997,41 @@ class TestRehydrateUpstreamState:
         self,
         orchestrator: Orchestrator,
         mock_finding_repo: MagicMock,
+        mock_event_repo: MagicMock,
     ) -> None:
         """[] from DB is valid (all controls passed) -- must not raise."""
         from gxassessms.pipeline._runner import _rehydrate_upstream_state
 
+        mock_event_repo.get_events_by_type.return_value = [
+            {"payload": '{"to": "NORMALIZED"}'},
+        ]
         mock_finding_repo.get_parsed_as_findings.return_value = []
         _ra, f, _cf = _rehydrate_upstream_state(Stage.CONSOLIDATE, ENG, [], orchestrator)
         assert f == []
+
+    def test_consolidate_rejects_when_normalize_never_completed(
+        self,
+        orchestrator: Orchestrator,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """run_from(CONSOLIDATE) must reject when NORMALIZE never completed."""
+        from gxassessms.pipeline._runner import _rehydrate_upstream_state
+
+        mock_event_repo.get_events_by_type.return_value = []
+        with pytest.raises(PipelineError, match="never completed"):
+            _rehydrate_upstream_state(Stage.CONSOLIDATE, ENG, [], orchestrator)
+
+    def test_render_rejects_when_consolidate_never_completed(
+        self,
+        orchestrator: Orchestrator,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """run_from(RENDER) must reject when CONSOLIDATE never completed."""
+        from gxassessms.pipeline._runner import _rehydrate_upstream_state
+
+        mock_event_repo.get_events_by_type.return_value = []
+        with pytest.raises(PipelineError, match="never completed"):
+            _rehydrate_upstream_state(Stage.RENDER, ENG, [], orchestrator)
 
 
 # ---------------------------------------------------------------------------

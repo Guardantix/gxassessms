@@ -364,12 +364,38 @@ def _rehydrate_upstream_state(
         )
 
     if start_stage == Stage.CONSOLIDATE:
+        _verify_stage_completed(orchestrator, engagement_id, "NORMALIZED")
         findings = orchestrator._finding_repo.get_parsed_as_findings(engagement_id)
         return None, findings, None
 
     # QA_REVIEW or RENDER
+    _verify_stage_completed(orchestrator, engagement_id, "CONSOLIDATED")
     consolidated = orchestrator._finding_repo.get_consolidated_as_findings(engagement_id)
     return None, None, consolidated
+
+
+def _verify_stage_completed(
+    orchestrator: Orchestrator, engagement_id: str, expected_state: str
+) -> None:
+    """Check event journal confirms the upstream stage completed.
+
+    State transition events use payload key ``"to"`` with
+    ``EngagementState.value`` (e.g., ``"NORMALIZED"``).
+    """
+    from gxassessms.pipeline.orchestrator import _extract_payload
+
+    events = orchestrator._event_repo.get_events_by_type(engagement_id, "state_transition")
+    completed_states = {_extract_payload(e).get("to") for e in events}
+    if expected_state not in completed_states:
+        raise PipelineError(
+            message=(
+                f"Cannot resume: upstream stage never completed "
+                f"(expected {expected_state} in event journal). "
+                f"Run the full pipeline first."
+            ),
+            engagement_id=engagement_id,
+            stage=expected_state,
+        )
 
 
 def _require_in_memory(name: str, data: list[Any] | None, stage: Stage) -> None:
