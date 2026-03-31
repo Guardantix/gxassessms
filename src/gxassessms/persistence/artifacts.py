@@ -282,6 +282,16 @@ class ArtifactManager:
         raw_dir = eng_dir / "raw-output"
         raw_dir.mkdir(exist_ok=True)
 
+        # Clear previous manifests so stale data from earlier runs
+        # is not ingested by replay/reparse (DELETE+INSERT pattern).
+        for old_file in raw_dir.glob("*.json"):
+            try:
+                old_file.unlink()
+            except OSError as e:
+                raise PersistenceError(
+                    f"Failed to clear stale raw output {old_file.name}: {e}"
+                ) from e
+
         saved = 0
         for result in adapter_results:
             raw_output = getattr(result, "raw_output", None)

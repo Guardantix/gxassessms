@@ -386,3 +386,20 @@ class TestSaveRawOutputs:
         results = [_make_adapter_result(ToolSource.SCUBAGEAR)]
         raw_dir = artifact_mgr.save_raw_outputs("eng-007", "Acme", results)
         assert (raw_dir / "scubagear.json").exists()
+
+    def test_clears_stale_files_on_rerun(self, artifact_mgr: ArtifactManager) -> None:
+        """Rerun should remove old manifests not in the current result set."""
+        # Run 1: scubagear succeeds
+        result_1 = _make_adapter_result(ToolSource.SCUBAGEAR)
+        artifact_mgr.save_raw_outputs("eng-1", "Test Corp", [result_1])
+
+        raw_dir = artifact_mgr.get_engagement_dir("eng-1") / "raw-output"
+        assert (raw_dir / "scubagear.json").exists()
+
+        # Run 2: only maester succeeds (scubagear failed, not in results)
+        result_2 = _make_adapter_result(ToolSource.MAESTER)
+        artifact_mgr.save_raw_outputs("eng-1", "Test Corp", [result_2])
+
+        # Stale scubagear.json should be gone
+        assert not (raw_dir / "scubagear.json").exists()
+        assert (raw_dir / "maester.json").exists()
