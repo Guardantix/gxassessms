@@ -18,7 +18,7 @@ from typing import Any
 
 from gxassessms.core.config.config import EngagementConfig
 from gxassessms.core.config.datetime_utils import utc_now
-from gxassessms.core.contracts.errors import PersistenceError
+from gxassessms.core.contracts.errors import PersistenceError, PipelineError
 from gxassessms.core.domain.enums import Severity
 from gxassessms.core.domain.models import Finding
 from gxassessms.persistence import (
@@ -313,6 +313,21 @@ class Orchestrator:
 
         if current_state == entry_state:
             return  # Already at the right state
+
+        # Guard: RENDER requires QA_APPROVED in the event journal.
+        # Without this, replay --from report can bypass the human approval gate.
+        if target_stage == Stage.RENDER:
+            events = self._event_repo.get_events_by_type(engagement_id, "state_transition")
+            completed_states = {_extract_payload(e).get("to") for e in events}
+            if "QA_APPROVED" not in completed_states:
+                raise PipelineError(
+                    message=(
+                        "Cannot reset to RENDER: QA has not been approved. "
+                        "Complete QA review before replaying from report."
+                    ),
+                    engagement_id=engagement_id,
+                    stage=Stage.RENDER.value,
+                )
 
         self._engagement_repo.force_update_state(engagement_id, entry_state)
 

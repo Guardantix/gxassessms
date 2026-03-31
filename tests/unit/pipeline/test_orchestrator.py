@@ -1109,3 +1109,47 @@ class TestResetForRerun:
         mock_engagement_repo.get.side_effect = PersistenceError("not found")
         with pytest.raises(PersistenceError):
             orchestrator.reset_for_rerun("nonexistent", Stage.COLLECT)
+
+    def test_reset_to_render_succeeds_when_qa_approved_in_journal(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """reset_for_rerun(RENDER) succeeds when QA_APPROVED exists in event journal."""
+        mock_engagement_repo.get.return_value = {"state": "COMPLETE"}
+        mock_event_repo.get_events_by_type.return_value = [
+            {"payload": '{"from": "QA_REVIEW", "to": "QA_APPROVED"}'},
+        ]
+        orchestrator.reset_for_rerun("eng-1", Stage.RENDER)
+        mock_engagement_repo.force_update_state.assert_called_once_with(
+            "eng-1", EngagementState.QA_APPROVED
+        )
+
+    def test_reset_to_render_rejects_without_qa_approved(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """reset_for_rerun(RENDER) raises when QA was never approved."""
+        mock_engagement_repo.get.return_value = {"state": "QA_REVIEW"}
+        mock_event_repo.get_events_by_type.return_value = [
+            {"payload": '{"from": "CONSOLIDATED", "to": "QA_REVIEW"}'},
+        ]
+        with pytest.raises(PipelineError, match="QA has not been approved"):
+            orchestrator.reset_for_rerun("eng-1", Stage.RENDER)
+        mock_engagement_repo.force_update_state.assert_not_called()
+
+    def test_reset_to_non_render_stages_does_not_check_qa(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """reset_for_rerun for COLLECT/PARSE/CONSOLIDATE does not query events."""
+        mock_engagement_repo.get.return_value = {"state": "COMPLETE"}
+        for stage in (Stage.COLLECT, Stage.PARSE, Stage.CONSOLIDATE):
+            mock_event_repo.get_events_by_type.reset_mock()
+            orchestrator.reset_for_rerun("eng-1", stage)
+            mock_event_repo.get_events_by_type.assert_not_called()
