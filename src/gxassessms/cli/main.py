@@ -27,7 +27,9 @@ def _get_version() -> str:
     try:
         return _pkg_version("gxassessms")
     except Exception:
-        return "0.0.0-unknown"
+        from gxassessms import __version__
+
+        return __version__
 
 
 _MSECO_VERSION = _get_version()
