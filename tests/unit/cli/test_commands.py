@@ -191,7 +191,9 @@ class TestRunCommand:
         from gxassessms.core.contracts.errors import GxAssessError
 
         config_path = _write_config(tmp_path)
-        mock_discover.return_value = [MagicMock()]
+        mock_adapter = MagicMock()
+        mock_adapter.tool_name = "scubagear"
+        mock_discover.return_value = [mock_adapter]
         mock_repo.return_value.create.return_value = "eng-run-fail-001"
         mock_build.return_value.run.side_effect = GxAssessError("network error")
         mock_all_plugins.return_value = []

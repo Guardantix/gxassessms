@@ -135,21 +135,7 @@ def run_cmd(
         orchestrator = _helpers.build_orchestrator()
         adapters = _helpers.discover_cli_adapters()
 
-        if config.tools:
-            enabled_tool_names = {name.lower() for name, tc in config.tools.items() if tc.enabled}
-            adapters = [
-                a for a in adapters if getattr(a, "tool_name", "").lower() in enabled_tool_names
-            ]
-            # Verify all enabled tools have matching adapters
-            discovered_names = {getattr(a, "tool_name", "").lower() for a in adapters}
-            missing = enabled_tool_names - discovered_names
-            if missing:
-                for name in sorted(missing):
-                    console.print(
-                        f"[bright_red]Error:[/bright_red] Tool '{name}' is enabled in config "
-                        f"but no adapter is installed. Install gxassessms-{name}."
-                    )
-                raise SystemExit(1)
+        adapters = _helpers.filter_and_validate_adapters(config, adapters)
 
         if not adapters:
             console.print(
