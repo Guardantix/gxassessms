@@ -1,11 +1,15 @@
 """Tests for file artifact storage, archive/restore/purge."""
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from gxassessms.core.contracts.errors import PersistenceError
+from gxassessms.core.contracts.types import AdapterRunStatus
+from gxassessms.core.domain.enums import ToolSource
+from gxassessms.core.domain.models import AdapterResult, RawToolOutput
 from gxassessms.persistence.artifacts import (
     ArtifactManager,
     _sanitize_slug,
@@ -274,3 +278,128 @@ class TestArtifactManagerPurge:
                 f.unlink()
         with pytest.raises(PersistenceError, match="empty"):
             mgr.purge("eng-empty-purge")
+
+
+def _make_raw_output(tool: ToolSource = ToolSource.SCUBAGEAR) -> RawToolOutput:
+    return RawToolOutput(
+        tool=tool,
+        schema_version="1.0.0",
+        timestamp=datetime(2026, 3, 30, 12, 0, 0, tzinfo=UTC),
+        file_manifest={"TestResults.json": "utf-8"},
+        execution_metadata={"duration": 42.0},
+    )
+
+
+def _make_adapter_result(
+    tool: ToolSource = ToolSource.SCUBAGEAR,
+    *,
+    success: bool = True,
+) -> AdapterResult:
+    return AdapterResult(
+        adapter_name=tool.value,
+        status=AdapterRunStatus.SUCCESS if success else AdapterRunStatus.FAILED,
+        raw_output=_make_raw_output(tool) if success else None,
+        error=None if success else "boom",
+        duration_seconds=1.0,
+    )
+
+
+class TestSaveRawOutputs:
+    @pytest.fixture
+    def artifact_mgr(self, tmp_path: Path) -> ArtifactManager:
+        engagements_root = tmp_path / "engagements"
+        engagements_root.mkdir()
+        return ArtifactManager(engagements_root=engagements_root)
+
+    def test_creates_dir_and_writes_manifest(self, artifact_mgr: ArtifactManager) -> None:
+        results = [_make_adapter_result(ToolSource.SCUBAGEAR)]
+        raw_dir = artifact_mgr.save_raw_outputs("eng-001", "Acme", results)
+
+        assert raw_dir.exists()
+        manifest = raw_dir / "scubagear.json"
+        assert manifest.exists()
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        assert data["tool"] == "ScubaGear"
+        assert data["schema_version"] == "1.0.0"
+
+    def test_multiple_adapters(self, artifact_mgr: ArtifactManager) -> None:
+        results = [
+            _make_adapter_result(ToolSource.SCUBAGEAR),
+            _make_adapter_result(ToolSource.MAESTER),
+        ]
+        raw_dir = artifact_mgr.save_raw_outputs("eng-002", "Acme", results)
+
+        assert (raw_dir / "scubagear.json").exists()
+        assert (raw_dir / "maester.json").exists()
+
+    def test_skips_failed_adapters(self, artifact_mgr: ArtifactManager) -> None:
+        results = [
+            _make_adapter_result(ToolSource.SCUBAGEAR, success=True),
+            _make_adapter_result(ToolSource.MAESTER, success=False),
+        ]
+        raw_dir = artifact_mgr.save_raw_outputs("eng-003", "Acme", results)
+
+        assert (raw_dir / "scubagear.json").exists()
+        assert not (raw_dir / "maester.json").exists()
+
+    def test_overwrites_existing_on_rerun(self, artifact_mgr: ArtifactManager) -> None:
+        results = [_make_adapter_result(ToolSource.SCUBAGEAR)]
+        artifact_mgr.save_raw_outputs("eng-004", "Acme", results)
+
+        # Second save with different metadata
+        new_raw = _make_raw_output(ToolSource.SCUBAGEAR)
+        new_raw.execution_metadata["duration"] = 99.0
+        new_result = AdapterResult(
+            adapter_name="ScubaGear",
+            status=AdapterRunStatus.SUCCESS,
+            raw_output=new_raw,
+            duration_seconds=2.0,
+        )
+        raw_dir = artifact_mgr.save_raw_outputs("eng-004", "Acme", [new_result])
+
+        data = json.loads((raw_dir / "scubagear.json").read_text(encoding="utf-8"))
+        assert data["execution_metadata"]["duration"] == 99.0
+
+    def test_round_trip_with_load_raw_outputs(self, artifact_mgr: ArtifactManager) -> None:
+        """Verify written manifests can be loaded by replay.load_raw_outputs()."""
+        from gxassessms.pipeline.replay import load_raw_outputs
+
+        results = [
+            _make_adapter_result(ToolSource.SCUBAGEAR),
+            _make_adapter_result(ToolSource.MAESTER),
+        ]
+        artifact_mgr.save_raw_outputs("eng-005", "Acme", results)
+        eng_dir = artifact_mgr.get_engagement_dir("eng-005")
+
+        loaded = load_raw_outputs(eng_dir)
+        assert len(loaded) == 2
+        tool_names = {r.tool for r in loaded}
+        assert tool_names == {ToolSource.SCUBAGEAR, ToolSource.MAESTER}
+
+    def test_empty_results_writes_nothing(self, artifact_mgr: ArtifactManager) -> None:
+        raw_dir = artifact_mgr.save_raw_outputs("eng-006", "Acme", [])
+        assert raw_dir.exists()
+        assert list(raw_dir.glob("*.json")) == []
+
+    def test_uses_existing_engagement_dir(self, artifact_mgr: ArtifactManager) -> None:
+        artifact_mgr.create_engagement_dir("eng-007", "Acme")
+        results = [_make_adapter_result(ToolSource.SCUBAGEAR)]
+        raw_dir = artifact_mgr.save_raw_outputs("eng-007", "Acme", results)
+        assert (raw_dir / "scubagear.json").exists()
+
+    def test_clears_stale_files_on_rerun(self, artifact_mgr: ArtifactManager) -> None:
+        """Rerun should remove old manifests not in the current result set."""
+        # Run 1: scubagear succeeds
+        result_1 = _make_adapter_result(ToolSource.SCUBAGEAR)
+        artifact_mgr.save_raw_outputs("eng-1", "Test Corp", [result_1])
+
+        raw_dir = artifact_mgr.get_engagement_dir("eng-1") / "raw-output"
+        assert (raw_dir / "scubagear.json").exists()
+
+        # Run 2: only maester succeeds (scubagear failed, not in results)
+        result_2 = _make_adapter_result(ToolSource.MAESTER)
+        artifact_mgr.save_raw_outputs("eng-1", "Test Corp", [result_2])
+
+        # Stale scubagear.json should be gone
+        assert not (raw_dir / "scubagear.json").exists()
+        assert (raw_dir / "maester.json").exists()

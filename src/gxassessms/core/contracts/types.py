@@ -95,6 +95,15 @@ class ReportRenderer(Protocol):
 
 @runtime_checkable
 class QAStrategy(Protocol):
+    """Extension point for QA strategies.
+
+    Optional class attributes:
+        priority (int): Selection priority when multiple strategies are
+            registered. Higher values win. Default is 0 (used when the
+            attribute is absent). The ``--qa-strategy`` CLI flag overrides
+            priority-based selection entirely.
+    """
+
     def review_findings(self, findings: list[ConsolidatedFinding]) -> list[QAResult]: ...
     def generate_narratives(
         self, findings: list[ConsolidatedFinding], config: EngagementConfig

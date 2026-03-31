@@ -11,10 +11,16 @@ import pytest
 
 SRC_ROOT = Path(__file__).parent.parent.parent / "src" / "gxassessms"
 
-# Files that are allowed to define raw enum-like strings
+# Files that are allowed to define raw enum-like strings.
+# constants.py/enums.py: canonical domain definitions.
+# cli/ files: use overlapping strings for non-domain purposes (Python logging
+# levels, preflight result statuses, Click choices, Rich display colors).
 ALLOWED_FILES = {
     SRC_ROOT / "core" / "domain" / "constants.py",
     SRC_ROOT / "core" / "domain" / "enums.py",
+}
+ALLOWED_DIRS = {
+    SRC_ROOT / "cli",
 }
 
 # Raw string values that should only appear in constants/enums
@@ -23,7 +29,11 @@ STATUS_LITERALS = {"FAIL", "PASS", "WARNING", "ERROR", "N/A", "MANUAL"}
 
 
 def _collect_python_files() -> list[Path]:
-    return [p for p in SRC_ROOT.rglob("*.py") if p not in ALLOWED_FILES]
+    return [
+        p
+        for p in SRC_ROOT.rglob("*.py")
+        if p not in ALLOWED_FILES and not any(p.is_relative_to(d) for d in ALLOWED_DIRS)
+    ]
 
 
 def _find_raw_enum_literals(filepath: Path) -> list[str]:

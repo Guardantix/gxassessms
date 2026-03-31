@@ -249,3 +249,71 @@ class ArtifactManager:
         )
 
         return manifest
+
+    def save_raw_outputs(
+        self,
+        engagement_id: str,
+        client_name: str,
+        adapter_results: list[Any],
+    ) -> Path:
+        """Persist raw tool outputs from COLLECT to the engagement directory.
+
+        Creates the engagement directory if it does not already exist.
+        Writes each successful adapter's RawToolOutput as a JSON manifest
+        in ``raw-output/<tool_name>.json``, matching the format that
+        ``replay.load_raw_outputs()`` reads.
+
+        Args:
+            engagement_id: Engagement to persist outputs for.
+            client_name: Client name (used for directory slug).
+            adapter_results: List of AdapterResult objects from COLLECT.
+
+        Returns:
+            Path to the raw-output directory.
+
+        Raises:
+            PersistenceError: If directory creation or file write fails.
+        """
+        try:
+            eng_dir = self.get_engagement_dir(engagement_id)
+        except PersistenceError:
+            eng_dir = self.create_engagement_dir(engagement_id, client_name)
+
+        raw_dir = eng_dir / "raw-output"
+        raw_dir.mkdir(exist_ok=True)
+
+        # Clear previous manifests so stale data from earlier runs
+        # is not ingested by replay/reparse (DELETE+INSERT pattern).
+        for old_file in raw_dir.glob("*.json"):
+            try:
+                old_file.unlink()
+            except OSError as e:
+                raise PersistenceError(
+                    f"Failed to clear stale raw output {old_file.name}: {e}"
+                ) from e
+
+        saved = 0
+        for result in adapter_results:
+            raw_output = getattr(result, "raw_output", None)
+            if raw_output is None:
+                continue
+            tool_name = getattr(raw_output, "tool", None)
+            if tool_name is None:
+                continue
+            filename = f"{tool_name.value.lower()}.json"
+            target = raw_dir / filename
+            _validate_path_within_root(target, self._engagements_root)
+            try:
+                target.write_text(raw_output.model_dump_json(indent=2), encoding="utf-8")
+            except OSError as e:
+                raise PersistenceError(
+                    f"Failed to write raw output for {tool_name.value}: {e}"
+                ) from e
+            saved += 1
+
+        logger.info(
+            "Persisted %d raw output manifests for engagement %s",
+            saved,
+            engagement_id,
+        )
+        return raw_dir

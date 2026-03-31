@@ -31,8 +31,8 @@ dev = [
     "pre-commit>=3.0",
 ]
 
-# [project.scripts]
-# mseco = "gxassessms.cli.main:main"  # TODO: uncomment when cli module exists
+[project.scripts]
+mseco = "gxassessms.cli.main:main"
 
 [project.entry-points."gxassessms.adapters"]
 scubagear = "gxassessms.adapters.scubagear:ScubaGearAdapter"
@@ -55,6 +55,7 @@ default = "gxassessms.consolidation.rules:DefaultConsolidationRule"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gxassessms"]
+artifacts = ["src/gxassessms/**/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

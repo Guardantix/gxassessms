@@ -18,10 +18,11 @@ from typing import Any
 
 from gxassessms.core.config.config import EngagementConfig
 from gxassessms.core.config.datetime_utils import utc_now
-from gxassessms.core.contracts.errors import PersistenceError
+from gxassessms.core.contracts.errors import PersistenceError, PipelineError
 from gxassessms.core.domain.enums import Severity
 from gxassessms.core.domain.models import Finding
 from gxassessms.persistence import (
+    ArtifactManager,
     CoverageRepo,
     DatabaseManager,
     EngagementRepo,
@@ -32,6 +33,16 @@ from gxassessms.pipeline.stages import STAGE_STATE_MAP, Stage, get_stages_from
 from gxassessms.pipeline.state import EngagementLock, EngagementState, PipelineEvent
 
 logger = logging.getLogger(__name__)
+
+# Stages whose rerun invalidates a prior QA approval for RENDER gating.
+_QA_UPSTREAM_STAGES: frozenset[str] = frozenset(
+    {
+        Stage.COLLECT.value,
+        Stage.PARSE.value,
+        Stage.NORMALIZE.value,
+        Stage.CONSOLIDATE.value,
+    }
+)
 
 
 def _extract_payload(event: Any) -> dict[str, Any]:
@@ -70,6 +81,7 @@ class Orchestrator:
         coverage_repo: CoverageRepo,
         lock: EngagementLock,
         db: DatabaseManager,
+        artifact_manager: ArtifactManager,
     ) -> None:
         if engagement_repo is None:  # type: ignore[comparison-overlap]
             raise TypeError("engagement_repo is required")
@@ -80,6 +92,7 @@ class Orchestrator:
         self._coverage_repo = coverage_repo
         self._lock = lock
         self._db = db
+        self._artifact_manager = artifact_manager
 
     # ------------------------------------------------------------------
     # State transitions
@@ -290,6 +303,173 @@ class Orchestrator:
         return current_state in running_states
 
     # ------------------------------------------------------------------
+    # QA approval verification
+    # ------------------------------------------------------------------
+
+    def _verify_qa_for_render(self, engagement_id: str) -> None:
+        """Verify QA approval exists and is fresh for RENDER stage.
+
+        Raises PipelineError if QA was never approved, or if an upstream
+        stage (COLLECT/PARSE/NORMALIZE/CONSOLIDATE) was re-run after the
+        most recent QA_APPROVED transition.
+        """
+        from datetime import datetime
+
+        from gxassessms.core.config.datetime_utils import parse_utc
+
+        state_events = self._event_repo.get_events_by_type(engagement_id, "state_transition")
+
+        # Find the most recent QA_APPROVED timestamp.
+        # Events are ORDER BY timestamp, rowid -- iterate forward, keep last.
+        qa_approved_ts: datetime | None = None
+        for event in state_events:
+            payload = _extract_payload(event)
+            if payload.get("to") == "QA_APPROVED":
+                qa_approved_ts = parse_utc(event["timestamp"])
+
+        if qa_approved_ts is None:
+            raise PipelineError(
+                message=(
+                    "Cannot proceed to RENDER: QA has not been approved. "
+                    "Complete QA review before rendering."
+                ),
+                engagement_id=engagement_id,
+                stage=Stage.RENDER.value,
+            )
+
+        # Check for upstream reruns after QA approval.
+        rerun_events = self._event_repo.get_events_by_type(engagement_id, "rerun")
+        for event in rerun_events:
+            payload = _extract_payload(event)
+            target_stage = payload.get("target_stage", "")
+            if target_stage in _QA_UPSTREAM_STAGES:
+                rerun_ts = parse_utc(event["timestamp"])
+                if rerun_ts > qa_approved_ts:
+                    raise PipelineError(
+                        message=(
+                            f"Cannot proceed to RENDER: QA approval is stale. "
+                            f"Stage {target_stage} was re-run after the last "
+                            f"QA approval. Complete QA review before rendering."
+                        ),
+                        engagement_id=engagement_id,
+                        stage=Stage.RENDER.value,
+                    )
+
+    # ------------------------------------------------------------------
+    # Rerun reset
+    # ------------------------------------------------------------------
+
+    def reset_for_rerun(self, engagement_id: str, target_stage: Stage) -> None:
+        """Reset engagement state to allow re-execution from target_stage.
+
+        Used by --rerun and --force-stage CLI options. Bypasses normal
+        transition validation (like crash recovery) because the operator
+        is intentionally requesting re-execution from a terminal or
+        completed state.
+
+        No-ops if the engagement is already at the required entry state.
+        """
+        from gxassessms.pipeline.stages import get_stage_entry_state
+
+        current_state = self._get_current_state(engagement_id)
+        entry_state = get_stage_entry_state(target_stage)
+
+        if current_state == entry_state:
+            return  # Already at the right state
+
+        # Guard: RENDER requires fresh QA approval in the event journal.
+        if target_stage == Stage.RENDER:
+            self._verify_qa_for_render(engagement_id)
+
+        self._engagement_repo.force_update_state(engagement_id, entry_state)
+
+        event = PipelineEvent(
+            event_id=str(uuid.uuid4()),
+            engagement_id=engagement_id,
+            timestamp=utc_now(),
+            event_type="rerun",
+            actor="system",
+            payload={
+                "from_state": current_state.value,
+                "to_state": entry_state.value,
+                "target_stage": target_stage.value,
+                "reason": "operator_rerun",
+            },
+        )
+        self._event_repo.append(event)
+        logger.info(
+            "Reset engagement %s from %s to %s for rerun at %s",
+            engagement_id,
+            current_state.value,
+            entry_state.value,
+            target_stage.value,
+        )
+
+    # ------------------------------------------------------------------
+    # Resume stage determination
+    # ------------------------------------------------------------------
+
+    def determine_resume_stage(self, engagement_id: str) -> Stage | None:
+        """Determine which stage to resume from based on current engagement state.
+
+        Returns the Stage to resume from, or None for terminal/waiting states:
+        - COMPLETE: no work to do (no-op)
+        - QA_REVIEW: awaiting human approval (cannot auto-resume)
+
+        For FAILED engagements, scans the event journal for the last failed
+        stage. Raises PipelineError if the failed stage cannot be determined.
+        """
+        current_state = self._get_current_state(engagement_id)
+
+        # Terminal / waiting states
+        if current_state in (EngagementState.COMPLETE, EngagementState.QA_REVIEW):
+            return None
+
+        # Completed states -> next stage
+        _COMPLETED_TO_NEXT: dict[EngagementState, Stage] = {
+            EngagementState.CREATED: Stage.COLLECT,
+            EngagementState.COLLECTED: Stage.PARSE,
+            EngagementState.PARSED: Stage.PARSE,
+            EngagementState.NORMALIZED: Stage.CONSOLIDATE,
+            EngagementState.CONSOLIDATED: Stage.QA_REVIEW,
+            EngagementState.QA_APPROVED: Stage.RENDER,
+        }
+        if current_state in _COMPLETED_TO_NEXT:
+            return _COMPLETED_TO_NEXT[current_state]
+
+        # Running (*ING) states -> owning stage (stale recovery handles the rest)
+        for stage, (running, _completed) in STAGE_STATE_MAP.items():
+            if running == current_state:
+                return stage
+
+        # FAILED -> find last failed stage from event journal
+        if current_state == EngagementState.FAILED:
+            events = self._event_repo.get_events_by_type(engagement_id, "state_transition")
+            for event in reversed(events):
+                payload = _extract_payload(event)
+                if payload.get("to") == "FAILED":
+                    from_state_val = payload.get("from", "")
+                    for stage, (running, _) in STAGE_STATE_MAP.items():
+                        if running.value == from_state_val:
+                            return stage
+                    break
+            raise PipelineError(
+                message=(
+                    "Engagement is FAILED but the failed stage cannot be determined "
+                    "from the event journal. Use --force-stage to specify."
+                ),
+                engagement_id=engagement_id,
+                stage="",
+            )
+
+        # Unreachable for valid EngagementState values, but fail-closed
+        raise PipelineError(
+            message=f"Unexpected engagement state: {current_state.value}",
+            engagement_id=engagement_id,
+            stage="",
+        )
+
+    # ------------------------------------------------------------------
     # Pipeline execution entry points
     # ------------------------------------------------------------------
 
@@ -342,10 +522,13 @@ class Orchestrator:
         qa_strategy: Any,
         renderers: list[Any],
         output_dir: Path | None = None,
+        stop_stage: Stage | None = None,
     ) -> None:
         """Run the pipeline from a specific stage onward.
 
         Used for resumption after failure or re-running from a checkpoint.
+        Pass stop_stage to halt after a specific stage completes (e.g. to
+        run only collect without crashing on missing normalization/QA strategies).
 
         Args:
             engagement_id: Engagement to execute.
@@ -357,6 +540,8 @@ class Orchestrator:
             qa_strategy: QAStrategy implementation.
             renderers: List of ReportRenderer implementations.
             output_dir: Optional output directory for rendered reports.
+            stop_stage: Optional stage to stop after. Defaults to None (run
+                to completion).
         """
         from gxassessms.pipeline._runner import run_stages
 
@@ -371,4 +556,5 @@ class Orchestrator:
             renderers=renderers,
             start_stage=start_stage,
             output_dir=output_dir,
+            stop_stage=stop_stage,
         )

@@ -9,7 +9,13 @@ from typing import Any
 
 from gxassessms.core.config.datetime_utils import format_utc, utc_now
 from gxassessms.core.contracts.errors import PersistenceError
-from gxassessms.core.domain.enums import FindingStatus, Severity
+from gxassessms.core.domain.enums import Category, FindingStatus, Severity, ToolSource
+from gxassessms.core.domain.models import (
+    ConfidenceScore,
+    ConsolidatedFinding,
+    Finding,
+    SourceEvidence,
+)
 from gxassessms.persistence.database import DatabaseManager
 
 logger = logging.getLogger(__name__)
@@ -133,6 +139,150 @@ class FindingRepo:
                 (engagement_id,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def save_parsed_findings(self, engagement_id: str, findings: list[Finding]) -> None:
+        """Persist parsed findings, replacing any prior batch for this engagement.
+
+        DELETE + INSERT run in a single transaction: either both commit or
+        both roll back. Callers must not use save_parsed() for new code --
+        that method accumulates rows.
+        """
+        records = [
+            (
+                str(uuid.uuid4()),
+                engagement_id,
+                f.observation_id,
+                f.native_check_id,
+                f.finding_key,
+                f.tool.value,
+                f.title,
+                f.severity.value,
+                f.status.value,
+                f.category.value,
+                f.description,
+                json.dumps(f.dedup_keys),
+                json.dumps(f.benchmark_refs),
+                json.dumps(f.raw_data),
+                format_utc(utc_now()),
+            )
+            for f in findings
+        ]
+        with self._db.connect() as conn:
+            conn.execute(
+                "DELETE FROM findings WHERE engagement_id = ? AND tool_source != ?",
+                (engagement_id, ToolSource.MANUAL.value),
+            )
+            conn.executemany(
+                "INSERT INTO findings "
+                "(finding_id, engagement_id, observation_id, native_check_id, "
+                "finding_key, tool_source, title, severity, status, category, "
+                "description, dedup_keys, benchmark_refs, raw_data, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                records,
+            )
+
+    def save_consolidated_findings(
+        self, engagement_id: str, findings: list[ConsolidatedFinding]
+    ) -> None:
+        """Persist consolidated findings, replacing any prior batch for this engagement.
+
+        Preserves finding_instance_id for existing finding_keys so that
+        override records and event log entries remain linked.
+        """
+        with self._db.connect() as conn:
+            # Build map of existing finding_key -> finding_instance_id
+            existing_rows = conn.execute(
+                "SELECT finding_key, finding_instance_id FROM consolidated_findings "
+                "WHERE engagement_id = ?",
+                (engagement_id,),
+            ).fetchall()
+            existing_ids = {row["finding_key"]: row["finding_instance_id"] for row in existing_rows}
+
+            conn.execute(
+                "DELETE FROM consolidated_findings WHERE engagement_id = ?",
+                (engagement_id,),
+            )
+
+            records = [
+                (
+                    existing_ids.get(f.finding_key, f.finding_instance_id),
+                    engagement_id,
+                    f.finding_key,
+                    f.title,
+                    f.severity.value,
+                    f.status.value,
+                    f.category.value,
+                    f.description,
+                    json.dumps([s.model_dump(mode="json") for s in f.sources]),
+                    json.dumps(f.confidence.model_dump(mode="json")),
+                    json.dumps(f.benchmark_refs),
+                    f.root_cause,
+                    f.remediation,
+                    f.narrative,
+                    format_utc(utc_now()),
+                )
+                for f in findings
+            ]
+            conn.executemany(
+                "INSERT INTO consolidated_findings "
+                "(finding_instance_id, engagement_id, finding_key, title, "
+                "severity, status, category, description, sources, "
+                "confidence, benchmark_refs, root_cause, remediation, "
+                "narrative, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                records,
+            )
+
+    def get_parsed_as_findings(self, engagement_id: str) -> list[Finding]:
+        """Load parsed findings from DB and reconstruct Finding domain objects.
+
+        Returns [] (not raises) when no findings exist -- empty is valid
+        (all controls passed).
+        """
+        rows = self.get_parsed(engagement_id)
+        return [
+            Finding(
+                observation_id=row["observation_id"],
+                native_check_id=row.get("native_check_id") or "",
+                finding_key=row["finding_key"],
+                tool=ToolSource(row["tool_source"]),
+                title=row["title"],
+                severity=Severity(row["severity"]),
+                status=FindingStatus(row["status"]),
+                category=Category(row["category"]),
+                description=row["description"],
+                dedup_keys=json.loads(row.get("dedup_keys") or "[]"),
+                benchmark_refs=json.loads(row.get("benchmark_refs") or "[]"),
+                raw_data=json.loads(row.get("raw_data") or "{}"),
+            )
+            for row in rows
+        ]
+
+    def get_consolidated_as_findings(self, engagement_id: str) -> list[ConsolidatedFinding]:
+        """Load consolidated findings from DB and reconstruct domain objects."""
+        rows = self.get_consolidated(engagement_id)
+        return [
+            ConsolidatedFinding(
+                finding_instance_id=row["finding_instance_id"],
+                finding_key=row["finding_key"],
+                title=row["title"],
+                severity=Severity(row["severity"]),
+                status=FindingStatus(row["status"]),
+                category=Category(row["category"]),
+                description=row["description"],
+                sources=[
+                    SourceEvidence.model_validate(s) for s in json.loads(row.get("sources") or "[]")
+                ],
+                confidence=ConfidenceScore.model_validate(
+                    json.loads(row.get("confidence") or "{}")
+                ),
+                benchmark_refs=json.loads(row.get("benchmark_refs") or "[]"),
+                root_cause=row.get("root_cause"),
+                remediation=row.get("remediation"),
+                narrative=row.get("narrative"),
+            )
+            for row in rows
+        ]
 
     def override_severity(
         self,
