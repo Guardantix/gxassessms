@@ -41,7 +41,15 @@ logger = logging.getLogger(__name__)
     help="Re-run from raw tool output (re-parse + re-normalize + re-consolidate). "
     "Default re-consolidates from persisted parsed findings.",
 )
-def consolidate_cmd(config_path: str, engagement_id: str, reparse: bool) -> None:
+@click.option(
+    "--qa-strategy",
+    "qa_strategy_name",
+    default=None,
+    help="Entry point name of the QA strategy (overrides priority-based selection).",
+)
+def consolidate_cmd(
+    config_path: str, engagement_id: str, reparse: bool, qa_strategy_name: str | None
+) -> None:
     """Re-run normalization and deduplication from persisted raw output.
 
     Does not re-execute tools. Starts from PARSE (with --reparse) or
@@ -81,6 +89,13 @@ def consolidate_cmd(config_path: str, engagement_id: str, reparse: bool) -> None
             f"from stage {start_stage.value}...[/bold]"
         )
 
+        qa_strategy = _helpers.discover_plugin("gxassessms.qa_strategies", name=qa_strategy_name)
+        if qa_strategy_name is not None and qa_strategy is None:
+            raise click.BadParameter(
+                f"QA strategy {qa_strategy_name!r} not found.",
+                param_hint="'--qa-strategy'",
+            )
+
         orchestrator.reset_for_rerun(engagement_id, start_stage)
         orchestrator.run_from(
             engagement_id=engagement_id,
@@ -89,7 +104,7 @@ def consolidate_cmd(config_path: str, engagement_id: str, reparse: bool) -> None
             adapters=adapters,
             normalization_policy=_helpers.build_normalization_policy(),
             consolidation_rule=_helpers.build_consolidation_rule(),
-            qa_strategy=_helpers.discover_plugin("gxassessms.qa_strategies"),
+            qa_strategy=qa_strategy,
             renderers=[],
             stop_stage=Stage.CONSOLIDATE,
         )

@@ -55,12 +55,19 @@ logger = logging.getLogger(__name__)
     default=False,
     help="Fully re-run all stages regardless of hash state (requires --engagement-id).",
 )
+@click.option(
+    "--qa-strategy",
+    "qa_strategy_name",
+    default=None,
+    help="Entry point name of the QA strategy (overrides priority-based selection).",
+)
 def run_cmd(
     config_path: str,
     engagement_id: str | None,
     dry_run: bool,
     force_stage: str | None,
     rerun: bool,
+    qa_strategy_name: str | None,
 ) -> None:
     """Run the full assessment pipeline.
 
@@ -161,9 +168,17 @@ def run_cmd(
             "adapters": adapters,
             "normalization_policy": _helpers.build_normalization_policy(),
             "consolidation_rule": _helpers.build_consolidation_rule(),
-            "qa_strategy": _helpers.discover_plugin("gxassessms.qa_strategies"),
+            "qa_strategy": _helpers.discover_plugin(
+                "gxassessms.qa_strategies", name=qa_strategy_name
+            ),
             "renderers": _helpers.discover_all_plugins("gxassessms.renderers"),
         }
+
+        if qa_strategy_name is not None and run_kwargs["qa_strategy"] is None:
+            raise click.BadParameter(
+                f"QA strategy {qa_strategy_name!r} not found.",
+                param_hint="'--qa-strategy'",
+            )
 
         if rerun:
             console.print("[bold]Re-running all stages...[/bold]")

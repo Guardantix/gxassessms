@@ -925,6 +925,26 @@ class TestExtractPayload:
 ENG = "eng-001"
 
 
+def _events_side_effect(
+    state_transitions: list[dict[str, str]],
+    rerun_events: list[dict[str, str]] | None = None,
+):
+    """Build a side_effect for mock_event_repo.get_events_by_type.
+
+    Returns different event lists based on the event_type argument:
+    "state_transition" -> state_transitions, "rerun" -> rerun_events.
+    """
+
+    def _get(_eid: str, etype: str) -> list[dict[str, str]]:
+        if etype == "state_transition":
+            return state_transitions
+        if etype == "rerun":
+            return rerun_events or []
+        return []
+
+    return _get
+
+
 class TestRehydrateUpstreamState:
     """Unit tests for _rehydrate_upstream_state()."""
 
@@ -989,10 +1009,12 @@ class TestRehydrateUpstreamState:
     ) -> None:
         from gxassessms.pipeline._runner import _rehydrate_upstream_state
 
-        mock_event_repo.get_events_by_type.return_value = [
-            {"payload": '{"to": "CONSOLIDATED"}'},
-            {"payload": '{"to": "QA_APPROVED"}'},
-        ]
+        mock_event_repo.get_events_by_type.side_effect = _events_side_effect(
+            [
+                {"payload": '{"to": "CONSOLIDATED"}', "timestamp": "2026-03-01T09:00:00Z"},
+                {"payload": '{"to": "QA_APPROVED"}', "timestamp": "2026-03-01T10:00:00Z"},
+            ]
+        )
         mock_finding_repo.get_consolidated_as_findings.return_value = [_make_consolidated()]
         _ra, _f, cf = _rehydrate_upstream_state(Stage.RENDER, ENG, [], orchestrator)
         mock_finding_repo.get_consolidated_as_findings.assert_called_once_with(ENG)
@@ -1007,10 +1029,12 @@ class TestRehydrateUpstreamState:
         """RENDER rehydration succeeds when both CONSOLIDATED and QA_APPROVED exist."""
         from gxassessms.pipeline._runner import _rehydrate_upstream_state
 
-        mock_event_repo.get_events_by_type.return_value = [
-            {"payload": '{"to": "CONSOLIDATED"}'},
-            {"payload": '{"to": "QA_APPROVED"}'},
-        ]
+        mock_event_repo.get_events_by_type.side_effect = _events_side_effect(
+            [
+                {"payload": '{"to": "CONSOLIDATED"}', "timestamp": "2026-03-01T09:00:00Z"},
+                {"payload": '{"to": "QA_APPROVED"}', "timestamp": "2026-03-01T10:00:00Z"},
+            ]
+        )
         mock_finding_repo.get_consolidated_as_findings.return_value = [_make_consolidated()]
         _ra, _f, cf = _rehydrate_upstream_state(Stage.RENDER, ENG, [], orchestrator)
         assert cf is not None
@@ -1023,10 +1047,30 @@ class TestRehydrateUpstreamState:
         """RENDER rehydration fails when CONSOLIDATED exists but QA_APPROVED does not."""
         from gxassessms.pipeline._runner import _rehydrate_upstream_state
 
-        mock_event_repo.get_events_by_type.return_value = [
-            {"payload": '{"to": "CONSOLIDATED"}'},
-        ]
-        with pytest.raises(PipelineError, match="never completed"):
+        mock_event_repo.get_events_by_type.side_effect = _events_side_effect(
+            [
+                {"payload": '{"to": "CONSOLIDATED"}', "timestamp": "2026-03-01T10:00:00Z"},
+            ]
+        )
+        with pytest.raises(PipelineError, match="QA has not been approved"):
+            _rehydrate_upstream_state(Stage.RENDER, ENG, [], orchestrator)
+
+    def test_render_rehydration_rejects_stale_qa(
+        self,
+        orchestrator: Orchestrator,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """RENDER rehydration fails when upstream rerun occurred after QA approval."""
+        from gxassessms.pipeline._runner import _rehydrate_upstream_state
+
+        mock_event_repo.get_events_by_type.side_effect = _events_side_effect(
+            [
+                {"payload": '{"to": "CONSOLIDATED"}', "timestamp": "2026-03-01T09:00:00Z"},
+                {"payload": '{"to": "QA_APPROVED"}', "timestamp": "2026-03-01T10:00:00Z"},
+            ],
+            [{"payload": '{"target_stage": "COLLECT"}', "timestamp": "2026-03-01T11:00:00Z"}],
+        )
+        with pytest.raises(PipelineError, match="stale"):
             _rehydrate_upstream_state(Stage.RENDER, ENG, [], orchestrator)
 
     def test_empty_findings_from_db_does_not_raise(
@@ -1150,9 +1194,14 @@ class TestResetForRerun:
     ) -> None:
         """reset_for_rerun(RENDER) succeeds when QA_APPROVED exists in event journal."""
         mock_engagement_repo.get.return_value = {"state": "COMPLETE"}
-        mock_event_repo.get_events_by_type.return_value = [
-            {"payload": '{"from": "QA_REVIEW", "to": "QA_APPROVED"}'},
-        ]
+        mock_event_repo.get_events_by_type.side_effect = _events_side_effect(
+            [
+                {
+                    "payload": '{"from": "QA_REVIEW", "to": "QA_APPROVED"}',
+                    "timestamp": "2026-03-01T10:00:00Z",
+                },
+            ]
+        )
         orchestrator.reset_for_rerun("eng-1", Stage.RENDER)
         mock_engagement_repo.force_update_state.assert_called_once_with(
             "eng-1", EngagementState.QA_APPROVED
@@ -1166,12 +1215,87 @@ class TestResetForRerun:
     ) -> None:
         """reset_for_rerun(RENDER) raises when QA was never approved."""
         mock_engagement_repo.get.return_value = {"state": "QA_REVIEW"}
-        mock_event_repo.get_events_by_type.return_value = [
-            {"payload": '{"from": "CONSOLIDATED", "to": "QA_REVIEW"}'},
-        ]
+        mock_event_repo.get_events_by_type.side_effect = _events_side_effect(
+            [
+                {
+                    "payload": '{"from": "CONSOLIDATED", "to": "QA_REVIEW"}',
+                    "timestamp": "2026-03-01T10:00:00Z",
+                },
+            ]
+        )
         with pytest.raises(PipelineError, match="QA has not been approved"):
             orchestrator.reset_for_rerun("eng-1", Stage.RENDER)
         mock_engagement_repo.force_update_state.assert_not_called()
+
+    def test_reset_to_render_rejects_stale_qa_approval(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """reset_for_rerun(RENDER) rejects when upstream rerun occurred after QA approval."""
+        mock_engagement_repo.get.return_value = {"state": "COMPLETE"}
+        mock_event_repo.get_events_by_type.side_effect = _events_side_effect(
+            [{"payload": '{"to": "QA_APPROVED"}', "timestamp": "2026-03-01T10:00:00Z"}],
+            [{"payload": '{"target_stage": "COLLECT"}', "timestamp": "2026-03-01T11:00:00Z"}],
+        )
+        with pytest.raises(PipelineError, match="stale"):
+            orchestrator.reset_for_rerun("eng-1", Stage.RENDER)
+        mock_engagement_repo.force_update_state.assert_not_called()
+
+    def test_reset_to_render_accepts_fresh_qa_after_rerun(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """reset_for_rerun(RENDER) succeeds when QA approval is more recent than rerun."""
+        mock_engagement_repo.get.return_value = {"state": "COMPLETE"}
+        mock_event_repo.get_events_by_type.side_effect = _events_side_effect(
+            [{"payload": '{"to": "QA_APPROVED"}', "timestamp": "2026-03-01T12:00:00Z"}],
+            [{"payload": '{"target_stage": "COLLECT"}', "timestamp": "2026-03-01T09:00:00Z"}],
+        )
+        orchestrator.reset_for_rerun("eng-1", Stage.RENDER)
+        mock_engagement_repo.force_update_state.assert_called_once_with(
+            "eng-1", EngagementState.QA_APPROVED
+        )
+
+    def test_qa_freshness_ignores_render_rerun(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """Rerun targeting RENDER (not upstream) does not invalidate QA approval."""
+        mock_engagement_repo.get.return_value = {"state": "COMPLETE"}
+        mock_event_repo.get_events_by_type.side_effect = _events_side_effect(
+            [{"payload": '{"to": "QA_APPROVED"}', "timestamp": "2026-03-01T10:00:00Z"}],
+            [{"payload": '{"target_stage": "RENDER"}', "timestamp": "2026-03-01T11:00:00Z"}],
+        )
+        orchestrator.reset_for_rerun("eng-1", Stage.RENDER)
+        mock_engagement_repo.force_update_state.assert_called_once_with(
+            "eng-1", EngagementState.QA_APPROVED
+        )
+
+    def test_stale_qa_with_multiple_approvals_uses_latest(
+        self,
+        orchestrator: Orchestrator,
+        mock_engagement_repo: MagicMock,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """When multiple QA approvals exist, uses the latest for freshness check."""
+        mock_engagement_repo.get.return_value = {"state": "COMPLETE"}
+        mock_event_repo.get_events_by_type.side_effect = _events_side_effect(
+            [
+                {"payload": '{"to": "QA_APPROVED"}', "timestamp": "2026-03-01T08:00:00Z"},
+                {"payload": '{"to": "QA_APPROVED"}', "timestamp": "2026-03-01T12:00:00Z"},
+            ],
+            [{"payload": '{"target_stage": "COLLECT"}', "timestamp": "2026-03-01T10:00:00Z"}],
+        )
+        orchestrator.reset_for_rerun("eng-1", Stage.RENDER)
+        mock_engagement_repo.force_update_state.assert_called_once_with(
+            "eng-1", EngagementState.QA_APPROVED
+        )
 
     def test_reset_to_non_render_stages_does_not_check_qa(
         self,
@@ -1202,11 +1326,11 @@ class TestDetermineResumeStage:
         mock_engagement_repo.get.return_value = {"state": "COLLECTED"}
         assert orchestrator.determine_resume_stage("eng-1") == Stage.PARSE
 
-    def test_parsed_resumes_from_normalize(
+    def test_parsed_resumes_from_parse(
         self, orchestrator: Orchestrator, mock_engagement_repo: MagicMock
     ) -> None:
         mock_engagement_repo.get.return_value = {"state": "PARSED"}
-        assert orchestrator.determine_resume_stage("eng-1") == Stage.NORMALIZE
+        assert orchestrator.determine_resume_stage("eng-1") == Stage.PARSE
 
     def test_normalized_resumes_from_consolidate(
         self, orchestrator: Orchestrator, mock_engagement_repo: MagicMock

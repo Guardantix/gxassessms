@@ -34,6 +34,16 @@ from gxassessms.pipeline.state import EngagementLock, EngagementState, PipelineE
 
 logger = logging.getLogger(__name__)
 
+# Stages whose rerun invalidates a prior QA approval for RENDER gating.
+_QA_UPSTREAM_STAGES: frozenset[str] = frozenset(
+    {
+        Stage.COLLECT.value,
+        Stage.PARSE.value,
+        Stage.NORMALIZE.value,
+        Stage.CONSOLIDATE.value,
+    }
+)
+
 
 def _extract_payload(event: Any) -> dict[str, Any]:
     """Extract the payload dict from an event row or object.
@@ -293,6 +303,59 @@ class Orchestrator:
         return current_state in running_states
 
     # ------------------------------------------------------------------
+    # QA approval verification
+    # ------------------------------------------------------------------
+
+    def _verify_qa_for_render(self, engagement_id: str) -> None:
+        """Verify QA approval exists and is fresh for RENDER stage.
+
+        Raises PipelineError if QA was never approved, or if an upstream
+        stage (COLLECT/PARSE/NORMALIZE/CONSOLIDATE) was re-run after the
+        most recent QA_APPROVED transition.
+        """
+        from datetime import datetime
+
+        from gxassessms.core.config.datetime_utils import parse_utc
+
+        state_events = self._event_repo.get_events_by_type(engagement_id, "state_transition")
+
+        # Find the most recent QA_APPROVED timestamp.
+        # Events are ORDER BY timestamp, rowid -- iterate forward, keep last.
+        qa_approved_ts: datetime | None = None
+        for event in state_events:
+            payload = _extract_payload(event)
+            if payload.get("to") == "QA_APPROVED":
+                qa_approved_ts = parse_utc(event["timestamp"])
+
+        if qa_approved_ts is None:
+            raise PipelineError(
+                message=(
+                    "Cannot proceed to RENDER: QA has not been approved. "
+                    "Complete QA review before rendering."
+                ),
+                engagement_id=engagement_id,
+                stage=Stage.RENDER.value,
+            )
+
+        # Check for upstream reruns after QA approval.
+        rerun_events = self._event_repo.get_events_by_type(engagement_id, "rerun")
+        for event in rerun_events:
+            payload = _extract_payload(event)
+            target_stage = payload.get("target_stage", "")
+            if target_stage in _QA_UPSTREAM_STAGES:
+                rerun_ts = parse_utc(event["timestamp"])
+                if rerun_ts > qa_approved_ts:
+                    raise PipelineError(
+                        message=(
+                            f"Cannot proceed to RENDER: QA approval is stale. "
+                            f"Stage {target_stage} was re-run after the last "
+                            f"QA approval. Complete QA review before rendering."
+                        ),
+                        engagement_id=engagement_id,
+                        stage=Stage.RENDER.value,
+                    )
+
+    # ------------------------------------------------------------------
     # Rerun reset
     # ------------------------------------------------------------------
 
@@ -314,20 +377,9 @@ class Orchestrator:
         if current_state == entry_state:
             return  # Already at the right state
 
-        # Guard: RENDER requires QA_APPROVED in the event journal.
-        # Without this, replay --from report can bypass the human approval gate.
+        # Guard: RENDER requires fresh QA approval in the event journal.
         if target_stage == Stage.RENDER:
-            events = self._event_repo.get_events_by_type(engagement_id, "state_transition")
-            completed_states = {_extract_payload(e).get("to") for e in events}
-            if "QA_APPROVED" not in completed_states:
-                raise PipelineError(
-                    message=(
-                        "Cannot reset to RENDER: QA has not been approved. "
-                        "Complete QA review before replaying from report."
-                    ),
-                    engagement_id=engagement_id,
-                    stage=Stage.RENDER.value,
-                )
+            self._verify_qa_for_render(engagement_id)
 
         self._engagement_repo.force_update_state(engagement_id, entry_state)
 
@@ -377,7 +429,7 @@ class Orchestrator:
         _COMPLETED_TO_NEXT: dict[EngagementState, Stage] = {
             EngagementState.CREATED: Stage.COLLECT,
             EngagementState.COLLECTED: Stage.PARSE,
-            EngagementState.PARSED: Stage.NORMALIZE,
+            EngagementState.PARSED: Stage.PARSE,
             EngagementState.NORMALIZED: Stage.CONSOLIDATE,
             EngagementState.CONSOLIDATED: Stage.QA_REVIEW,
             EngagementState.QA_APPROVED: Stage.RENDER,

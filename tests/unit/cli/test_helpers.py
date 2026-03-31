@@ -195,6 +195,92 @@ class TestDiscoverPlugin:
         assert result is None
         assert any("broken_ep" in r.message for r in caplog.records)
 
+    def test_selects_highest_priority_plugin(self):
+        """When multiple plugins registered, highest priority wins."""
+        from gxassessms.cli._helpers import discover_plugin
+
+        low_inst = MagicMock(name="low_inst")
+        high_inst = MagicMock(name="high_inst")
+        LowCls = MagicMock(return_value=low_inst)
+        LowCls.priority = 0
+        HighCls = MagicMock(return_value=high_inst)
+        HighCls.priority = 100
+        disc_result = _make_result(plugins={"low": LowCls, "high": HighCls})
+        with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
+            result = discover_plugin("some.group")
+        assert result is high_inst
+
+    def test_name_override_selects_specific_plugin(self):
+        """Explicit name parameter picks that specific plugin."""
+        from gxassessms.cli._helpers import discover_plugin
+
+        low_inst = MagicMock(name="low_inst")
+        high_inst = MagicMock(name="high_inst")
+        LowCls = MagicMock(return_value=low_inst)
+        LowCls.priority = 0
+        HighCls = MagicMock(return_value=high_inst)
+        HighCls.priority = 100
+        disc_result = _make_result(plugins={"low": LowCls, "high": HighCls})
+        with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
+            result = discover_plugin("some.group", name="low")
+        assert result is low_inst
+
+    def test_name_override_returns_none_for_missing(self, caplog):
+        """Explicit name that doesn't exist returns None and logs warning."""
+        from gxassessms.cli._helpers import discover_plugin
+
+        ExistingCls = MagicMock(return_value=MagicMock())
+        disc_result = _make_result(plugins={"existing": ExistingCls})
+        with (
+            patch("gxassessms.registry.discover_entry_points", return_value=disc_result),
+            caplog.at_level(logging.WARNING),
+        ):
+            result = discover_plugin("some.group", name="nonexistent")
+        assert result is None
+        assert any("nonexistent" in r.message for r in caplog.records)
+
+    def test_priority_defaults_to_zero_when_missing(self):
+        """Plugins without priority attribute are treated as priority 0."""
+        from gxassessms.cli._helpers import discover_plugin
+
+        no_pri_inst = MagicMock(name="no_pri_inst")
+        high_inst = MagicMock(name="high_inst")
+        NoPriCls = MagicMock(return_value=no_pri_inst)
+        del NoPriCls.priority  # ensure attribute doesn't exist
+        HighCls = MagicMock(return_value=high_inst)
+        HighCls.priority = 50
+        disc_result = _make_result(plugins={"no_pri": NoPriCls, "high": HighCls})
+        with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
+            result = discover_plugin("some.group")
+        assert result is high_inst
+
+    def test_equal_priority_preserves_discovery_order(self):
+        """Equal-priority plugins: first discovered wins (stable sort)."""
+        from gxassessms.cli._helpers import discover_plugin
+
+        first_inst = MagicMock(name="first_inst")
+        second_inst = MagicMock(name="second_inst")
+        FirstCls = MagicMock(return_value=first_inst)
+        FirstCls.priority = 0
+        SecondCls = MagicMock(return_value=second_inst)
+        SecondCls.priority = 0
+        disc_result = _make_result(plugins={"first": FirstCls, "second": SecondCls})
+        with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
+            result = discover_plugin("some.group")
+        assert result is first_inst
+
+    def test_single_plugin_always_selected(self):
+        """Single plugin is returned regardless of priority value."""
+        from gxassessms.cli._helpers import discover_plugin
+
+        inst = MagicMock(name="inst")
+        Cls = MagicMock(return_value=inst)
+        Cls.priority = 42
+        disc_result = _make_result(plugins={"only": Cls})
+        with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
+            result = discover_plugin("some.group")
+        assert result is inst
+
 
 # ---------------------------------------------------------------------------
 # discover_all_plugins

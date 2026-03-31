@@ -373,9 +373,9 @@ def _rehydrate_upstream_state(
         consolidated = orchestrator._finding_repo.get_consolidated_as_findings(engagement_id)
         return None, None, consolidated
 
-    # RENDER: requires both CONSOLIDATED and QA_APPROVED
+    # RENDER: requires CONSOLIDATED and fresh QA approval
     _verify_stage_completed(orchestrator, engagement_id, "CONSOLIDATED")
-    _verify_stage_completed(orchestrator, engagement_id, "QA_APPROVED")
+    orchestrator._verify_qa_for_render(engagement_id)
     consolidated = orchestrator._finding_repo.get_consolidated_as_findings(engagement_id)
     return None, None, consolidated
 

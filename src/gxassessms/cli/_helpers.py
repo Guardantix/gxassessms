@@ -184,8 +184,13 @@ def discover_adapter_metadata() -> list[dict[str, Any]]:
     return result
 
 
-def discover_plugin(group: str) -> Any | None:
-    """Discover and instantiate the first plugin from an entry point group.
+def discover_plugin(group: str, *, name: str | None = None) -> Any | None:
+    """Discover and instantiate a plugin from an entry point group.
+
+    Selection logic:
+    1. If *name* is given, only that entry point is loaded.
+    2. Otherwise, plugins are sorted by optional ``priority`` class
+       attribute (descending, default 0). Ties broken by discovery order.
 
     Returns an instance, or None if nothing found. Used for singleton
     plugins like normalization policy or QA strategy.
@@ -200,14 +205,46 @@ def discover_plugin(group: str) -> Any | None:
             err.plugin_name,
             err.message,
         )
-    if result.names:
-        name = result.names[0]
+
+    if name is not None:
         cls = result.get(name)
+        if cls is None:
+            logger.warning(
+                "Requested plugin %r not found in group %s. Available: %s",
+                name,
+                group,
+                result.names,
+            )
+            return None
+        try:
+            return cls()
+        except (TypeError, ValueError, RuntimeError) as exc:
+            logger.warning("Failed to instantiate %s plugin %s: %s", group, name, exc)
+            return None
+
+    if not result.names:
+        return None
+
+    # Sort by priority (descending). getattr(None, ...) is safe -- result.get
+    # returns None for failed loads, getattr(None, "priority", 0) -> 0.
+    sorted_names = sorted(
+        result.names,
+        key=lambda n: getattr(result.get(n), "priority", 0),
+        reverse=True,
+    )
+
+    for candidate_name in sorted_names:
+        cls = result.get(candidate_name)
         if cls is not None:
             try:
                 return cls()
             except (TypeError, ValueError, RuntimeError) as exc:
-                logger.warning("Failed to instantiate %s plugin %s: %s", group, name, exc)
+                logger.warning(
+                    "Failed to instantiate %s plugin %s: %s",
+                    group,
+                    candidate_name,
+                    exc,
+                )
     return None
 
 

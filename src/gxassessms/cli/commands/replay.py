@@ -43,7 +43,13 @@ logger = logging.getLogger(__name__)
     default="parse",
     help="Pipeline stage to replay from (default: parse).",
 )
-def replay_cmd(engagement_id: str, from_stage: str) -> None:
+@click.option(
+    "--qa-strategy",
+    "qa_strategy_name",
+    default=None,
+    help="Entry point name of the QA strategy (overrides priority-based selection).",
+)
+def replay_cmd(engagement_id: str, from_stage: str, qa_strategy_name: str | None) -> None:
     """Replay the pipeline from persisted raw output.
 
     Loads raw tool output saved during a previous collection and
@@ -104,6 +110,13 @@ def replay_cmd(engagement_id: str, from_stage: str) -> None:
 
         adapters = _helpers.filter_and_validate_adapters(config, adapters)
 
+        qa_strategy = _helpers.discover_plugin("gxassessms.qa_strategies", name=qa_strategy_name)
+        if qa_strategy_name is not None and qa_strategy is None:
+            raise click.BadParameter(
+                f"QA strategy {qa_strategy_name!r} not found.",
+                param_hint="'--qa-strategy'",
+            )
+
         orchestrator.reset_for_rerun(engagement_id, start_stage)
         orchestrator.run_from(
             engagement_id=engagement_id,
@@ -112,7 +125,7 @@ def replay_cmd(engagement_id: str, from_stage: str) -> None:
             adapters=adapters,
             normalization_policy=_helpers.build_normalization_policy(),
             consolidation_rule=_helpers.build_consolidation_rule(),
-            qa_strategy=_helpers.discover_plugin("gxassessms.qa_strategies"),
+            qa_strategy=qa_strategy,
             renderers=_helpers.discover_all_plugins("gxassessms.renderers"),
         )
 
