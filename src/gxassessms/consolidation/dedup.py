@@ -109,10 +109,11 @@ class UnionFindDedup:
                     finding.finding_key,
                 )
 
-        for indices in key_to_indices.values():
+        for key, indices in key_to_indices.items():
             if len(indices) > _CARDINALITY_WARN_THRESHOLD:
                 logger.warning(
-                    "Dedup key shared by %d findings; possible adapter misconfiguration",
+                    "Dedup key %r shared by %d findings; possible adapter misconfiguration",
+                    key,
                     len(indices),
                 )
             if len(indices) > 1:
