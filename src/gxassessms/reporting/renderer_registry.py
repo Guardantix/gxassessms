@@ -182,6 +182,10 @@ class NodeRenderer:
         output_dir.mkdir(parents=True, exist_ok=True)
         stem = f"{payload.engagement_id}_{self.name}" if self.name else payload.engagement_id
         output_path = output_dir / f"{stem}.{self.format}"
+        # Remove any stale output so the post-run existence check can't
+        # pass on a leftover file from a previous render.
+        if output_path.exists():
+            output_path.unlink()
         render_js = self.package_path / "render.js"
 
         tmp = Path(tempfile.mkdtemp(prefix="gxassessms_render_"))

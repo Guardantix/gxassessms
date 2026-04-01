@@ -153,14 +153,18 @@ class TestNodeRenderer:
         tmp_path: Path,
     ) -> None:
         mock_check.return_value = True
-        mock_run.return_value = MagicMock(returncode=0, stderr="")
 
         (tmp_path / "render.js").write_text("// placeholder")
         output_dir = tmp_path / "out"
         output_dir.mkdir()
-        # Simulate Node.js creating the output file
         expected_output = output_dir / "eng-001_test_renderer.docx"
-        expected_output.write_bytes(b"fake docx content")
+
+        # Simulate Node.js creating the output file as a side effect
+        def _fake_render(*args: Any, **kwargs: Any) -> MagicMock:
+            expected_output.write_bytes(b"fake docx content")
+            return MagicMock(returncode=0, stderr="")
+
+        mock_run.side_effect = _fake_render
 
         renderer = NodeRenderer(
             package_path=tmp_path,
