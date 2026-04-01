@@ -179,6 +179,7 @@ class NodeRenderer:
         if not check_node_available():
             raise RendererDependencyError("Node.js is not available on the system PATH")
 
+        output_dir = output_dir.resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
         stem = f"{payload.engagement_id}_{self.name}" if self.name else payload.engagement_id
         output_path = output_dir / f"{stem}.{self.format}"
