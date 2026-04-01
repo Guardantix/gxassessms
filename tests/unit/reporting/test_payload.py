@@ -273,6 +273,36 @@ class TestAssemblePayload:
         assert isinstance(sources, list)
         assert sources[0]["tool"] == "ScubaGear"
 
+    def test_malformed_json_field_preserved_as_string(self) -> None:
+        """Malformed JSON in a string field should be left as-is, not crash."""
+        findings = [
+            {
+                "finding_instance_id": "fi-bad",
+                "finding_key": "fk-bad",
+                "title": "Bad Finding",
+                "severity": "LOW",
+                "status": "FAIL",
+                "category": "IDENTITY_ACCESS",
+                "description": "Test",
+                "sources": "{not valid json",
+                "confidence": json.dumps({"overall": 0.5, "label": "LOW"}),
+                "benchmark_refs": json.dumps([]),
+                "root_cause": None,
+                "remediation": None,
+                "narrative": None,
+            },
+        ]
+        find_repo, cov_repo = _make_mock_repos(findings, [])
+        result = assemble_payload(
+            engagement_id="eng-001",
+            tenant_name="Test",
+            assessment_date="2026-03-25T10:00:00Z",
+            tool_sources=[],
+            finding_repo=find_repo,
+            coverage_repo=cov_repo,
+        )
+        assert result.findings[0]["sources"] == "{not valid json"
+
     def test_payload_serializable_to_json(self) -> None:
         """ReportPayload must be fully JSON-serializable for Node.js consumption."""
         find_repo, cov_repo = _make_mock_repos(

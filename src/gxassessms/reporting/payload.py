@@ -31,7 +31,14 @@ def _deserialize_json_fields(
     for field in fields:
         value = result.get(field)
         if isinstance(value, str):
-            result[field] = json.loads(value)
+            try:
+                result[field] = json.loads(value)
+            except json.JSONDecodeError:
+                logger.warning(
+                    "Failed to deserialize JSON field %r for finding %s",
+                    field,
+                    finding.get("finding_instance_id", "unknown"),
+                )
     return result
 
 
