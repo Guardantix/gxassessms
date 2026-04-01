@@ -244,9 +244,11 @@ class NodeRenderer:
 
         except ReportError, PayloadVersionError, RendererDependencyError:
             if self._keep_temp_on_failure:
-                tmpdir_obj._finalizer.detach()  # type: ignore[attr-defined]
+                logger.warning("Render failed. Temp files preserved at: %s", tmp)
+            else:
+                tmpdir_obj.cleanup()
             raise
-        finally:
+        else:
             tmpdir_obj.cleanup()
 
         logger.info("Render complete: %s -> %s", self.package_path.name, output_path)
