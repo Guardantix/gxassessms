@@ -181,8 +181,8 @@ class NodeRenderer:
         output_path = output_dir / f"{payload.engagement_id}.{self.format}"
         render_js = self.package_path / "render.js"
 
-        tmpdir_obj = tempfile.TemporaryDirectory(prefix="gxassessms_render_")
-        tmp = Path(tmpdir_obj.name)
+        tmp = Path(tempfile.mkdtemp(prefix="gxassessms_render_"))
+        failed = False
         try:
             payload_path = tmp / "payload.json"
             constants_path = tmp / "constants.json"
@@ -226,8 +226,6 @@ class NodeRenderer:
                 ) from exc
 
             if result.returncode != 0:
-                if self._keep_temp_on_failure:
-                    logger.warning("Render failed. Temp files preserved at: %s", tmp)
                 raise ReportError(
                     f"Renderer '{self.package_path.name}' (format={self.format}) "
                     f"exited with code {result.returncode}. "
@@ -243,13 +241,13 @@ class NodeRenderer:
                 )
 
         except ReportError, PayloadVersionError, RendererDependencyError:
+            failed = True
             if self._keep_temp_on_failure:
                 logger.warning("Render failed. Temp files preserved at: %s", tmp)
-            else:
-                tmpdir_obj.cleanup()
             raise
-        else:
-            tmpdir_obj.cleanup()
+        finally:
+            if not (failed and self._keep_temp_on_failure):
+                shutil.rmtree(tmp, ignore_errors=True)
 
         logger.info("Render complete: %s -> %s", self.package_path.name, output_path)
         return output_path
@@ -298,7 +296,7 @@ class RendererRegistry:
             try:
                 instance = renderer_cls()
                 registry.register(name, instance)
-            except (TypeError, RendererDependencyError) as exc:
+            except (TypeError, RendererDependencyError, FileNotFoundError) as exc:
                 error = DiscoveryError(
                     plugin_name=name,
                     error_type=type(exc).__name__,
