@@ -159,13 +159,14 @@ class TestNodeRenderer:
         output_dir = tmp_path / "out"
         output_dir.mkdir()
         # Simulate Node.js creating the output file
-        expected_output = output_dir / "eng-001.docx"
+        expected_output = output_dir / "eng-001_test_renderer.docx"
         expected_output.write_bytes(b"fake docx content")
 
         renderer = NodeRenderer(
             package_path=tmp_path,
             format="docx",
             supported_payload_versions=">=1.0.0,<2.0.0",
+            name="test_renderer",
         )
         payload = _make_payload()
         result = renderer.render(payload, output_dir)

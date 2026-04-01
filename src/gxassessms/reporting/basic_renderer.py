@@ -54,6 +54,7 @@ class BasicDocxRenderer:
             package_path=self._renderer_path,
             format=self.format,
             supported_payload_versions=self.supported_payload_versions,
+            name="basic_docx",
         )
 
     def render(self, payload: ReportPayload, output_path: Path) -> Path:

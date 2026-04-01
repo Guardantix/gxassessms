@@ -127,10 +127,10 @@ class NodeRenderer:
     6. Capture stderr on failure, wrap in ReportError
 
     Output file naming: the renderer constructs the output filename as
-    ``{engagement_id}.{format}`` within the output_dir passed to render().
-    The pipeline's render stage passes a directory (output_dir), not a
-    specific file path. This supports multiple renderers writing to the
-    same directory without filename conflicts.
+    ``{engagement_id}_{name}.{format}`` within the output_dir passed to
+    render(). The name component comes from the entry point name (e.g.
+    ``basic_docx``), ensuring multiple renderers for the same format can
+    write to the same directory without filename collisions.
     """
 
     def __init__(
@@ -138,10 +138,12 @@ class NodeRenderer:
         package_path: Path,
         format: str,
         supported_payload_versions: str,
+        name: str = "",
         timeout_seconds: int = _DEFAULT_TIMEOUT_SECONDS,
         keep_temp_on_failure: bool = False,
     ) -> None:
         self.package_path = package_path
+        self.name = name
         self.format = format
         self.supported_payload_versions = supported_payload_versions
         self._timeout_seconds = timeout_seconds
@@ -161,7 +163,7 @@ class NodeRenderer:
         Args:
             payload: The assembled ReportPayload.
             output_dir: Directory to write the rendered document into.
-                The filename is constructed as {engagement_id}.{format}.
+                The filename is constructed as {engagement_id}_{name}.{format}.
 
         Returns:
             The path to the rendered file on success.
@@ -178,7 +180,8 @@ class NodeRenderer:
             raise RendererDependencyError("Node.js is not available on the system PATH")
 
         output_dir.mkdir(parents=True, exist_ok=True)
-        output_path = output_dir / f"{payload.engagement_id}.{self.format}"
+        stem = f"{payload.engagement_id}_{self.name}" if self.name else payload.engagement_id
+        output_path = output_dir / f"{stem}.{self.format}"
         render_js = self.package_path / "render.js"
 
         tmp = Path(tempfile.mkdtemp(prefix="gxassessms_render_"))

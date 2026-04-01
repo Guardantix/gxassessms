@@ -72,8 +72,8 @@ function buildExecutiveSummary(payload, constants) {
 
   // Coverage summary
   const coverage = payload.coverage || [];
-  const assessed = coverage.filter((c) => c.status === "ASSESSED").length;
-  const notAssessed = coverage.filter((c) => c.status === "NOT_ASSESSED").length;
+  const assessed = coverage.filter((c) => c.status === "assessed").length;
+  const notAssessed = coverage.filter((c) => c.status === "not_assessed").length;
 
   if (coverage.length > 0) {
     children.push(

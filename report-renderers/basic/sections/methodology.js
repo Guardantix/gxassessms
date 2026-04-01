@@ -63,7 +63,7 @@ function buildMethodology(payload, constants) {
   // Coverage summary
   const coverage = payload.coverage || [];
   if (coverage.length > 0) {
-    const assessed = coverage.filter((c) => c.status === "ASSESSED").length;
+    const assessed = coverage.filter((c) => c.status === "assessed").length;
     const total = coverage.length;
 
     children.push(

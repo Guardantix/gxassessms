@@ -94,10 +94,11 @@ class TestPayloadToRenderer:
             package_path=_BASIC_RENDERER_DIR,
             format="docx",
             supported_payload_versions=">=1.0.0,<2.0.0",
+            name="basic_docx",
         )
 
         result = renderer.render(payload, tmp_path)
-        expected = tmp_path / "eng-integ-001.docx"
+        expected = tmp_path / "eng-integ-001_basic_docx.docx"
 
         assert result == expected
         assert expected.exists(), "Output .docx file should exist"
@@ -110,6 +111,7 @@ class TestPayloadToRenderer:
             package_path=_BASIC_RENDERER_DIR,
             format="docx",
             supported_payload_versions=">=1.0.0,<2.0.0",
+            name="basic_docx",
         )
 
         result = renderer.render(payload, tmp_path)
@@ -145,6 +147,7 @@ class TestPayloadToRenderer:
             package_path=_BASIC_RENDERER_DIR,
             format="docx",
             supported_payload_versions=">=1.0.0,<2.0.0",
+            name="basic_docx",
         )
 
         result = renderer.render(payload, tmp_path)
