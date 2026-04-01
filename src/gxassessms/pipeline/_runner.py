@@ -24,6 +24,7 @@ from gxassessms.pipeline.stages import (
     STAGE_STATE_MAP,
     Stage,
     collect,
+    collect_coverage,
     consolidate,
     get_stage_entry_state,
     normalize,
@@ -138,6 +139,21 @@ def run_stages(
                     _require_in_memory("adapter_results", adapter_results, stage)
                     assert adapter_results is not None  # noqa: S101 -- narrowing for type checker
                     observations = parse(adapter_results, adapters)
+                    # Collect coverage from adapters that declare coverage_export
+                    coverage_records = collect_coverage(adapter_results, adapters)
+                    if coverage_records:
+                        orchestrator._coverage_repo.save(
+                            engagement_id,
+                            [
+                                {
+                                    "control_id": r.control_id,
+                                    "tool_source": r.tool.value,
+                                    "status": r.status.value,
+                                    "reason": r.reason,
+                                }
+                                for r in coverage_records
+                            ],
+                        )
 
                 elif stage == Stage.NORMALIZE:
                     _require_in_memory("observations", observations, stage)

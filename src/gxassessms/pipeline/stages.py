@@ -26,6 +26,7 @@ from gxassessms.core.contracts.types import AdapterRunStatus
 from gxassessms.core.domain.models import (
     AdapterResult,
     ConsolidatedFinding,
+    CoverageRecord,
     Finding,
     ReportPayload,
     ToolObservation,
@@ -192,6 +193,47 @@ def parse(
         )
 
     return observations
+
+
+def collect_coverage(
+    results: list[AdapterResult],
+    adapters: list[Any],  # list[ToolAdapter]
+) -> list[CoverageRecord]:
+    """Extract coverage records from adapters that declare coverage_export.
+
+    Called alongside parse() during the PARSE stage. Only invokes
+    adapter.coverage() for adapters with 'coverage_export' in capabilities.
+
+    Args:
+        results: AdapterResults from the collect stage.
+        adapters: Matching ToolAdapter implementations (by adapter_name).
+
+    Returns:
+        Concatenated list of CoverageRecords from all capable adapters.
+    """
+    adapter_map = {a.tool_name: a for a in adapters}
+    records: list[CoverageRecord] = []
+
+    for result in results:
+        if result.status != AdapterRunStatus.SUCCESS:
+            continue
+
+        adapter = adapter_map.get(result.adapter_name)
+        if adapter is None:
+            continue
+
+        if "coverage_export" not in adapter.capabilities:
+            continue
+
+        coverage = adapter.coverage(result.raw_output)
+        records.extend(coverage)
+        logger.info(
+            "Collected %d coverage records from %s",
+            len(coverage),
+            result.adapter_name,
+        )
+
+    return records
 
 
 def normalize(

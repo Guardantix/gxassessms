@@ -78,7 +78,7 @@ function buildFindingParagraphs(finding) {
     );
   }
 
-  const sources = finding.sources || [];
+  const sources = Array.isArray(finding.sources) ? finding.sources : [];
   if (sources.length > 0) {
     const sourceText = sources
       .map((s) => `${s.tool} (${s.check_id})`)
