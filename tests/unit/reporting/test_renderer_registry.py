@@ -174,7 +174,7 @@ class TestNodeRenderer:
         mock_run.assert_called_once()
         call_args = mock_run.call_args
         cmd = call_args[0][0]
-        assert Path(cmd[0]).name == "node"
+        assert Path(cmd[0]).stem.lower() == "node"
         assert "render.js" in cmd[1]
 
     @patch("gxassessms.reporting.renderer_registry.subprocess.run")
