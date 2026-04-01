@@ -541,7 +541,7 @@ def _build_report_payload(
 
     class _InMemoryCoverageRepo:
         def get_for_engagement(self, eid: str) -> list[dict[str, Any]]:
-            return [dict(r) for r in coverage_repo.get_for_engagement(eid)]
+            return coverage_repo.get_for_engagement(eid)
 
     return assemble_payload(
         engagement_id=engagement_id,

@@ -78,19 +78,19 @@ class TestCheckNodeAvailable:
     def test_node_available(self, mock_which: MagicMock, mock_run: MagicMock) -> None:
         mock_which.return_value = "/usr/bin/node"
         mock_run.return_value = MagicMock(returncode=0, stdout="v20.0.0\n")
-        assert check_node_available() is True
+        assert check_node_available() == "/usr/bin/node"
 
     @patch("gxassessms.reporting.renderer_registry.shutil.which")
     def test_node_not_found(self, mock_which: MagicMock) -> None:
         mock_which.return_value = None
-        assert check_node_available() is False
+        assert check_node_available() is None
 
     @patch("gxassessms.reporting.renderer_registry.subprocess.run")
     @patch("gxassessms.reporting.renderer_registry.shutil.which")
     def test_node_non_zero_exit(self, mock_which: MagicMock, mock_run: MagicMock) -> None:
         mock_which.return_value = "/usr/bin/node"
         mock_run.return_value = MagicMock(returncode=1, stdout="")
-        assert check_node_available() is False
+        assert check_node_available() is None
 
 
 # -- NodeRenderer --------------------------------------------------------------
@@ -132,7 +132,7 @@ class TestNodeRenderer:
         self, mock_check: MagicMock, tmp_path: Path
     ) -> None:
         (tmp_path / "render.js").write_text("// ok")
-        mock_check.return_value = False
+        mock_check.return_value = None
         renderer = NodeRenderer(
             package_path=tmp_path,
             format="docx",
@@ -152,7 +152,7 @@ class TestNodeRenderer:
         mock_run: MagicMock,
         tmp_path: Path,
     ) -> None:
-        mock_check.return_value = True
+        mock_check.return_value = "/usr/bin/node"
 
         (tmp_path / "render.js").write_text("// placeholder")
         output_dir = tmp_path / "out"
@@ -192,7 +192,7 @@ class TestNodeRenderer:
         mock_run: MagicMock,
         tmp_path: Path,
     ) -> None:
-        mock_check.return_value = True
+        mock_check.return_value = "/usr/bin/node"
         mock_run.return_value = MagicMock(
             returncode=1,
             stderr="Error: Cannot find module 'docx'",
@@ -220,7 +220,7 @@ class TestNodeRenderer:
         tmp_path: Path,
     ) -> None:
         """Node.js exits 0 but produces no file -- must raise ReportError."""
-        mock_check.return_value = True
+        mock_check.return_value = "/usr/bin/node"
         mock_run.return_value = MagicMock(returncode=0, stderr="")
 
         (tmp_path / "render.js").write_text("// placeholder")
@@ -258,7 +258,7 @@ class TestNodeRenderer:
         tmp_path: Path,
     ) -> None:
         """Subprocess timeout should be wrapped in ReportError."""
-        mock_check.return_value = True
+        mock_check.return_value = "/usr/bin/node"
         mock_run.side_effect = subprocess.TimeoutExpired(cmd="node", timeout=120)
 
         (tmp_path / "render.js").write_text("// placeholder")

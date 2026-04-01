@@ -97,11 +97,15 @@ def validate_version_compatibility(payload_version: str, supported_range: str) -
             )
 
 
-def check_node_available() -> bool:
-    """Check whether Node.js is available on the system PATH."""
+def check_node_available() -> str | None:
+    """Check whether Node.js is available on the system PATH.
+
+    Returns the resolved path to the node executable, or None if
+    Node.js is not available.
+    """
     node_exe = shutil.which("node")
     if node_exe is None:
-        return False
+        return None
     try:
         result = subprocess.run(  # noqa: S603
             [node_exe, "--version"],
@@ -109,9 +113,9 @@ def check_node_available() -> bool:
             text=True,
             timeout=10,
         )
-        return result.returncode == 0
+        return node_exe if result.returncode == 0 else None
     except FileNotFoundError, subprocess.TimeoutExpired:
-        return False
+        return None
 
 
 class NodeRenderer:
@@ -176,7 +180,8 @@ class NodeRenderer:
         """
         validate_version_compatibility(payload.schema_version, self.supported_payload_versions)
 
-        if not check_node_available():
+        node_exe = check_node_available()
+        if node_exe is None:
             raise RendererDependencyError("Node.js is not available on the system PATH")
 
         output_dir = output_dir.resolve()
@@ -199,8 +204,6 @@ class NodeRenderer:
             payload_path.write_text(payload_json, encoding="utf-8")
             write_constants_file(constants_path)
 
-            # shutil.which confirmed node exists in check_node_available() above
-            node_exe = shutil.which("node") or "node"
             cmd = [
                 node_exe,
                 str(render_js),
