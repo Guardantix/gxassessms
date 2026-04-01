@@ -95,13 +95,11 @@ def run_stages(
     with orchestrator._lock.hold(engagement_id):
         current_state = orchestrator._get_current_state(engagement_id)
 
-        # Detect and recover from stale running states (crash recovery)
         if orchestrator._detect_stale_running(engagement_id, current_state):
             recovery_stage = _recover_stale_state(orchestrator, engagement_id, current_state)
             current_state = orchestrator._get_current_state(engagement_id)
             stages = orchestrator._get_stages_to_run(recovery_stage)
 
-        # In-memory pipeline data flows between stages.
         # None = "upstream never ran"; [] = "upstream ran, produced zero results".
         adapter_results: list[AdapterResult] | None = None
         observations: list[ToolObservation] | None = None
@@ -109,8 +107,6 @@ def run_stages(
         consolidated_findings: list[ConsolidatedFinding] | None = None
         qa_results: list[Any] | None = None
 
-        # Seed in-memory state from persistence when resuming mid-pipeline.
-        # Spec line 1646: orchestrator.run_from() is responsible for rehydration.
         _ra, _f, _cf = _rehydrate_upstream_state(start_stage, engagement_id, adapters, orchestrator)
         if _ra is not None:
             adapter_results = _ra
@@ -123,10 +119,8 @@ def run_stages(
             running_state, completed_state = STAGE_STATE_MAP[stage]
 
             try:
-                # Transition to RUNNING state
                 orchestrator._transition_state(engagement_id, current_state, running_state)
 
-                # Execute stage logic
                 if stage == Stage.COLLECT:
                     adapter_results = collect(config, adapters)
                     # Persist raw outputs so replay/consolidate --reparse can
@@ -161,9 +155,9 @@ def run_stages(
                 elif stage == Stage.NORMALIZE:
                     _require_in_memory("observations", observations, stage)
                     assert observations is not None  # noqa: S101 -- narrowing for type checker
-                    severity_map = _build_adapter_severity_map(adapters)
-                    category_map = _build_adapter_category_map(adapters)
-                    dedup_keys = _build_adapter_dedup_keys(adapters)
+                    severity_map = _merge_adapter_map(adapters, "severity_map")
+                    category_map = _merge_adapter_map(adapters, "category_map")
+                    dedup_keys = _merge_adapter_map(adapters, "dedup_key_rules", resolve_enum=False)
                     findings = normalize(
                         observations,
                         normalization_policy,
@@ -192,24 +186,24 @@ def run_stages(
                     _require_in_memory("consolidated_findings", consolidated_findings, stage)
                     assert consolidated_findings is not None  # noqa: S101 -- narrowing for type checker
                     report_dir = output_dir or Path("output")
+                    report_dir.mkdir(parents=True, exist_ok=True)
                     payload = _build_report_payload(
                         engagement_id,
                         config,
                         consolidated_findings,
                         orchestrator._coverage_repo,
                     )
-                    _execute_render(payload, renderers, report_dir)
+                    render(payload, renderers, report_dir)
 
-                # Compute content hash for the stage output
-                stage_hash = _compute_stage_hash(
+                stage_data = _get_stage_output(
                     stage,
-                    adapter_results=adapter_results or [],
-                    observations=observations or [],
-                    findings=findings or [],
-                    consolidated_findings=consolidated_findings or [],
-                    qa_results=qa_results or [],
-                    orchestrator=orchestrator,
+                    adapter_results=adapter_results,
+                    observations=observations,
+                    findings=findings,
+                    consolidated_findings=consolidated_findings,
+                    qa_results=qa_results,
                 )
+                stage_hash = orchestrator._compute_content_hash(stage_data)
 
                 # QA_REVIEW: only advance to QA_APPROVED if noop strategy.
                 # Real QA strategies leave the engagement at QA_REVIEW
@@ -236,7 +230,6 @@ def run_stages(
                         current_state = running_state
                         break
                 else:
-                    # All non-QA stages: transition to completed state
                     orchestrator._transition_state(
                         engagement_id,
                         running_state,
@@ -244,7 +237,6 @@ def run_stages(
                         content_hash=stage_hash,
                     )
                     current_state = completed_state
-                    # Stop here if a stop_stage was specified
                     if stop_stage is not None and stage == stop_stage:
                         break
 
@@ -298,10 +290,9 @@ def _recover_stale_state(
 
     Returns the Stage to resume from after recovery.
     """
-    # Find which stage owns this running state
     recovery_stage: Stage | None = None
     recovery_state: EngagementState | None = None
-    for stage, (running, _completed) in STAGE_STATE_MAP.items():
+    for stage, (running, _) in STAGE_STATE_MAP.items():
         if running == stale_state:
             recovery_stage = stage
             recovery_state = get_stage_entry_state(stage)
@@ -321,7 +312,6 @@ def _recover_stale_state(
         recovery_state.value,
     )
 
-    # Bypass normal transition validation (backwards transition)
     orchestrator._engagement_repo.force_update_state(engagement_id, recovery_state)
 
     event = PipelineEvent(
@@ -388,43 +378,39 @@ def _rehydrate_upstream_state(
         )
 
     if start_stage == Stage.CONSOLIDATE:
-        _verify_stage_completed(orchestrator, engagement_id, "NORMALIZED")
+        _verify_stage_completed(orchestrator, engagement_id, EngagementState.NORMALIZED)
         findings = orchestrator._finding_repo.get_parsed_as_findings(engagement_id)
         return None, findings, None
 
     if start_stage == Stage.QA_REVIEW:
-        _verify_stage_completed(orchestrator, engagement_id, "CONSOLIDATED")
+        _verify_stage_completed(orchestrator, engagement_id, EngagementState.CONSOLIDATED)
         consolidated = orchestrator._finding_repo.get_consolidated_as_findings(engagement_id)
         return None, None, consolidated
 
-    # RENDER: requires CONSOLIDATED and fresh QA approval
-    _verify_stage_completed(orchestrator, engagement_id, "CONSOLIDATED")
+    # RENDER: _verify_qa_for_render already confirms CONSOLIDATED was reached
+    # (QA_APPROVED cannot exist without a prior CONSOLIDATED transition).
     orchestrator._verify_qa_for_render(engagement_id)
     consolidated = orchestrator._finding_repo.get_consolidated_as_findings(engagement_id)
     return None, None, consolidated
 
 
 def _verify_stage_completed(
-    orchestrator: Orchestrator, engagement_id: str, expected_state: str
+    orchestrator: Orchestrator, engagement_id: str, expected_state: EngagementState
 ) -> None:
-    """Check event journal confirms the upstream stage completed.
-
-    State transition events use payload key ``"to"`` with
-    ``EngagementState.value`` (e.g., ``"NORMALIZED"``).
-    """
+    """Check event journal confirms the upstream stage completed."""
     from gxassessms.pipeline.orchestrator import _extract_payload
 
     events = orchestrator._event_repo.get_events_by_type(engagement_id, "state_transition")
     completed_states = {_extract_payload(e).get("to") for e in events}
-    if expected_state not in completed_states:
+    if expected_state.value not in completed_states:
         raise PipelineError(
             message=(
                 f"Cannot resume: upstream stage never completed "
-                f"(expected {expected_state} in event journal). "
+                f"(expected {expected_state.value} in event journal). "
                 f"Run the full pipeline first."
             ),
             engagement_id=engagement_id,
-            stage=expected_state,
+            stage=expected_state.value,
         )
 
 
@@ -446,76 +432,31 @@ def _require_in_memory(name: str, data: list[Any] | None, stage: Stage) -> None:
         )
 
 
-def _build_adapter_severity_map(
+def _merge_adapter_map(
     adapters: list[Any],
-) -> dict[tuple[str, str], str]:
-    """Merge per-adapter severity mappings into a flat lookup table.
+    attr: str,
+    *,
+    resolve_enum: bool = True,
+) -> dict[Any, str]:
+    """Merge per-adapter mappings into a flat lookup table.
 
-    Each adapter may expose a severity_map property: dict mapping
-    (native_severity, status) -> Severity value. We merge all adapters
-    into one flat dict for the NormalizationPolicy.
+    Each adapter may expose an ``attr`` property whose value is a dict.
+    We merge all adapters into one flat dict, warning on collisions.
+    When *resolve_enum* is True, enum-like values are resolved via ``.value``.
     """
-    result: dict[tuple[str, str], str] = {}
+    result: dict[Any, str] = {}
     for adapter in adapters:
-        mapping = getattr(adapter, "severity_map", None)
-        if mapping is not None:
-            for key, value in mapping.items():
-                resolved = value.value if hasattr(value, "value") else str(value)
-                if key in result and result[key] != resolved:
-                    logger.warning("Severity map key %s: %s -> %s", key, result[key], resolved)
-                result[key] = resolved
+        mapping = getattr(adapter, attr, None)
+        if mapping is None:
+            continue
+        for key, value in mapping.items():
+            resolved = (
+                (value.value if hasattr(value, "value") else str(value)) if resolve_enum else value
+            )
+            if key in result and result[key] != resolved:
+                logger.warning("%s key %s: %s -> %s", attr, key, result[key], resolved)
+            result[key] = resolved
     return result
-
-
-def _build_adapter_category_map(
-    adapters: list[Any],
-) -> dict[str, str]:
-    """Merge per-adapter category mappings into a flat lookup table.
-
-    Each adapter may expose a category_map property: dict mapping
-    prefix/check_id -> Category value. We merge all adapters into
-    one flat dict for the NormalizationPolicy.
-    """
-    result: dict[str, str] = {}
-    for adapter in adapters:
-        mapping = getattr(adapter, "category_map", None)
-        if mapping is not None:
-            for key, value in mapping.items():
-                resolved = value.value if hasattr(value, "value") else str(value)
-                if key in result and result[key] != resolved:
-                    logger.warning("Category map key %s: %s -> %s", key, result[key], resolved)
-                result[key] = resolved
-    return result
-
-
-def _build_adapter_dedup_keys(
-    adapters: list[Any],
-) -> dict[str, str]:
-    """Merge per-adapter dedup key rules into a flat lookup table.
-
-    Each adapter may expose a dedup_key_rules property: dict mapping
-    native_check_id -> canonical finding_key. We merge all adapters
-    into one flat dict for the NormalizationPolicy.
-    """
-    result: dict[str, str] = {}
-    for adapter in adapters:
-        rules = getattr(adapter, "dedup_key_rules", None)
-        if rules is not None:
-            for key, value in rules.items():
-                if key in result and result[key] != value:
-                    logger.warning("Dedup key %s: %s -> %s", key, result[key], value)
-                result[key] = value
-    return result
-
-
-def _execute_render(
-    payload: ReportPayload,
-    renderers: list[Any],
-    output_dir: Path,
-) -> list[Path]:
-    """Execute the render stage, creating output directory if needed."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    return render(payload, renderers, output_dir)
 
 
 def _build_report_payload(
@@ -554,29 +495,26 @@ def _build_report_payload(
     )
 
 
-def _compute_stage_hash(
+def _get_stage_output(
     stage: Stage,
-    adapter_results: list[AdapterResult],
-    observations: list[ToolObservation],
-    findings: list[Finding],
-    consolidated_findings: list[ConsolidatedFinding],
-    qa_results: list[Any],
-    orchestrator: Any,
-) -> str:
-    """Compute a content hash for the output of a given stage."""
+    *,
+    adapter_results: list[AdapterResult] | None,
+    observations: list[ToolObservation] | None,
+    findings: list[Finding] | None,
+    consolidated_findings: list[ConsolidatedFinding] | None,
+    qa_results: list[Any] | None,
+) -> list[Any]:
+    """Return the serializable output list for a given stage."""
     if stage == Stage.COLLECT:
-        data = [r.model_dump() for r in adapter_results]
-    elif stage == Stage.PARSE:
-        data = [o.model_dump() for o in observations]
-    elif stage == Stage.NORMALIZE:
-        data = [f.model_dump() for f in findings]
-    elif stage == Stage.CONSOLIDATE:
-        data = [f.model_dump() for f in consolidated_findings]
-    elif stage == Stage.QA_REVIEW:
-        data = qa_results
-    elif stage == Stage.RENDER:
-        data = []  # No meaningful output to hash for render; constant placeholder
-    else:
-        raise ValueError(f"Unhandled stage for hashing: {stage.value}")
-
-    return orchestrator._compute_content_hash(data)
+        return [r.model_dump() for r in (adapter_results or [])]
+    if stage == Stage.PARSE:
+        return [o.model_dump() for o in (observations or [])]
+    if stage == Stage.NORMALIZE:
+        return [f.model_dump() for f in (findings or [])]
+    if stage == Stage.CONSOLIDATE:
+        return [f.model_dump() for f in (consolidated_findings or [])]
+    if stage == Stage.QA_REVIEW:
+        return qa_results or []
+    if stage == Stage.RENDER:
+        return []
+    raise ValueError(f"Unhandled stage for hashing: {stage.value}")

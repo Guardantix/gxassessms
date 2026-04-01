@@ -820,7 +820,7 @@ class TestRunStagesStopStage:
         with (
             patch("gxassessms.pipeline._runner.collect", return_value=[]) as mock_collect,
             patch("gxassessms.pipeline._runner.parse") as mock_parse,
-            patch("gxassessms.pipeline._runner._compute_stage_hash", return_value="abc123"),
+            patch("gxassessms.pipeline._runner._get_stage_output", return_value=[]),
         ):
             run_stages(
                 orchestrator=orchestrator,
@@ -850,9 +850,8 @@ class TestRunStagesStopStage:
             patch("gxassessms.pipeline._runner.normalize", return_value=[]),
             patch("gxassessms.pipeline._runner.consolidate", return_value=[]),
             patch("gxassessms.pipeline._runner.qa_review", return_value=[]),
-            patch("gxassessms.pipeline._runner.render", return_value=None),
-            patch("gxassessms.pipeline._runner._compute_stage_hash", return_value="abc123"),
-            patch("gxassessms.pipeline._runner._execute_render") as mock_execute_render,
+            patch("gxassessms.pipeline._runner.render", return_value=None) as mock_render,
+            patch("gxassessms.pipeline._runner._get_stage_output", return_value=[]),
             patch("gxassessms.pipeline._runner._build_report_payload", return_value=MagicMock()),
             patch("gxassessms.pipeline._runner._require_in_memory", return_value=None),
             patch.object(orchestrator, "_should_auto_advance_qa", return_value=True),
@@ -871,7 +870,7 @@ class TestRunStagesStopStage:
             )
 
         mock_parse.assert_called_once()
-        mock_execute_render.assert_called_once()
+        mock_render.assert_called_once()
 
     def test_run_stages_raises_for_stop_stage_qa_review(self, orchestrator: Orchestrator) -> None:
         """run_stages() must raise ValueError if stop_stage=Stage.QA_REVIEW.
@@ -1101,16 +1100,16 @@ class TestRehydrateUpstreamState:
         with pytest.raises(PipelineError, match="never completed"):
             _rehydrate_upstream_state(Stage.CONSOLIDATE, ENG, [], orchestrator)
 
-    def test_render_rejects_when_consolidate_never_completed(
+    def test_render_rejects_when_qa_not_approved(
         self,
         orchestrator: Orchestrator,
         mock_event_repo: MagicMock,
     ) -> None:
-        """run_from(RENDER) must reject when CONSOLIDATE never completed."""
+        """run_from(RENDER) must reject when QA has not been approved."""
         from gxassessms.pipeline._runner import _rehydrate_upstream_state
 
         mock_event_repo.get_events_by_type.return_value = []
-        with pytest.raises(PipelineError, match="never completed"):
+        with pytest.raises(PipelineError, match="QA has not been approved"):
             _rehydrate_upstream_state(Stage.RENDER, ENG, [], orchestrator)
 
 
