@@ -25,6 +25,7 @@ htmlcov/
 
 # Node
 node_modules/
+report-renderers/*/node_modules/
 dist/
 
 # OS
