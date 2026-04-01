@@ -21,6 +21,9 @@ from gxassessms.core.domain.models import Finding
 logger = logging.getLogger(__name__)
 
 
+_CARDINALITY_WARN_THRESHOLD = 50
+
+
 class _DisjointSet:
     """Union-find data structure with path compression and union by rank.
 
@@ -29,8 +32,6 @@ class _DisjointSet:
     """
 
     def __init__(self, size: int) -> None:
-        if size < 0:
-            raise ValueError("size must be non-negative")
         self._parent: list[int] = list(range(size))
         self._rank: list[int] = [0] * size
 
@@ -39,7 +40,6 @@ class _DisjointSet:
         root = x
         while self._parent[root] != root:
             root = self._parent[root]
-        # Path compression: point all nodes on the path directly to root
         while self._parent[x] != root:
             next_x = self._parent[x]
             self._parent[x] = root
@@ -52,7 +52,6 @@ class _DisjointSet:
         root_y = self.find(y)
         if root_x == root_y:
             return
-        # Attach smaller tree under root of larger tree
         if self._rank[root_x] < self._rank[root_y]:
             self._parent[root_x] = root_y
         elif self._rank[root_x] > self._rank[root_y]:
@@ -79,15 +78,9 @@ class UnionFindDedup:
     def group(self, findings: list[Finding]) -> list[list[Finding]]:
         """Group findings that share any dedup key into clusters.
 
-        Algorithm:
-        1. Assign each finding an integer index (0..n-1)
-        2. Build a map: dedup_key -> list of finding indices
-           (filtering out empty/whitespace-only keys)
-        3. For each dedup_key, union all finding indices that share it
-        4. Collect findings by their root representative
-
-        Returns a list of groups (each group is a list of Findings).
-        Empty input returns empty output.
+        Returns one list per cluster. Empty input returns empty output.
+        Findings with no valid dedup keys after whitespace filtering each
+        form an isolated single-element cluster.
         """
         if not findings:
             return []
@@ -95,48 +88,43 @@ class UnionFindDedup:
         n = len(findings)
         ds = _DisjointSet(n)
 
-        # Map each dedup key to the finding indices that carry it.
-        # Filter out empty/whitespace-only keys to prevent false merges.
         key_to_indices: dict[str, list[int]] = defaultdict(list)
         for idx, finding in enumerate(findings):
-            valid_key_count = 0
+            had_valid_key = False
             for key in finding.dedup_keys:
                 stripped = key.strip()
                 if stripped:
                     key_to_indices[stripped].append(idx)
-                    valid_key_count += 1
+                    had_valid_key = True
                 else:
                     logger.debug(
                         "Finding %s: filtered empty/whitespace dedup key %r",
                         finding.finding_key,
                         key,
                     )
-            if valid_key_count == 0:
+            if not had_valid_key:
                 logger.warning(
                     "Finding %s has no valid dedup keys after whitespace filtering; "
                     "it will form its own isolated group",
                     finding.finding_key,
                 )
 
-        # Union all findings that share a dedup key
         for indices in key_to_indices.values():
+            if len(indices) > _CARDINALITY_WARN_THRESHOLD:
+                logger.warning(
+                    "Dedup key shared by %d findings; possible adapter misconfiguration",
+                    len(indices),
+                )
             if len(indices) > 1:
                 first = indices[0]
-                for other in indices[1:]:
-                    ds.union(first, other)
+                for i in range(1, len(indices)):
+                    ds.union(first, indices[i])
 
-        # Collect findings by root representative
         groups_map: dict[int, list[Finding]] = defaultdict(list)
         for idx, finding in enumerate(findings):
             root = ds.find(idx)
             groups_map[root].append(finding)
 
         groups = list(groups_map.values())
-
-        logger.debug(
-            "Dedup grouped %d findings into %d clusters",
-            n,
-            len(groups),
-        )
-
+        logger.debug("Dedup grouped %d findings into %d clusters", n, len(groups))
         return groups
