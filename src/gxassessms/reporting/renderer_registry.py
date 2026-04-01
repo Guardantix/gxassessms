@@ -110,7 +110,7 @@ def check_node_available() -> bool:
             timeout=10,
         )
         return result.returncode == 0
-    except FileNotFoundError:
+    except FileNotFoundError, subprocess.TimeoutExpired:
         return False
 
 
@@ -211,13 +211,19 @@ class NodeRenderer:
                 self._timeout_seconds,
             )
 
-            result = subprocess.run(  # noqa: S603
-                cmd,
-                capture_output=True,
-                text=True,
-                cwd=str(self.package_path),
-                timeout=self._timeout_seconds,
-            )
+            try:
+                result = subprocess.run(  # noqa: S603
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    cwd=str(self.package_path),
+                    timeout=self._timeout_seconds,
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise ReportError(
+                    f"Renderer '{self.package_path.name}' (format={self.format}) "
+                    f"timed out after {self._timeout_seconds}s"
+                ) from exc
 
             if result.returncode != 0:
                 if self._keep_temp_on_failure:
@@ -241,8 +247,7 @@ class NodeRenderer:
                 tmpdir_obj._finalizer.detach()  # type: ignore[attr-defined]
             raise
         finally:
-            if not self._keep_temp_on_failure:
-                tmpdir_obj.cleanup()
+            tmpdir_obj.cleanup()
 
         logger.info("Render complete: %s -> %s", self.package_path.name, output_path)
         return output_path

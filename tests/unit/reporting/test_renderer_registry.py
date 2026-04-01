@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -240,6 +241,31 @@ class TestNodeRenderer:
             timeout_seconds=300,
         )
         assert renderer._timeout_seconds == 300
+
+    @patch("gxassessms.reporting.renderer_registry.subprocess.run")
+    @patch("gxassessms.reporting.renderer_registry.check_node_available")
+    @patch("gxassessms.reporting.renderer_registry.write_constants_file")
+    def test_timeout_raises_report_error(
+        self,
+        mock_write_constants: MagicMock,
+        mock_check: MagicMock,
+        mock_run: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Subprocess timeout should be wrapped in ReportError."""
+        mock_check.return_value = True
+        mock_run.side_effect = subprocess.TimeoutExpired(cmd="node", timeout=120)
+
+        (tmp_path / "render.js").write_text("// placeholder")
+
+        renderer = NodeRenderer(
+            package_path=tmp_path,
+            format="docx",
+            supported_payload_versions=">=1.0.0,<2.0.0",
+        )
+        payload = _make_payload()
+        with pytest.raises(ReportError, match="timed out"):
+            renderer.render(payload, tmp_path / "out")
 
 
 # -- RendererRegistry ----------------------------------------------------------
