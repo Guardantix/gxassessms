@@ -60,19 +60,19 @@ def _make_coverage_records() -> list[dict[str, Any]]:
         {
             "control_id": "MS.AAD.3.1v1",
             "tool_source": "ScubaGear",
-            "status": "ASSESSED",
+            "status": "assessed",
             "reason": None,
         },
         {
             "control_id": "MS.EXO.1.1v1",
             "tool_source": "ScubaGear",
-            "status": "ASSESSED",
+            "status": "assessed",
             "reason": None,
         },
         {
             "control_id": "MS.SPO.1.1v1",
             "tool_source": "ScubaGear",
-            "status": "NOT_ASSESSED",
+            "status": "not_assessed",
             "reason": "Module skipped",
         },
     ]

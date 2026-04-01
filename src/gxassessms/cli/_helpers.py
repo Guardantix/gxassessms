@@ -108,7 +108,7 @@ def discover_cli_adapters() -> list[Any]:
     for name, cls in registry.adapters.items():
         try:
             instances.append(cls())
-        except (TypeError, ValueError, RuntimeError) as exc:
+        except (TypeError, ValueError, RuntimeError, FileNotFoundError) as exc:
             logger.warning("Failed to instantiate adapter %s: %s", name, exc)
     return instances
 
@@ -161,7 +161,7 @@ def discover_adapter_metadata() -> list[dict[str, Any]]:
                     "status": "OK",
                 }
             )
-        except (TypeError, ValueError, RuntimeError) as exc:
+        except (TypeError, ValueError, RuntimeError, FileNotFoundError) as exc:
             result.append(
                 {
                     "name": name,
@@ -218,7 +218,7 @@ def discover_plugin(group: str, *, name: str | None = None) -> Any | None:
             return None
         try:
             return cls()
-        except (TypeError, ValueError, RuntimeError) as exc:
+        except (TypeError, ValueError, RuntimeError, FileNotFoundError) as exc:
             logger.warning("Failed to instantiate %s plugin %s: %s", group, name, exc)
             return None
 
@@ -238,7 +238,7 @@ def discover_plugin(group: str, *, name: str | None = None) -> Any | None:
         if cls is not None:
             try:
                 return cls()
-            except (TypeError, ValueError, RuntimeError) as exc:
+            except (TypeError, ValueError, RuntimeError, FileNotFoundError) as exc:
                 logger.warning(
                     "Failed to instantiate %s plugin %s: %s",
                     group,
@@ -269,7 +269,7 @@ def discover_all_plugins(group: str) -> list[Any]:
         if cls is not None:
             try:
                 instances.append(cls())
-            except (TypeError, ValueError, RuntimeError) as exc:
+            except (TypeError, ValueError, RuntimeError, FileNotFoundError) as exc:
                 logger.warning("Failed to instantiate %s plugin %s: %s", group, name, exc)
     return instances
 

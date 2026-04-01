@@ -4,13 +4,13 @@
     {
       "control_id": "MS.AAD.3.1v1",
       "reason": null,
-      "status": "ASSESSED",
+      "status": "assessed",
       "tool_source": "ScubaGear"
     },
     {
       "control_id": "MS.EXO.1.1v1",
       "reason": null,
-      "status": "ASSESSED",
+      "status": "assessed",
       "tool_source": "ScubaGear"
     }
   ],
