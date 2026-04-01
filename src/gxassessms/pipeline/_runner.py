@@ -24,6 +24,7 @@ from gxassessms.pipeline.stages import (
     STAGE_STATE_MAP,
     Stage,
     collect,
+    collect_coverage,
     consolidate,
     get_stage_entry_state,
     normalize,
@@ -138,6 +139,24 @@ def run_stages(
                     _require_in_memory("adapter_results", adapter_results, stage)
                     assert adapter_results is not None  # noqa: S101 -- narrowing for type checker
                     observations = parse(adapter_results, adapters)
+                    # Collect coverage from adapters that declare coverage_export.
+                    # Delete-then-insert matches the finding repo pattern and
+                    # prevents duplicates on reparse.
+                    coverage_records = collect_coverage(adapter_results, adapters)
+                    orchestrator._coverage_repo.delete_for_engagement(engagement_id)
+                    if coverage_records:
+                        orchestrator._coverage_repo.save(
+                            engagement_id,
+                            [
+                                {
+                                    "control_id": r.control_id,
+                                    "tool_source": r.tool.value,
+                                    "status": r.status.value,
+                                    "reason": r.reason,
+                                }
+                                for r in coverage_records
+                            ],
+                        )
 
                 elif stage == Stage.NORMALIZE:
                     _require_in_memory("observations", observations, stage)
@@ -173,7 +192,12 @@ def run_stages(
                     _require_in_memory("consolidated_findings", consolidated_findings, stage)
                     assert consolidated_findings is not None  # noqa: S101 -- narrowing for type checker
                     report_dir = output_dir or Path("output")
-                    payload = _build_report_payload(engagement_id, config, consolidated_findings)
+                    payload = _build_report_payload(
+                        engagement_id,
+                        config,
+                        consolidated_findings,
+                        orchestrator._coverage_repo,
+                    )
                     _execute_render(payload, renderers, report_dir)
 
                 # Compute content hash for the stage output
@@ -498,23 +522,35 @@ def _build_report_payload(
     engagement_id: str,
     config: EngagementConfig,
     consolidated: list[ConsolidatedFinding],
+    coverage_repo: Any,
 ) -> ReportPayload:
-    """Build a ReportPayload from consolidated findings and config."""
-    return ReportPayload(
+    """Build a ReportPayload from consolidated findings and config.
+
+    Delegates to reporting.payload.assemble_payload for the actual
+    assembly. This function bridges the pipeline's in-memory consolidated
+    findings with the reporting module's repo-based interface by wrapping
+    the in-memory data in lightweight mock repos.
+    """
+    from gxassessms.reporting.payload import assemble_payload
+
+    # The pipeline has consolidated findings in-memory but assemble_payload
+    # reads from repos. Create thin wrappers that return the in-memory data.
+    class _InMemoryFindingRepo:
+        def get_consolidated(self, eid: str) -> list[dict[str, Any]]:
+            return [f.model_dump() for f in consolidated]
+
+    class _InMemoryCoverageRepo:
+        def get_for_engagement(self, eid: str) -> list[dict[str, Any]]:
+            return coverage_repo.get_for_engagement(eid)
+
+    return assemble_payload(
         engagement_id=engagement_id,
         tenant_name=config.client_name,
         assessment_date=format_utc(utc_now()),
         tool_sources=[t for t in config.tools if config.tools[t].enabled],
-        findings=[f.model_dump() for f in consolidated],
-        coverage=[],
-        narratives={
-            "executive_summary": None,
-            "roadmap": None,
-            "findings_narrative": None,
-        },
-        metadata={
-            "config_snapshot": config.model_dump(),
-        },
+        finding_repo=_InMemoryFindingRepo(),
+        coverage_repo=_InMemoryCoverageRepo(),
+        config_snapshot=config.model_dump(),
     )
 
 

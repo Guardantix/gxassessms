@@ -1,0 +1,13 @@
+{
+  "name": "gxassessms-basic-renderer",
+  "version": "0.1.0",
+  "description": "Basic unbranded .docx renderer for GxAssessMS",
+  "main": "render.js",
+  "private": true,
+  "scripts": {
+    "render": "node render.js"
+  },
+  "dependencies": {
+    "docx": "^9.0.0"
+  }
+}

@@ -53,6 +53,9 @@ reporting = "gxassessms.policy.reporting:DefaultReportingPolicy"
 [project.entry-points."gxassessms.consolidation_rules"]
 default = "gxassessms.consolidation.rules:DefaultConsolidationRule"
 
+[project.entry-points."gxassessms.renderers"]
+basic_docx = "gxassessms.reporting.basic_renderer:BasicDocxRenderer"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/gxassessms"]
 artifacts = ["src/gxassessms/**/*.yaml"]

@@ -1,0 +1,79 @@
+{
+  "assessment_date": "2026-03-25T10:00:00Z",
+  "coverage": [
+    {
+      "control_id": "MS.AAD.3.1v1",
+      "reason": null,
+      "status": "assessed",
+      "tool_source": "ScubaGear"
+    },
+    {
+      "control_id": "MS.EXO.1.1v1",
+      "reason": null,
+      "status": "assessed",
+      "tool_source": "ScubaGear"
+    }
+  ],
+  "engagement_id": "eng-golden-001",
+  "findings": [
+    {
+      "benchmark_refs": [
+        "CIS-M365-5.1.2.3"
+      ],
+      "category": "IDENTITY_ACCESS",
+      "confidence": {
+        "label": "HIGH",
+        "overall": 0.9
+      },
+      "description": "Multi-factor authentication is not enforced for all users in the tenant.",
+      "finding_instance_id": "fi-golden-001",
+      "finding_key": "fk-mfa-gaps",
+      "narrative": "This finding represents a critical identity protection gap.",
+      "remediation": "Configure Conditional Access policy to require MFA for all users.",
+      "root_cause": "Conditional Access policies do not cover all user groups.",
+      "severity": "HIGH",
+      "sources": [
+        {
+          "check_id": "MS.AAD.3.1v1",
+          "tool": "ScubaGear"
+        }
+      ],
+      "status": "FAIL",
+      "title": "MFA Not Enforced for All Users"
+    },
+    {
+      "benchmark_refs": [],
+      "category": "LOGGING_MONITORING",
+      "confidence": {
+        "label": "HIGH",
+        "overall": 0.85
+      },
+      "description": "Unified audit logging is not enabled in the tenant.",
+      "finding_instance_id": "fi-golden-002",
+      "finding_key": "fk-audit-logging",
+      "narrative": null,
+      "remediation": "Enable unified audit logging in the Security & Compliance Center.",
+      "root_cause": null,
+      "severity": "MEDIUM",
+      "sources": [
+        {
+          "check_id": "MS.EXO.1.1v1",
+          "tool": "ScubaGear"
+        }
+      ],
+      "status": "FAIL",
+      "title": "Audit Logging Disabled"
+    }
+  ],
+  "metadata": {},
+  "narratives": {
+    "executive_summary": "The assessed tenant shows significant gaps in identity protection and audit logging.",
+    "findings_narrative": null,
+    "roadmap": null
+  },
+  "schema_version": "1.0.0",
+  "tenant_name": "Golden Test Client",
+  "tool_sources": [
+    "ScubaGear"
+  ]
+}

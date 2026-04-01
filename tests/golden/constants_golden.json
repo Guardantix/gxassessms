@@ -1,0 +1,35 @@
+{
+  "category_display_names": {
+    "APPLICATION_SECURITY": "Application Security",
+    "COMPLIANCE": "Compliance & Governance",
+    "COST_OPTIMIZATION": "Cost Optimization",
+    "DATA_PROTECTION": "Data Protection",
+    "DEVICE_MANAGEMENT": "Device Management",
+    "EMAIL_COLLABORATION": "Email & Collaboration",
+    "IDENTITY_ACCESS": "Identity & Access",
+    "INFRASTRUCTURE_SECURITY": "Infrastructure Security",
+    "LOGGING_MONITORING": "Logging & Monitoring",
+    "NETWORK_SECURITY": "Network Security",
+    "OPERATIONAL_EXCELLENCE": "Operational Excellence"
+  },
+  "remediation_phase_timelines": {
+    "IMMEDIATE": "0-30 days",
+    "LONG_TERM": "180+ days",
+    "MEDIUM_TERM": "90-180 days",
+    "SHORT_TERM": "30-90 days"
+  },
+  "severity_colors": {
+    "CRITICAL": "bright_red",
+    "HIGH": "red",
+    "INFO": "dim",
+    "LOW": "cyan",
+    "MEDIUM": "yellow"
+  },
+  "severity_order": {
+    "CRITICAL": 4,
+    "HIGH": 3,
+    "INFO": 0,
+    "LOW": 1,
+    "MEDIUM": 2
+  }
+}
