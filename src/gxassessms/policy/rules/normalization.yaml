@@ -61,3 +61,8 @@ default_status_map:
   "Manual": "MANUAL"
   "Not Applicable": "N/A"
   "Informational": "PASS"
+  # Maester uses past-tense and PascalCase status strings
+  "Passed": "PASS"
+  "Failed": "FAIL"
+  "Skipped": "N/A"
+  "NotRun": "N/A"

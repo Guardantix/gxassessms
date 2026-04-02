@@ -7,7 +7,8 @@
 # Format:
 #   cis:m365:{control_id}:
 #     scubagear: "MS.{MODULE}.{check}"
-#     maester: "MT.{id}"
+#     maester_cisa: "CISA.MS.{PRODUCT}.{check}"  (CISA SCuBA overlap)
+#     maester_cis: "CIS.M365.{control}"           (CIS benchmark tests)
 #     monkey365: "m365.{module}.{check}"
 #     m365_assess: "{control_id}"
 #     semantic: "{human-readable description}"
@@ -20,35 +21,56 @@
 
 cis:m365:1.1.1:  # Authentication Methods migration
   scubagear: "MS.AAD.3.4v1"
-  maester: ~     # TODO: populate when Maester adapter is built
+  maester_cisa: "CISA.MS.AAD.3.1"
   monkey365: ~   # TODO: populate when Monkey365 adapter is built
   m365_assess: ~ # TODO: populate when M365Assess adapter is built
   semantic: "entra:auth_methods:migration"
 
+cis:m365:1.1.2:  # MFA for all users
+  scubagear: "MS.AAD.3.2v1"
+  maester_cisa: "CISA.MS.AAD.3.2"
+  monkey365: ~
+  m365_assess: ~
+  semantic: "entra:mfa:all_users"
+
+cis:m365:1.1.3:  # MFA registration enforcement
+  scubagear: "MS.AAD.3.3v1"
+  maester_cisa: "CISA.MS.AAD.3.3"
+  monkey365: ~
+  m365_assess: ~
+  semantic: "entra:mfa:registration"
+
 cis:m365:1.1.4:  # Block legacy authentication
   scubagear: "MS.AAD.1.1v1"
-  maester: ~
+  maester_cisa: "CISA.MS.AAD.7.1"
   monkey365: ~
   m365_assess: ~
   semantic: "entra:legacy_auth:block"
 
 cis:m365:2.1.1:  # DKIM signing
   scubagear: "MS.EXO.3.1v1"
-  maester: ~
+  maester_cisa: "CISA.MS.EXO.4.1"
   monkey365: ~
   m365_assess: ~
   semantic: "exchange:email_auth:dkim"
 
 cis:m365:2.1.2:  # SPF records
   scubagear: "MS.EXO.2.2v2"
-  maester: ~
+  maester_cisa: "CISA.MS.EXO.4.2"
   monkey365: ~
   m365_assess: ~
   semantic: "exchange:email_auth:spf"
 
+cis:m365:2.1.3:  # DMARC records
+  scubagear: "MS.EXO.2.1v1"
+  maester_cisa: "CISA.MS.EXO.4.3"
+  monkey365: ~
+  m365_assess: ~
+  semantic: "exchange:email_auth:dmarc"
+
 cis:m365:2.1.4:  # Disable automatic forwarding
   scubagear: "MS.EXO.1.1v2"
-  maester: ~
+  maester_cisa: ~
   monkey365: ~
   m365_assess: ~
   semantic: "exchange:forwarding:block_external"
