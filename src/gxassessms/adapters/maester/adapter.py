@@ -72,7 +72,8 @@ class MaesterAdapter:
             if result.returncode != 0:
                 return PrerequisiteResult(
                     satisfied=False,
-                    message=f"PowerShell ({ps_exe}) returned non-zero exit code",
+                    message=f"PowerShell ({ps_exe}) failed "
+                    f"(exit {result.returncode}): {result.stderr.strip()}",
                 )
         except FileNotFoundError:
             return PrerequisiteResult(
@@ -97,10 +98,10 @@ class MaesterAdapter:
                 timeout=30,
                 shell=False,
             )
-            if "missing" in module_result.stdout:
+            if module_result.returncode != 0 or "installed" not in module_result.stdout:
                 return PrerequisiteResult(
                     satisfied=False,
-                    message="Maester PowerShell module is not installed. "
+                    message="Maester PowerShell module is not installed or check failed. "
                     "Install via: Install-Module -Name Maester",
                 )
         except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
