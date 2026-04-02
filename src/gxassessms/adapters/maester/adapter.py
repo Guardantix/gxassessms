@@ -155,19 +155,18 @@ class MaesterAdapter:
             script=script,
             arguments=extra_args,
             timeout_seconds=timeout,
-            adapter_name="maester",
+            adapter_name=self.tool_name.lower(),
             engagement_id=getattr(config, "engagement_id", ""),
         )
 
-        # Build file manifest from output directory
+        # Build file manifest from output directory (single pass)
         file_manifest: dict[str, FileEncoding] = {}
+        _binary_suffixes = {".html"}
 
-        for json_file in output_dir.glob("TestResults*.json"):
-            file_manifest[str(json_file)] = "utf-8"
-        for html_file in output_dir.glob("TestResults*.html"):
-            file_manifest[str(html_file)] = "binary"
-        for md_file in output_dir.glob("TestResults*.md"):
-            file_manifest[str(md_file)] = "utf-8"
+        for path in output_dir.glob("TestResults*"):
+            if path.suffix in {".json", ".html", ".md"}:
+                encoding: FileEncoding = "binary" if path.suffix in _binary_suffixes else "utf-8"
+                file_manifest[str(path)] = encoding
 
         return RawToolOutput(
             tool=ToolSource.MAESTER,
@@ -185,72 +184,24 @@ class MaesterAdapter:
         Raises:
             RawOutputValidationError: If output is structurally invalid.
         """
-        if not raw.file_manifest:
-            raise RawOutputValidationError(
-                message="Maester output file manifest is empty",
-                adapter_name="maester",
-            )
-
-        json_files = [f for f in raw.file_manifest if f.endswith(".json")]
-        if not json_files:
-            raise RawOutputValidationError(
-                message="No JSON files found in Maester output manifest",
-                adapter_name="maester",
-            )
-
-        results_path = self._find_results_file(json_files)
-        if results_path is None:
-            raise RawOutputValidationError(
-                message="TestResults*.json not found in Maester output",
-                adapter_name="maester",
-            )
-
-        data = load_json_file(Path(results_path), adapter_name="maester")
-
-        if "Tests" not in data:
-            raise RawOutputValidationError(
-                message="Maester output missing 'Tests' key",
-                adapter_name="maester",
-            )
-
-        if not isinstance(data["Tests"], list):
-            raise RawOutputValidationError(
-                message="Maester 'Tests' is not a list",
-                adapter_name="maester",
-            )
-
-        if len(data["Tests"]) == 0:
-            raise RawOutputValidationError(
-                message="Maester 'Tests' array is empty -- "
-                "this likely indicates a collection failure, not zero findings",
-                adapter_name="maester",
-            )
+        self._validate_and_load_tests(raw)
 
     def parse(self, raw: RawToolOutput) -> list[ToolObservation]:
         """Parse validated Maester output into ToolObservations."""
-        self.validate_raw(raw)
-
-        json_files = [f for f in raw.file_manifest if f.endswith(".json")]
-        results_path = self._find_results_file(json_files)
-        assert results_path is not None  # noqa: S101  # guaranteed by validate_raw
-        data = load_json_file(Path(results_path), adapter_name="maester")
-
-        return parse_maester_tests(data["Tests"])
+        _, tests = self._validate_and_load_tests(raw)
+        return parse_maester_tests(tests)
 
     def coverage(self, raw: RawToolOutput) -> list[CoverageRecord]:
         """Report per-control coverage from Maester output.
 
         Skipped, Error, and NotRun tests are reported as not_assessed.
         """
-        json_files = [f for f in raw.file_manifest if f.endswith(".json")]
-        results_path = self._find_results_file(json_files)
-        assert results_path is not None, "No TestResults*.json in manifest"  # noqa: S101
-        data = load_json_file(Path(results_path), adapter_name="maester")
+        _, tests = self._validate_and_load_tests(raw)
 
         not_assessed_statuses = {"Skipped", "Error", "NotRun"}
         records: list[CoverageRecord] = []
 
-        for entry in data.get("Tests", []):
+        for entry in tests:
             test_id: str = entry["Id"]
             result_status: str = entry["Result"]
 
@@ -290,6 +241,60 @@ class MaesterAdapter:
     def dedup_key_rules(self) -> dict[str, str]:
         """Expose dedup key rules for NormalizationPolicy consumption."""
         return DEDUP_KEY_RULES
+
+    def _validate_and_load_tests(self, raw: RawToolOutput) -> tuple[str, list[dict[str, Any]]]:
+        """Validate raw output and return ``(results_file_path, Tests list)``.
+
+        Single entry point for validation + JSON loading so that ``parse()``
+        and ``coverage()`` avoid re-reading the file.
+
+        Raises:
+            RawOutputValidationError: If any structural check fails.
+        """
+        adapter = self.tool_name.lower()
+
+        if not raw.file_manifest:
+            raise RawOutputValidationError(
+                message="Maester output file manifest is empty",
+                adapter_name=adapter,
+            )
+
+        json_files = [f for f in raw.file_manifest if f.endswith(".json")]
+        if not json_files:
+            raise RawOutputValidationError(
+                message="No JSON files found in Maester output manifest",
+                adapter_name=adapter,
+            )
+
+        results_path = self._find_results_file(json_files)
+        if results_path is None:
+            raise RawOutputValidationError(
+                message="TestResults*.json not found in Maester output",
+                adapter_name=adapter,
+            )
+
+        data = load_json_file(Path(results_path), adapter_name=adapter)
+
+        if "Tests" not in data:
+            raise RawOutputValidationError(
+                message="Maester output missing 'Tests' key",
+                adapter_name=adapter,
+            )
+
+        if not isinstance(data["Tests"], list):
+            raise RawOutputValidationError(
+                message="Maester 'Tests' is not a list",
+                adapter_name=adapter,
+            )
+
+        if len(data["Tests"]) == 0:
+            raise RawOutputValidationError(
+                message="Maester 'Tests' array is empty -- "
+                "this likely indicates a collection failure, not zero findings",
+                adapter_name=adapter,
+            )
+
+        return results_path, data["Tests"]
 
     @staticmethod
     def _find_results_file(json_files: list[str]) -> str | None:

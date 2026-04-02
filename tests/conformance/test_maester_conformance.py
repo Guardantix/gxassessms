@@ -14,7 +14,7 @@ import pytest
 import yaml
 
 from gxassessms.adapters.maester import MaesterAdapter
-from gxassessms.core.domain.enums import ToolSource
+from gxassessms.core.domain.enums import CoverageStatus, ToolSource
 from gxassessms.core.domain.models import CoverageRecord, RawToolOutput, ToolObservation
 from tests.conformance.adapter_suite import AdapterConformanceSuite
 
@@ -123,10 +123,10 @@ class TestMaesterConformance(AdapterConformanceSuite):
         """Fixture includes Skipped/Error/NotRun checks mapped to not_assessed."""
         assert coverage_records is not None
         statuses = {r.status for r in coverage_records}
-        assert "not_assessed" in statuses, (
+        assert CoverageStatus.NOT_ASSESSED in statuses, (
             "Fixture should include at least one not_assessed coverage record"
         )
-        not_assessed = [r for r in coverage_records if r.status == "not_assessed"]
+        not_assessed = [r for r in coverage_records if r.status == CoverageStatus.NOT_ASSESSED]
         assert len(not_assessed) >= 3, (
             "Fixture should have at least 3 not_assessed records (Skipped + Error + NotRun)"
         )
