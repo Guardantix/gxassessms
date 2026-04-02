@@ -10,48 +10,54 @@ own MT community tests). Each framework uses a different ID format.
 The dedup key rules must handle all formats.
 """
 
-from gxassessms.core.domain.enums import Category, Severity
+from gxassessms.core.domain.enums import Category, FindingStatus, Severity
 
 # ---------------------------------------------------------------------------
-# Severity mapping: Maester Severity string -> domain Severity
-# Maester uses: Critical, High, Medium, Low, Info (NOT "Informational").
-# Empty string is possible in real output and defaults to INFO.
+# Severity mapping: (Maester Severity, canonicalized status) -> domain Severity
+#
+# Keys use canonicalized (domain) status values because _resolve_severity()
+# applies default_status_map ("Failed"->"FAIL", etc.) before looking up here.
+#
+# Maester Severity values: Critical, High, Medium, Low, Info, "" (empty).
+# Maester Result values (after status_map): FAIL, PASS, ERROR, N/A.
+#
+# PASS and N/A short-circuit to INFO in _resolve_severity() before consulting
+# this map, so only FAIL entries are needed. ERROR-status observations
+# (test execution failures, not clean assessments) fall to fallback_severity.
 # ---------------------------------------------------------------------------
 
-SEVERITY_MAP: dict[str, Severity] = {
-    "Critical": Severity.CRITICAL,
-    "High": Severity.HIGH,
-    "Medium": Severity.MEDIUM,
-    "Low": Severity.LOW,
-    "Info": Severity.INFO,
-    "": Severity.INFO,
+SEVERITY_MAP: dict[tuple[str, str], Severity] = {
+    ("Critical", FindingStatus.FAIL): Severity.CRITICAL,
+    ("High", FindingStatus.FAIL): Severity.HIGH,
+    ("Medium", FindingStatus.FAIL): Severity.MEDIUM,
+    ("Low", FindingStatus.FAIL): Severity.LOW,
+    ("Info", FindingStatus.FAIL): Severity.LOW,
+    ("", FindingStatus.FAIL): Severity.MEDIUM,
 }
 
 # ---------------------------------------------------------------------------
-# Block -> Category mapping: Maester's Block field -> domain Category
-# Maester does NOT have a "Category" field. Instead, the Block field
-# indicates which benchmark framework/product area the test belongs to.
-# Block values observed in real output:
-#   CIS, CISA, EIDSCA, Maester/Entra, Maester/Intune, Maester/Exchange,
-#   Maester/Teams, ORCA, AzureConfig, Exposure Management
+# Category mapping: check-ID prefix (lowercased) -> domain Category
+#
+# NormalizationPolicy._resolve_category() looks up by the prefix returned
+# from _extract_module_prefix(). For Maester IDs, the generic fallback
+# extracts the first dot-separated segment (lowercased):
+#   CISA.MS.AAD.3.1 -> "cisa"
+#   CIS.M365.1.1.1  -> "cis"
+#   EIDSCA.AF01     -> "eidsca"
+#   MT.1001         -> "mt"
+#   ORCA.118        -> "orca"
+#
+# MT (Maester community) tests span multiple product areas; the ID prefix
+# alone cannot distinguish them. IDENTITY_ACCESS is the default because
+# the majority of MT tests cover Entra/Conditional Access.
 # ---------------------------------------------------------------------------
 
-BLOCK_CATEGORY_MAP: dict[str, Category] = {
-    # Benchmark framework blocks
-    "CIS": Category.COMPLIANCE,
-    "CISA": Category.COMPLIANCE,
-    "EIDSCA": Category.IDENTITY_ACCESS,
-    "ORCA": Category.EMAIL_COLLABORATION,
-    # Maester product-area blocks
-    "Maester/Entra": Category.IDENTITY_ACCESS,
-    "Maester/Intune": Category.DEVICE_MANAGEMENT,
-    "Maester/Exchange": Category.EMAIL_COLLABORATION,
-    "Maester/Teams": Category.EMAIL_COLLABORATION,
-    "Maester/Azure": Category.INFRASTRUCTURE_SECURITY,
-    "Maester/Defender": Category.INFRASTRUCTURE_SECURITY,
-    # Other blocks seen in real output
-    "AzureConfig": Category.INFRASTRUCTURE_SECURITY,
-    "Exposure Management": Category.INFRASTRUCTURE_SECURITY,
+CATEGORY_MAP: dict[str, Category] = {
+    "cis": Category.COMPLIANCE,
+    "cisa": Category.COMPLIANCE,
+    "eidsca": Category.IDENTITY_ACCESS,
+    "orca": Category.EMAIL_COLLABORATION,
+    "mt": Category.IDENTITY_ACCESS,
 }
 
 # ---------------------------------------------------------------------------

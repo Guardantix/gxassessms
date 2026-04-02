@@ -7,11 +7,11 @@ from typing import Any
 import pytest
 
 from gxassessms.adapters.maester.mappings import (
-    BLOCK_CATEGORY_MAP,
+    CATEGORY_MAP,
     DEDUP_KEY_RULES,
     SEVERITY_MAP,
 )
-from gxassessms.core.domain.enums import Category, Severity
+from gxassessms.core.domain.enums import Category, FindingStatus, Severity
 
 
 @pytest.fixture
@@ -35,92 +35,91 @@ class TestSeverityMap:
     def test_severity_map_is_dict(self) -> None:
         assert isinstance(SEVERITY_MAP, dict)
 
-    def test_severity_map_keys_are_strings(self) -> None:
+    def test_severity_map_keys_are_tuples(self) -> None:
+        """Keys are (native_severity, canonicalized_status) tuples."""
         for key in SEVERITY_MAP:
-            assert isinstance(key, str)
+            assert isinstance(key, tuple)
+            assert len(key) == 2
 
     def test_severity_map_values_are_valid_severities(self) -> None:
         for severity in SEVERITY_MAP.values():
             assert isinstance(severity, Severity)
 
-    def test_critical_maps_to_critical(self) -> None:
-        assert SEVERITY_MAP["Critical"] == Severity.CRITICAL
+    def test_critical_fail_maps_to_critical(self) -> None:
+        assert SEVERITY_MAP[("Critical", FindingStatus.FAIL)] == Severity.CRITICAL
 
-    def test_high_maps_to_high(self) -> None:
-        assert SEVERITY_MAP["High"] == Severity.HIGH
+    def test_high_fail_maps_to_high(self) -> None:
+        assert SEVERITY_MAP[("High", FindingStatus.FAIL)] == Severity.HIGH
 
-    def test_medium_maps_to_medium(self) -> None:
-        assert SEVERITY_MAP["Medium"] == Severity.MEDIUM
+    def test_medium_fail_maps_to_medium(self) -> None:
+        assert SEVERITY_MAP[("Medium", FindingStatus.FAIL)] == Severity.MEDIUM
 
-    def test_low_maps_to_low(self) -> None:
-        assert SEVERITY_MAP["Low"] == Severity.LOW
+    def test_low_fail_maps_to_low(self) -> None:
+        assert SEVERITY_MAP[("Low", FindingStatus.FAIL)] == Severity.LOW
 
-    def test_info_maps_to_info(self) -> None:
-        """Maester uses 'Info', not 'Informational'."""
-        assert SEVERITY_MAP["Info"] == Severity.INFO
+    def test_info_fail_maps_to_low(self) -> None:
+        """Info-severity failure is still actionable, mapped to LOW."""
+        assert SEVERITY_MAP[("Info", FindingStatus.FAIL)] == Severity.LOW
 
-    def test_empty_string_maps_to_info(self) -> None:
-        """Empty severity string (occurs in real data) defaults to INFO."""
-        assert SEVERITY_MAP[""] == Severity.INFO
+    def test_empty_severity_fail_maps_to_medium(self) -> None:
+        """Empty severity string (occurs in real data) defaults to MEDIUM on failure."""
+        assert SEVERITY_MAP[("", FindingStatus.FAIL)] == Severity.MEDIUM
 
-    def test_fixture_severities_covered(self, fixture_data: list[dict[str, Any]]) -> None:
-        """Every Severity value in fixtures is in SEVERITY_MAP."""
+    def test_fixture_severities_covered_for_fail(self, fixture_data: list[dict[str, Any]]) -> None:
+        """Every Severity value in fixtures has a FAIL entry in SEVERITY_MAP."""
         unmapped_severities: set[str] = set()
         for test in fixture_data:
             severity = test["Severity"]
-            if severity not in SEVERITY_MAP:
+            if (severity, FindingStatus.FAIL) not in SEVERITY_MAP:
                 unmapped_severities.add(severity)
         assert unmapped_severities == set(), (
-            f"Unmapped severity values in fixtures: {unmapped_severities}"
+            f"Unmapped severity values in fixtures (for FAIL status): {unmapped_severities}"
         )
 
 
-class TestBlockCategoryMap:
-    """Category mapping uses Maester's Block field, not a Category field."""
+class TestCategoryMap:
+    """Category mapping uses check-ID prefix (lowercased), not Block field."""
 
-    def test_block_category_map_is_dict(self) -> None:
-        assert isinstance(BLOCK_CATEGORY_MAP, dict)
+    def test_category_map_is_dict(self) -> None:
+        assert isinstance(CATEGORY_MAP, dict)
 
-    def test_block_category_map_keys_are_strings(self) -> None:
-        for key in BLOCK_CATEGORY_MAP:
+    def test_category_map_keys_are_lowercase_strings(self) -> None:
+        for key in CATEGORY_MAP:
             assert isinstance(key, str)
+            assert key == key.lower(), f"Category map key must be lowercase: {key!r}"
 
-    def test_block_category_map_values_are_valid_categories(self) -> None:
-        for category in BLOCK_CATEGORY_MAP.values():
+    def test_category_map_values_are_valid_categories(self) -> None:
+        for category in CATEGORY_MAP.values():
             assert isinstance(category, Category)
 
     def test_cis_maps_to_compliance(self) -> None:
-        assert BLOCK_CATEGORY_MAP["CIS"] == Category.COMPLIANCE
+        assert CATEGORY_MAP["cis"] == Category.COMPLIANCE
 
     def test_cisa_maps_to_compliance(self) -> None:
-        assert BLOCK_CATEGORY_MAP["CISA"] == Category.COMPLIANCE
+        assert CATEGORY_MAP["cisa"] == Category.COMPLIANCE
 
     def test_eidsca_maps_to_identity_access(self) -> None:
-        assert BLOCK_CATEGORY_MAP["EIDSCA"] == Category.IDENTITY_ACCESS
-
-    def test_maester_entra_maps_to_identity_access(self) -> None:
-        assert BLOCK_CATEGORY_MAP["Maester/Entra"] == Category.IDENTITY_ACCESS
+        assert CATEGORY_MAP["eidsca"] == Category.IDENTITY_ACCESS
 
     def test_orca_maps_to_email_collaboration(self) -> None:
-        assert BLOCK_CATEGORY_MAP["ORCA"] == Category.EMAIL_COLLABORATION
+        assert CATEGORY_MAP["orca"] == Category.EMAIL_COLLABORATION
 
-    def test_maester_exchange_maps_to_email_collaboration(self) -> None:
-        assert BLOCK_CATEGORY_MAP["Maester/Exchange"] == Category.EMAIL_COLLABORATION
+    def test_mt_maps_to_identity_access(self) -> None:
+        assert CATEGORY_MAP["mt"] == Category.IDENTITY_ACCESS
 
-    def test_maester_teams_maps_to_email_collaboration(self) -> None:
-        assert BLOCK_CATEGORY_MAP["Maester/Teams"] == Category.EMAIL_COLLABORATION
-
-    def test_maester_intune_maps_to_device_management(self) -> None:
-        assert BLOCK_CATEGORY_MAP["Maester/Intune"] == Category.DEVICE_MANAGEMENT
-
-    def test_fixture_blocks_covered(self, fixture_data: list[dict[str, Any]]) -> None:
-        """Every Block value in fixtures has a matching category map entry."""
-        unmapped_blocks: set[str] = set()
+    def test_fixture_id_prefixes_covered(self, fixture_data: list[dict[str, Any]]) -> None:
+        """Every check-ID prefix in fixtures has a matching category map entry."""
+        unmapped_prefixes: set[str] = set()
         for test in fixture_data:
-            block = test.get("Block", "")
-            if block and block not in BLOCK_CATEGORY_MAP:
-                unmapped_blocks.add(block)
-        assert unmapped_blocks == set(), f"Unmapped Block values in fixtures: {unmapped_blocks}"
+            test_id = test["Id"]
+            parts = test_id.split(".")
+            if len(parts) >= 2:
+                prefix = parts[0].lower()
+                if prefix not in CATEGORY_MAP:
+                    unmapped_prefixes.add(prefix)
+        assert unmapped_prefixes == set(), (
+            f"Unmapped check-ID prefixes in fixtures: {unmapped_prefixes}"
+        )
 
 
 class TestDedupKeyRules:

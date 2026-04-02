@@ -20,7 +20,7 @@ from gxassessms.adapters._base import (
     run_powershell,
 )
 from gxassessms.adapters.maester.mappings import (
-    BLOCK_CATEGORY_MAP,
+    CATEGORY_MAP,
     DEDUP_KEY_RULES,
     SEVERITY_MAP,
 )
@@ -136,11 +136,19 @@ class MaesterAdapter:
         There is NO -OutputFormat parameter. -OutputFolder generates all three.
         """
         from gxassessms.core.config.datetime_utils import utc_now
+        from gxassessms.core.contracts.errors import CollectionError
 
-        tool_config = config.tools.get("maester", {})
-        timeout = tool_config.get("timeout", 600)
-        output_dir = Path(config.engagement_dir) / "raw" / "maester"
+        tc = config.tools.get(self.tool_name.lower())
+        if tc is None or not tc.output_dir:
+            raise CollectionError(
+                "Maester adapter requires 'output_dir' in tool config",
+                adapter_name=self.tool_name,
+            )
+
+        output_dir = Path(tc.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
+        timeout = tc.timeout if tc.timeout is not None else 600
+        extra_args = tc.extra_args
 
         script_parts = [
             "Import-Module Maester;",
@@ -149,7 +157,6 @@ class MaesterAdapter:
         ]
 
         script = " ".join(script_parts)
-        extra_args = tool_config.get("extra_args", [])
 
         run_powershell(
             script=script,
@@ -228,14 +235,14 @@ class MaesterAdapter:
         return records
 
     @property
-    def severity_map(self) -> dict[str, Any]:
-        """Expose severity map for NormalizationPolicy consumption."""
+    def severity_map(self) -> dict[tuple[str, str], Any]:
+        """(Severity, canonicalized status) -> Severity for NormalizationPolicy."""
         return SEVERITY_MAP
 
     @property
     def category_map(self) -> dict[str, Any]:
-        """Expose block->category map for NormalizationPolicy consumption."""
-        return BLOCK_CATEGORY_MAP
+        """Check-ID prefix -> Category for NormalizationPolicy."""
+        return CATEGORY_MAP
 
     @property
     def dedup_key_rules(self) -> dict[str, str]:
@@ -298,13 +305,17 @@ class MaesterAdapter:
 
     @staticmethod
     def _find_results_file(json_files: list[str]) -> str | None:
-        """Find the Maester TestResults JSON file in a list of file paths.
+        """Find the most recent Maester TestResults JSON file.
 
         Matches any JSON file whose name starts with 'testresults' or
-        'maestertestresults' (case-insensitive).
+        'maestertestresults' (case-insensitive). When multiple matches exist,
+        returns the last in sorted order (newest timestamp in the filename).
         """
-        for f in json_files:
-            name_lower = Path(f).name.lower()
-            if name_lower.startswith("testresults") or name_lower.startswith("maestertestresults"):
-                return f
-        return None
+        matches = [
+            f
+            for f in json_files
+            if Path(f).name.lower().startswith(("testresults", "maestertestresults"))
+        ]
+        if not matches:
+            return None
+        return sorted(matches, reverse=True)[0]

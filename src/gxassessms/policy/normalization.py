@@ -259,27 +259,33 @@ class DefaultNormalizationPolicy:
     def _extract_module_prefix(native_check_id: str) -> str | None:
         """Extract the module prefix from a tool-native check ID.
 
-        Only ScubaGear (MS.) and Monkey365 (m365.) prefixes are handled.
-        All other patterns return None.
+        ScubaGear and Monkey365 use the second segment as the module prefix.
+        All other dot-separated IDs use the first segment (lowercased).
 
         Examples:
-            MS.AAD.3.1v1 -> aad
-            MS.EXO.4.1v1 -> exo
-            MT.1003 -> None  # prefix is not extracted; callers fall back to
-                             # direct native_check_id lookup in adapter and default maps
-            m365.iam.mfa_admins -> iam
+            MS.AAD.3.1v1       -> aad      (ScubaGear: second segment)
+            MS.EXO.4.1v1       -> exo
+            m365.iam.mfa_admins -> iam     (Monkey365: second segment)
+            CISA.MS.AAD.3.1    -> cisa     (Maester: first segment)
+            EIDSCA.AF01        -> eidsca
+            MT.1001            -> mt
         """
-        # ScubaGear pattern: MS.{MODULE}.x.y
+        # ScubaGear pattern: MS.{MODULE}.x.y -- second segment is the module
         if native_check_id.startswith("MS."):
             parts = native_check_id.split(".")
             if len(parts) >= 3:
                 return parts[1].lower()
 
-        # Monkey365 pattern: m365.{module}.check_name
+        # Monkey365 pattern: m365.{module}.check_name -- second segment
         if native_check_id.startswith("m365."):
             parts = native_check_id.split(".")
             if len(parts) >= 3:
                 return parts[1].lower()
+
+        # Generic: first dot-separated segment for other formats
+        parts = native_check_id.split(".")
+        if len(parts) >= 2:
+            return parts[0].lower()
 
         return None
 
