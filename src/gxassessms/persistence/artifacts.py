@@ -419,7 +419,7 @@ class ArtifactManager:
                 )
                 persisted[slug] = raw_output
 
-        except Exception:
+        except (OSError, PersistenceError, ValueError):  # fmt: skip
             shutil.rmtree(staging_dir, ignore_errors=True)
             raise
 

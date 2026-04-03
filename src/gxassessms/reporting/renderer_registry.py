@@ -115,7 +115,7 @@ def check_node_available() -> str | None:
             timeout=10,
         )
         return node_exe if result.returncode == 0 else None
-    except OSError, subprocess.TimeoutExpired:
+    except (OSError, subprocess.TimeoutExpired):  # fmt: skip
         return None
 
 
