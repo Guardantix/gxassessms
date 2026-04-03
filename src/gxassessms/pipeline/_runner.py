@@ -351,15 +351,15 @@ def _rehydrate_upstream_state(
 
     if start_stage == Stage.PARSE:
         from gxassessms.pipeline.replay import (
-            ReplayEngine,
             load_raw_outputs,
-            validate_raw_outputs,
         )
 
         eng_dir = orchestrator._artifact_manager.get_engagement_dir(engagement_id)
-        raw_outputs = load_raw_outputs(eng_dir)
-        validate_raw_outputs(raw_outputs, adapters, engagement_id)
-        adapter_results = ReplayEngine().build_adapter_results(raw_outputs)  # type: ignore[arg-type]  # Task 7 will align types
+        loaded_manifests = load_raw_outputs(eng_dir)
+        # TODO(#35/Task-12): pass loaded_manifests through confine_and_resolve()
+        # and build adapter_results for downstream stages.
+        _ = loaded_manifests  # suppress unused-variable until Task 12
+        adapter_results: list[Any] = []  # placeholder until Task 12 integrates
         return adapter_results, None, None
 
     if start_stage == Stage.NORMALIZE:

@@ -923,7 +923,7 @@ class TestRehydrateUpstreamState:
         assert f is None
         assert cf is None
 
-    def test_parse_loads_raw_outputs_and_builds_adapter_results(
+    def test_parse_loads_raw_outputs(
         self,
         orchestrator: Orchestrator,
         mock_artifact_manager: MagicMock,
@@ -932,14 +932,14 @@ class TestRehydrateUpstreamState:
 
         with (
             patch("gxassessms.pipeline.replay.load_raw_outputs") as ml,
-            patch("gxassessms.pipeline.replay.validate_raw_outputs"),
-            patch("gxassessms.pipeline.replay.ReplayEngine") as me,
+            patch("gxassessms.pipeline.replay.ReplayEngine"),
         ):
             ml.return_value = []
-            me.return_value.build_adapter_results.return_value = [MagicMock()]
             ra, f, cf = _rehydrate_upstream_state(Stage.PARSE, ENG, [], orchestrator)
             mock_artifact_manager.get_engagement_dir.assert_called_once_with(ENG)
             ml.assert_called_once()
+        # TODO(#35/Task-12): once runner integration is complete, ra will
+        # contain adapter results built from loaded manifests.
         assert ra is not None
         assert f is None
         assert cf is None
