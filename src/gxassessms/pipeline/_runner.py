@@ -6,7 +6,6 @@ Separated from orchestrator.py to keep both files under 400 lines.
 from __future__ import annotations
 
 import logging
-import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -27,12 +26,13 @@ from gxassessms.pipeline.stages import (
     collect_coverage,
     consolidate,
     get_stage_entry_state,
+    get_stages_from,
     normalize,
     parse,
     qa_review,
     render,
 )
-from gxassessms.pipeline.state import EngagementState, PipelineEvent
+from gxassessms.pipeline.state import EngagementState, _extract_payload
 
 if TYPE_CHECKING:
     from gxassessms.pipeline.orchestrator import Orchestrator
@@ -90,15 +90,15 @@ def run_stages(
             "before QA, or omit stop_stage to run to completion."
         )
 
-    stages = orchestrator._get_stages_to_run(start_stage)
+    stages = get_stages_from(start_stage)
 
     with orchestrator._lock.hold(engagement_id):
         current_state = orchestrator._get_current_state(engagement_id)
 
-        if orchestrator._detect_stale_running(engagement_id, current_state):
+        if orchestrator._detect_stale_running(current_state):
             recovery_stage = _recover_stale_state(orchestrator, engagement_id, current_state)
             current_state = orchestrator._get_current_state(engagement_id)
-            stages = orchestrator._get_stages_to_run(recovery_stage)
+            stages = get_stages_from(recovery_stage)
 
         # None = "upstream never ran"; [] = "upstream ran, produced zero results".
         adapter_results: list[AdapterResult] | None = None
@@ -209,7 +209,7 @@ def run_stages(
                 # Real QA strategies leave the engagement at QA_REVIEW
                 # for human review; the pipeline stops here.
                 if stage == Stage.QA_REVIEW:
-                    if orchestrator._should_auto_advance_qa(qa_strategy):
+                    if getattr(qa_strategy, "is_noop", False) is True:
                         logger.info(
                             "No-op QA strategy -- auto-advancing QA_REVIEW -> QA_APPROVED for %s",
                             engagement_id,
@@ -313,20 +313,16 @@ def _recover_stale_state(
     )
 
     orchestrator._engagement_repo.force_update_state(engagement_id, recovery_state)
-
-    event = PipelineEvent(
-        event_id=str(uuid.uuid4()),
-        engagement_id=engagement_id,
-        timestamp=utc_now(),
-        event_type="stale_recovery",
-        actor="system",
-        payload={
+    orchestrator._emit_event(
+        engagement_id,
+        "stale_recovery",
+        "system",
+        {
             "from": stale_state.value,
             "to": recovery_state.value,
             "reason": "Stale running state detected from prior process crash",
         },
     )
-    orchestrator._event_repo.append(event)
 
     return recovery_stage
 
@@ -398,8 +394,6 @@ def _verify_stage_completed(
     orchestrator: Orchestrator, engagement_id: str, expected_state: EngagementState
 ) -> None:
     """Check event journal confirms the upstream stage completed."""
-    from gxassessms.pipeline.orchestrator import _extract_payload
-
     events = orchestrator._event_repo.get_events_by_type(engagement_id, "state_transition")
     completed_states = {_extract_payload(e).get("to") for e in events}
     if expected_state.value not in completed_states:

@@ -306,20 +306,20 @@ class TestStaleStateDetection:
     def test_detect_stale_running_returns_true_for_running_states(
         self, orchestrator: Orchestrator
     ) -> None:
-        assert orchestrator._detect_stale_running("eng-001", EngagementState.COLLECTING) is True
-        assert orchestrator._detect_stale_running("eng-001", EngagementState.PARSING) is True
-        assert orchestrator._detect_stale_running("eng-001", EngagementState.NORMALIZING) is True
+        assert orchestrator._detect_stale_running(EngagementState.COLLECTING) is True
+        assert orchestrator._detect_stale_running(EngagementState.PARSING) is True
+        assert orchestrator._detect_stale_running(EngagementState.NORMALIZING) is True
 
     def test_detect_stale_running_returns_false_for_completed_states(
         self, orchestrator: Orchestrator
     ) -> None:
-        assert orchestrator._detect_stale_running("eng-001", EngagementState.CREATED) is False
-        assert orchestrator._detect_stale_running("eng-001", EngagementState.COLLECTED) is False
-        assert orchestrator._detect_stale_running("eng-001", EngagementState.COMPLETE) is False
+        assert orchestrator._detect_stale_running(EngagementState.CREATED) is False
+        assert orchestrator._detect_stale_running(EngagementState.COLLECTED) is False
+        assert orchestrator._detect_stale_running(EngagementState.COMPLETE) is False
 
     def test_qa_review_is_not_stale(self, orchestrator: Orchestrator) -> None:
         """QA_REVIEW is a legitimate waiting state for human approval, not a crash."""
-        assert orchestrator._detect_stale_running("eng-001", EngagementState.QA_REVIEW) is False
+        assert orchestrator._detect_stale_running(EngagementState.QA_REVIEW) is False
 
 
 class TestStaleStateRecovery:
@@ -589,44 +589,6 @@ class TestDomainErrorTransitionsToFailed:
 
 
 # ---------------------------------------------------------------------------
-# NoOp QA auto-advance tests
-# ---------------------------------------------------------------------------
-
-
-class TestNoOpQAAutoAdvance:
-    def test_noop_qa_auto_advances(self, orchestrator: Orchestrator) -> None:
-        strategy = NoOpQAStrategy()
-        assert orchestrator._should_auto_advance_qa(strategy) is True
-
-    def test_real_qa_does_not_auto_advance(self, orchestrator: Orchestrator) -> None:
-        strategy = MagicMock()
-        strategy.is_noop = False
-        assert orchestrator._should_auto_advance_qa(strategy) is False
-
-    def test_missing_is_noop_does_not_auto_advance(self, orchestrator: Orchestrator) -> None:
-        strategy = MagicMock(spec=[])
-        # No is_noop attribute
-        del strategy.is_noop
-        assert orchestrator._should_auto_advance_qa(strategy) is False
-
-
-# ---------------------------------------------------------------------------
-# _get_stages_to_run tests
-# ---------------------------------------------------------------------------
-
-
-class TestGetStagesToRun:
-    def test_run_from_returns_stages_to_execute(self, orchestrator: Orchestrator) -> None:
-        stages = orchestrator._get_stages_to_run(Stage.PARSE)
-        assert stages[0] == Stage.PARSE
-        assert Stage.COLLECT not in stages
-
-    def test_run_from_collect_includes_all_stages(self, orchestrator: Orchestrator) -> None:
-        stages = orchestrator._get_stages_to_run(Stage.COLLECT)
-        assert stages == list(Stage)
-
-
-# ---------------------------------------------------------------------------
 # Content hash tests
 # ---------------------------------------------------------------------------
 
@@ -712,7 +674,7 @@ class TestOrchestratorRun:
     ) -> None:
         """run() delegates to run_stages with start_stage=COLLECT."""
         config = _make_config()
-        with patch("gxassessms.pipeline._runner.run_stages") as mock_run:
+        with patch("gxassessms.pipeline.orchestrator.run_stages") as mock_run:
             orchestrator.run(
                 engagement_id="eng-001",
                 config=config,
@@ -737,7 +699,7 @@ class TestOrchestratorRunFrom:
     ) -> None:
         """run_from() delegates to run_stages with the given start_stage."""
         config = _make_config()
-        with patch("gxassessms.pipeline._runner.run_stages") as mock_run:
+        with patch("gxassessms.pipeline.orchestrator.run_stages") as mock_run:
             orchestrator.run_from(
                 engagement_id="eng-001",
                 config=config,
@@ -758,7 +720,7 @@ class TestOrchestratorRunFrom:
     ) -> None:
         """run_from(PARSE) should not include COLLECT in stages."""
         config = _make_config()
-        with patch("gxassessms.pipeline._runner.run_stages") as mock_run:
+        with patch("gxassessms.pipeline.orchestrator.run_stages") as mock_run:
             orchestrator.run_from(
                 engagement_id="eng-001",
                 config=config,
@@ -781,7 +743,7 @@ class TestOrchestratorRunFrom:
 class TestRunFromStopStage:
     def test_run_from_passes_stop_stage_to_run_stages(self, orchestrator: Orchestrator) -> None:
         """run_from() should pass stop_stage through to run_stages()."""
-        with patch("gxassessms.pipeline._runner.run_stages") as mock_run_stages:
+        with patch("gxassessms.pipeline.orchestrator.run_stages") as mock_run_stages:
             orchestrator.run_from(
                 engagement_id="eng-test",
                 config=_make_config(),
@@ -798,7 +760,7 @@ class TestRunFromStopStage:
 
     def test_run_from_stop_stage_defaults_to_none(self, orchestrator: Orchestrator) -> None:
         """run_from() stop_stage defaults to None (run to completion)."""
-        with patch("gxassessms.pipeline._runner.run_stages") as mock_run_stages:
+        with patch("gxassessms.pipeline.orchestrator.run_stages") as mock_run_stages:
             orchestrator.run_from(
                 engagement_id="eng-test",
                 config=_make_config(),
@@ -854,7 +816,6 @@ class TestRunStagesStopStage:
             patch("gxassessms.pipeline._runner._get_stage_output", return_value=[]),
             patch("gxassessms.pipeline._runner._build_report_payload", return_value=MagicMock()),
             patch("gxassessms.pipeline._runner._require_in_memory", return_value=None),
-            patch.object(orchestrator, "_should_auto_advance_qa", return_value=True),
         ):
             run_stages(
                 orchestrator=orchestrator,
@@ -863,7 +824,7 @@ class TestRunStagesStopStage:
                 adapters=[],
                 normalization_policy=None,
                 consolidation_rule=None,
-                qa_strategy=None,
+                qa_strategy=NoOpQAStrategy(),
                 renderers=[],
                 start_stage=Stage.COLLECT,
                 stop_stage=None,
