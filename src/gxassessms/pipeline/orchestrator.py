@@ -13,12 +13,13 @@ import hashlib
 import json
 import logging
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from gxassessms.core.config.config import EngagementConfig
-from gxassessms.core.config.datetime_utils import utc_now
-from gxassessms.core.contracts.errors import PersistenceError, PipelineError
+from gxassessms.core.config.datetime_utils import parse_utc, utc_now
+from gxassessms.core.contracts.errors import PipelineError
 from gxassessms.core.domain.enums import Severity
 from gxassessms.core.domain.models import Finding
 from gxassessms.persistence import (
@@ -29,8 +30,19 @@ from gxassessms.persistence import (
     EventRepo,
     FindingRepo,
 )
-from gxassessms.pipeline.stages import STAGE_STATE_MAP, Stage, get_stages_from
-from gxassessms.pipeline.state import EngagementLock, EngagementState, PipelineEvent
+from gxassessms.pipeline._runner import run_stages
+from gxassessms.pipeline.stages import (
+    STAGE_STATE_MAP,
+    Stage,
+    get_stage_entry_state,
+)
+from gxassessms.pipeline.state import (
+    EngagementLock,
+    EngagementState,
+    EventType,
+    PipelineEvent,
+    _extract_payload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,25 +56,15 @@ _QA_UPSTREAM_STAGES: frozenset[str] = frozenset(
     }
 )
 
-
-def _extract_payload(event: Any) -> dict[str, Any]:
-    """Extract the payload dict from an event row or object.
-
-    EventRepo.get_events_by_type() returns list[dict[str, Any]] where
-    the 'payload' value is a JSON string. PipelineEvent and similar
-    objects use a .payload attribute. We handle both representations.
-    """
-    if isinstance(event, dict):
-        raw: str | dict[str, Any] = event["payload"]  # pyright: ignore[reportUnknownVariableType]
-        if isinstance(raw, str):
-            try:
-                result: dict[str, Any] = json.loads(raw)
-            except json.JSONDecodeError as e:
-                raise PersistenceError(f"Corrupt event payload: {e}") from e
-            return result
-        return raw  # type: ignore[no-any-return]
-    # Mock objects use attribute access
-    return dict(event.payload)  # type: ignore[union-attr]
+# Maps completed/created states to the next stage to run.
+_COMPLETED_TO_NEXT: dict[EngagementState, Stage] = {
+    EngagementState.CREATED: Stage.COLLECT,
+    EngagementState.COLLECTED: Stage.PARSE,
+    EngagementState.PARSED: Stage.PARSE,
+    EngagementState.NORMALIZED: Stage.CONSOLIDATE,
+    EngagementState.CONSOLIDATED: Stage.QA_REVIEW,
+    EngagementState.QA_APPROVED: Stage.RENDER,
+}
 
 
 class Orchestrator:
@@ -95,6 +97,29 @@ class Orchestrator:
         self._artifact_manager = artifact_manager
 
     # ------------------------------------------------------------------
+    # Event emission
+    # ------------------------------------------------------------------
+
+    def _emit_event(
+        self,
+        engagement_id: str,
+        event_type: EventType,
+        actor: str,
+        payload: dict[str, Any],
+    ) -> None:
+        """Construct a PipelineEvent and append it to the event journal."""
+        self._event_repo.append(
+            PipelineEvent(
+                event_id=str(uuid.uuid4()),
+                engagement_id=engagement_id,
+                timestamp=utc_now(),
+                event_type=event_type,
+                actor=actor,
+                payload=payload,
+            )
+        )
+
+    # ------------------------------------------------------------------
     # State transitions
     # ------------------------------------------------------------------
 
@@ -122,22 +147,10 @@ class Orchestrator:
         EngagementState.assert_can_transition_to(from_state, to_state)
         self._engagement_repo.update_state(engagement_id, to_state)
 
-        payload: dict[str, Any] = {
-            "from": from_state.value,
-            "to": to_state.value,
-        }
+        payload: dict[str, Any] = {"from": from_state.value, "to": to_state.value}
         if content_hash is not None:
             payload["content_hash"] = content_hash
-
-        event = PipelineEvent(
-            event_id=str(uuid.uuid4()),
-            engagement_id=engagement_id,
-            timestamp=utc_now(),
-            event_type="state_transition",
-            actor="system",
-            payload=payload,
-        )
-        self._event_repo.append(event)
+        self._emit_event(engagement_id, "state_transition", "system", payload)
 
     # ------------------------------------------------------------------
     # Overrides and manual findings
@@ -168,20 +181,17 @@ class Orchestrator:
                 actor=actor,
                 engagement_id=engagement_id,
             )
-            event = PipelineEvent(
-                event_id=str(uuid.uuid4()),
-                engagement_id=engagement_id,
-                timestamp=utc_now(),
-                event_type="override",
-                actor=actor,
-                payload={
+            self._emit_event(
+                engagement_id,
+                "override",
+                actor,
+                {
                     "finding_id": finding_id,
                     "field": "severity",
                     "new_severity": new_severity.value,
                     "reason": reason,
                 },
             )
-            self._event_repo.append(event)
 
     def add_manual_finding(
         self,
@@ -202,34 +212,15 @@ class Orchestrator:
                 engagement_id=engagement_id,
                 finding=finding_dict,
             )
-            event = PipelineEvent(
-                event_id=str(uuid.uuid4()),
-                engagement_id=engagement_id,
-                timestamp=utc_now(),
-                event_type="manual_finding_added",
-                actor=actor,
-                payload={
+            self._emit_event(
+                engagement_id,
+                "manual_finding_added",
+                actor,
+                {
                     "finding_key": finding.finding_key,
                     "severity": finding.severity.value,
                 },
             )
-            self._event_repo.append(event)
-
-    # ------------------------------------------------------------------
-    # QA strategy inspection
-    # ------------------------------------------------------------------
-
-    def _should_auto_advance_qa(self, strategy: Any) -> bool:
-        """Return True if the QA strategy is a no-op (auto-advance)."""
-        return getattr(strategy, "is_noop", False) is True
-
-    # ------------------------------------------------------------------
-    # Stage ordering
-    # ------------------------------------------------------------------
-
-    def _get_stages_to_run(self, start_stage: Stage) -> list[Stage]:
-        """Return the ordered list of stages from start_stage onward."""
-        return get_stages_from(start_stage)
 
     # ------------------------------------------------------------------
     # Content hashing and invalidation
@@ -244,20 +235,14 @@ class Orchestrator:
         return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
     def _get_last_stage_hash(self, engagement_id: str, stage: Stage) -> str | None:
-        """Scan state_transition events for the last content_hash of a stage.
-
-        Looks for events where the 'to' field matches the stage's completed
-        state, and returns the content_hash from the most recent one.
-        Uses _extract_payload() for event deserialization.
-        """
+        """Return the content_hash from the most recent completed transition for stage."""
         _, completed_state = STAGE_STATE_MAP[stage]
         events = self._event_repo.get_events_by_type(engagement_id, "state_transition")
-        last_hash: str | None = None
-        for event in events:
+        for event in reversed(events):
             payload = _extract_payload(event)
             if payload.get("to") == completed_state.value:
-                last_hash = payload.get("content_hash")
-        return last_hash
+                return payload.get("content_hash")
+        return None
 
     def _is_stage_invalidated(
         self,
@@ -285,7 +270,6 @@ class Orchestrator:
 
     def _detect_stale_running(
         self,
-        engagement_id: str,
         current_state: EngagementState,
     ) -> bool:
         """Check if the engagement is stuck in a RUNNING state.
@@ -298,7 +282,7 @@ class Orchestrator:
         park the engagement at QA_REVIEW for human approval. That is
         a legitimate waiting state, not a crash.
         """
-        running_states = {running for running, _completed in STAGE_STATE_MAP.values()}
+        running_states = {running for running, _ in STAGE_STATE_MAP.values()}
         running_states.discard(EngagementState.QA_REVIEW)
         return current_state in running_states
 
@@ -313,10 +297,6 @@ class Orchestrator:
         stage (COLLECT/PARSE/NORMALIZE/CONSOLIDATE) was re-run after the
         most recent QA_APPROVED transition.
         """
-        from datetime import datetime
-
-        from gxassessms.core.config.datetime_utils import parse_utc
-
         state_events = self._event_repo.get_events_by_type(engagement_id, "state_transition")
 
         # Find the most recent QA_APPROVED timestamp.
@@ -369,8 +349,6 @@ class Orchestrator:
 
         No-ops if the engagement is already at the required entry state.
         """
-        from gxassessms.pipeline.stages import get_stage_entry_state
-
         current_state = self._get_current_state(engagement_id)
         entry_state = get_stage_entry_state(target_stage)
 
@@ -382,21 +360,17 @@ class Orchestrator:
             self._verify_qa_for_render(engagement_id)
 
         self._engagement_repo.force_update_state(engagement_id, entry_state)
-
-        event = PipelineEvent(
-            event_id=str(uuid.uuid4()),
-            engagement_id=engagement_id,
-            timestamp=utc_now(),
-            event_type="rerun",
-            actor="system",
-            payload={
+        self._emit_event(
+            engagement_id,
+            "rerun",
+            "system",
+            {
                 "from_state": current_state.value,
                 "to_state": entry_state.value,
                 "target_stage": target_stage.value,
                 "reason": "operator_rerun",
             },
         )
-        self._event_repo.append(event)
         logger.info(
             "Reset engagement %s from %s to %s for rerun at %s",
             engagement_id,
@@ -425,15 +399,6 @@ class Orchestrator:
         if current_state in (EngagementState.COMPLETE, EngagementState.QA_REVIEW):
             return None
 
-        # Completed states -> next stage
-        _COMPLETED_TO_NEXT: dict[EngagementState, Stage] = {
-            EngagementState.CREATED: Stage.COLLECT,
-            EngagementState.COLLECTED: Stage.PARSE,
-            EngagementState.PARSED: Stage.PARSE,
-            EngagementState.NORMALIZED: Stage.CONSOLIDATE,
-            EngagementState.CONSOLIDATED: Stage.QA_REVIEW,
-            EngagementState.QA_APPROVED: Stage.RENDER,
-        }
         if current_state in _COMPLETED_TO_NEXT:
             return _COMPLETED_TO_NEXT[current_state]
 
@@ -496,8 +461,6 @@ class Orchestrator:
             renderers: List of ReportRenderer implementations.
             output_dir: Optional output directory for rendered reports.
         """
-        from gxassessms.pipeline._runner import run_stages
-
         run_stages(
             orchestrator=self,
             engagement_id=engagement_id,
@@ -543,8 +506,6 @@ class Orchestrator:
             stop_stage: Optional stage to stop after. Defaults to None (run
                 to completion).
         """
-        from gxassessms.pipeline._runner import run_stages
-
         run_stages(
             orchestrator=self,
             engagement_id=engagement_id,

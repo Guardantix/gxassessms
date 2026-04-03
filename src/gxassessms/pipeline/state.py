@@ -7,6 +7,7 @@ locking per engagement to prevent concurrent state mutation.
 
 from __future__ import annotations
 
+import json
 import logging
 import re
 from collections.abc import Generator, Mapping
@@ -64,6 +65,25 @@ class PipelineEvent:
         # that neither the caller's original dict nor a passed MappingProxyType
         # referencing an external dict can be mutated to alter the audit record.
         object.__setattr__(self, "payload", MappingProxyType(dict(self.payload)))
+
+
+def _extract_payload(event: Any) -> dict[str, Any]:  # pyright: ignore[reportUnusedFunction]
+    """Extract the payload dict from an event row or object.
+
+    EventRepo.get_events_by_type() returns list[dict[str, Any]] where
+    the 'payload' value is a JSON string. Objects with a .payload attribute
+    (e.g. PipelineEvent) are also accepted.
+    """
+    if isinstance(event, dict):
+        raw: str | dict[str, Any] = event["payload"]  # pyright: ignore[reportUnknownVariableType]
+        if isinstance(raw, str):
+            try:
+                result: dict[str, Any] = json.loads(raw)
+            except json.JSONDecodeError as e:
+                raise PersistenceError(f"Corrupt event payload: {e}") from e
+            return result
+        return raw  # type: ignore[no-any-return]
+    return dict(event.payload)  # type: ignore[union-attr]
 
 
 _ENGAGEMENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
