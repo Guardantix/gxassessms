@@ -156,3 +156,31 @@ class TestExceptionContext:
     def test_gxassess_error_is_catchable_as_exception(self) -> None:
         with pytest.raises(Exception, match="test"):
             raise GxAssessError("test")
+
+
+class TestManifestConfinementError:
+    def test_inherits_from_pipeline_error(self) -> None:
+        from gxassessms.core.contracts.errors import (
+            ManifestConfinementError,
+            PipelineError,
+        )
+
+        assert issubclass(ManifestConfinementError, PipelineError)
+
+    def test_carries_all_fields(self) -> None:
+        from gxassessms.core.contracts.errors import ManifestConfinementError
+
+        err = ManifestConfinementError(
+            message="slug mismatch",
+            engagement_id="eng-001",
+            stage="confine",
+            tool_slug="scubagear",
+            check_name="three_way_slug",
+            detail="expected scubagear, got maester",
+        )
+        assert err.tool_slug == "scubagear"
+        assert err.check_name == "three_way_slug"
+        assert err.detail == "expected scubagear, got maester"
+        assert err.engagement_id == "eng-001"
+        assert err.stage == "confine"
+        assert "slug mismatch" in str(err)

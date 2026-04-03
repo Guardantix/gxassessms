@@ -200,3 +200,21 @@ class InvalidRawOutputError(PipelineError):
 
 class MissingRawOutputError(PipelineError):
     """Raw output files missing from filesystem during replay."""
+
+
+class ManifestConfinementError(PipelineError):
+    """Raised by confine_and_resolve() when a manifest fails security checks."""
+
+    def __init__(
+        self,
+        message: str,
+        engagement_id: str = "",
+        stage: str = "",
+        tool_slug: str = "",
+        check_name: str = "",
+        detail: str = "",
+    ) -> None:
+        self.tool_slug = tool_slug
+        self.check_name = check_name
+        self.detail = detail
+        super().__init__(message, engagement_id, stage)

@@ -126,3 +126,30 @@ ADAPTER_PLACEHOLDERS: frozenset[str] = frozenset(
         "Custom",
     }
 )
+
+# ---------------------------------------------------------------------------
+# Manifest / Replay Security
+# ---------------------------------------------------------------------------
+
+ManifestVersion = Literal["1.0.0"]
+
+MANIFEST_VERSION_CURRENT: str = "1.0.0"
+
+RECOGNIZED_MANIFEST_VERSIONS: frozenset[str] = frozenset({"1.0.0"})
+
+# Regex for storage_slug: [a-z0-9][a-z0-9-]*
+TOOL_SLUG_PATTERN: str = r"[a-z0-9][a-z0-9-]*"
+
+# Extension -> FileEncoding mapping for artifact classification.
+ENCODING_BY_EXTENSION: dict[str, FileEncoding] = {
+    ".json": "utf-8",
+}
+
+# Per-manifest_version allowlist of execution_metadata keys per adapter.
+# Keys not in the allowlist are silently dropped during persistence.
+EXECUTION_METADATA_ALLOWLIST: dict[str, dict[str, frozenset[str]]] = {
+    "1.0.0": {
+        "scubagear": frozenset({"modules"}),
+        "maester": frozenset(),
+    },
+}
