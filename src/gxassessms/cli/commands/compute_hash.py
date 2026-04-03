@@ -3,9 +3,10 @@
 Usage:
     mseco compute-module-hash --manifest-path /path/to/Module/X.Y.Z/Module.psd1
 
-Derives ModuleBase from the manifest path, runs reparse point scan,
-confinement check, and tree hash computation. Outputs the hash and
-module metadata for inclusion in adapter policy.py files.
+Derives ModuleBase from the manifest path, runs symlink/junction scan,
+and tree hash computation. Outputs the hash and module metadata for
+inclusion in adapter policy.py files. Manifest confinement is only
+checked at runtime by the PowerShell verifier.
 """
 
 from __future__ import annotations

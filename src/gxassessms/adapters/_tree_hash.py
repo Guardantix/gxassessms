@@ -2,7 +2,7 @@
 
 Scheme:
 1. Enumerate all files recursively (including hidden)
-2. Reject any item with ReparsePoint/symlink attributes
+2. Reject any item that is a symlink or junction (traversal reparse points)
 3. Sort by forward-slash-normalized relative path (lexicographic)
 4. Per-file: SHA-256 of raw bytes
 5. Concatenate: "relative/path\\0<sha256hex>\\n"
@@ -31,16 +31,17 @@ def compute_tree_hash(directory: Path) -> str:
         Hash string prefixed with "sha256tree:v1:".
 
     Raises:
-        ValueError: If any item in the tree is a symlink or reparse point.
+        ValueError: If any item in the tree is a symlink or junction.
         OSError: If files cannot be read.
     """
     files: list[tuple[str, Path]] = []
 
     for item in directory.rglob("*"):
-        # Symlink check must come before is_file() -- a symlink to a file
-        # would pass is_file() on platforms that follow links by default.
-        if item.is_symlink():
-            raise ValueError(f"Symlink/reparse point detected in tree: {item}")
+        # Symlink/junction check must come before is_file() -- a symlink
+        # to a file would pass is_file() on platforms that follow links by
+        # default, and rglob follows junctions when recursing.
+        if item.is_symlink() or item.is_junction():
+            raise ValueError(f"Symlink/junction detected in tree: {item}")
         if not item.is_file():
             continue
 

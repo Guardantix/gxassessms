@@ -60,7 +60,7 @@ class TestComputeTreeHash:
         link = tmp_path / "link.txt"
         link.symlink_to(real)
 
-        with pytest.raises(ValueError, match=r"reparse|symlink"):
+        with pytest.raises(ValueError, match=r"(?i)symlink|junction"):
             self.compute_tree_hash(tmp_path)
 
     def test_hash_prefix_is_sha256tree_v1(self, tmp_path: Path) -> None:
