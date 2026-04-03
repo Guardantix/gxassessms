@@ -91,7 +91,8 @@ class ArtifactManager:
         _validate_path_within_root(eng_dir, self._engagements_root)
 
         eng_dir.mkdir(parents=True, exist_ok=True)
-        (eng_dir / RAW_OUTPUT_DIR).mkdir(exist_ok=True)
+        (eng_dir / RAW_OUTPUT_DIR / "manifests").mkdir(parents=True, exist_ok=True)
+        (eng_dir / RAW_OUTPUT_DIR / "artifacts").mkdir(parents=True, exist_ok=True)
         (eng_dir / _REPORTS_DIR).mkdir(exist_ok=True)
 
         logger.info("Created engagement directory: %s", eng_dir)
@@ -254,65 +255,227 @@ class ArtifactManager:
         self,
         engagement_id: str,
         client_name: str,
-        adapter_results: list[Any],
-    ) -> Path:
-        """Persist raw tool outputs from COLLECT to the engagement directory.
+        collection_results: list[Any],
+    ) -> list[Any]:
+        """Persist collection results using generation-staged writes.
 
-        Creates the engagement directory if it does not already exist.
-        Writes each successful adapter's RawToolOutput as a JSON manifest
-        in ``raw-output/<tool_name>.json``, matching the format that
-        ``replay.load_raw_outputs()`` reads.
-
-        Args:
-            engagement_id: Engagement to persist outputs for.
-            client_name: Client name (used for directory slug).
-            adapter_results: List of AdapterResult objects from COLLECT.
-
-        Returns:
-            Path to the raw-output directory.
-
-        Raises:
-            PersistenceError: If directory creation or file write fails.
+        Phase 1: Validate all inputs (before any I/O)
+        Phase 2: Stage the full generation
+        Phase 3: Commit (artifacts first, manifests last)
+        Phase 4: Return LoadedManifest list
         """
+        import hashlib
+        import uuid as uuid_mod
+
+        from gxassessms.core.contracts.types import AdapterRunStatus
+        from gxassessms.core.domain.constants import (
+            EXECUTION_METADATA_ALLOWLIST,
+            MANIFEST_VERSION_CURRENT,
+        )
+        from gxassessms.core.domain.models import ArtifactRecord, RawToolOutput
+        from gxassessms.core.domain.path_validation import validate_canonical_posix_path
+        from gxassessms.pipeline.confinement import LoadedManifest
+
         try:
             eng_dir = self.get_engagement_dir(engagement_id)
         except PersistenceError:
             eng_dir = self.create_engagement_dir(engagement_id, client_name)
 
-        raw_dir = eng_dir / RAW_OUTPUT_DIR
-        raw_dir.mkdir(exist_ok=True)
+        raw_output_dir = eng_dir / RAW_OUTPUT_DIR
 
-        # Stale data from earlier runs must not reach replay/reparse (DELETE+INSERT pattern).
-        for old_file in raw_dir.glob("*.json"):
-            try:
-                old_file.unlink()
-            except OSError as e:
-                raise PersistenceError(
-                    f"Failed to clear stale raw output {old_file.name}: {e}"
-                ) from e
+        # Filter to successful results with collection_output
+        successful = [
+            r
+            for r in collection_results
+            if r.status == AdapterRunStatus.SUCCESS and r.collection_output is not None
+        ]
 
-        saved = 0
-        for result in adapter_results:
-            raw_output = getattr(result, "raw_output", None)
-            if raw_output is None:
-                continue
-            tool_name = getattr(raw_output, "tool", None)
-            if tool_name is None:
-                continue
-            filename = f"{tool_name.value.lower()}.json"
-            target = raw_dir / filename
-            _validate_path_within_root(target, self._engagements_root)
-            try:
-                target.write_text(raw_output.model_dump_json(indent=2), encoding="utf-8")
-            except OSError as e:
-                raise PersistenceError(
-                    f"Failed to write raw output for {tool_name.value}: {e}"
-                ) from e
-            saved += 1
+        # Phase 1: Validate all inputs
+        seen_slugs: set[str] = set()
+        seen_relpaths: set[str] = set()
+        seen_relpaths_lower: set[str] = set()
+
+        for cr in successful:
+            co = cr.collection_output
+            slug = co.tool_slug
+
+            # Duplicate slug check
+            if slug in seen_slugs:
+                raise PersistenceError(f"Duplicate storage_slug in collection results: {slug!r}")
+            seen_slugs.add(slug)
+
+            for artifact in co.artifacts:
+                # Source validation
+                source = Path(artifact.source_path)
+                if not source.is_absolute():
+                    raise PersistenceError(f"Source path is not absolute: {artifact.source_path!r}")
+                if not source.exists():
+                    raise PersistenceError(f"Source file does not exist: {artifact.source_path!r}")
+                if not source.is_file():
+                    raise PersistenceError(
+                        f"Source is not a regular file: {artifact.source_path!r}"
+                    )
+                if source.is_symlink():
+                    raise PersistenceError(
+                        f"Source is a symlink (not allowed): {artifact.source_path!r}"
+                    )
+
+                # Source hash verification
+                h = hashlib.sha256()
+                with open(source, "rb") as f:
+                    while chunk := f.read(65536):
+                        h.update(chunk)
+                if h.hexdigest() != artifact.sha256:
+                    raise PersistenceError(
+                        f"Source hash mismatch for {artifact.source_path!r}: "
+                        f"expected {artifact.sha256}, got {h.hexdigest()}"
+                    )
+
+                # Target relpath validation
+                try:
+                    validate_canonical_posix_path(artifact.target_relpath)
+                except ValueError as e:
+                    raise PersistenceError(
+                        f"Invalid target_relpath {artifact.target_relpath!r}: {e}"
+                    ) from e
+
+                if not artifact.target_relpath.startswith(f"{slug}/"):
+                    raise PersistenceError(
+                        f"target_relpath {artifact.target_relpath!r} does not start with {slug}/"
+                    )
+
+                # Duplicate and collision checks
+                if artifact.target_relpath in seen_relpaths:
+                    raise PersistenceError(f"Duplicate target_relpath: {artifact.target_relpath!r}")
+                lower = artifact.target_relpath.lower()
+                if lower in seen_relpaths_lower:
+                    raise PersistenceError(
+                        f"Case-insensitive collision for target_relpath: "
+                        f"{artifact.target_relpath!r}"
+                    )
+                seen_relpaths.add(artifact.target_relpath)
+                seen_relpaths_lower.add(lower)
+
+        # Phase 2: Stage the full generation
+        staging_id = str(uuid_mod.uuid4())
+        staging_dir = raw_output_dir / f".staging-{staging_id}"
+        staging_dir.mkdir(parents=True)
+
+        try:
+            staging_artifacts = staging_dir / "artifacts"
+            staging_manifests = staging_dir / "manifests"
+            staging_artifacts.mkdir()
+            staging_manifests.mkdir()
+
+            persisted: dict[str, RawToolOutput] = {}
+
+            for cr in successful:
+                co = cr.collection_output
+                slug = co.tool_slug
+                version = MANIFEST_VERSION_CURRENT
+                allowlist = EXECUTION_METADATA_ALLOWLIST.get(version, {}).get(slug, frozenset())
+
+                file_manifest: dict[str, ArtifactRecord] = {}
+                for artifact in co.artifacts:
+                    source = Path(artifact.source_path)
+                    dest = staging_artifacts / artifact.target_relpath
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(str(source), str(dest))
+
+                    # Verify copy
+                    h = hashlib.sha256()
+                    with open(dest, "rb") as f:
+                        while chunk := f.read(65536):
+                            h.update(chunk)
+                    if h.hexdigest() != artifact.sha256:
+                        raise PersistenceError(
+                            f"Copy corruption for {artifact.target_relpath!r}: "
+                            f"expected {artifact.sha256}, got {h.hexdigest()}"
+                        )
+
+                    file_manifest[artifact.target_relpath] = ArtifactRecord(
+                        encoding=artifact.encoding,
+                        sha256=artifact.sha256,
+                    )
+
+                filtered_metadata = {
+                    k: v for k, v in co.execution_metadata.items() if k in allowlist
+                }
+
+                raw_output = RawToolOutput(
+                    tool=co.tool,
+                    tool_slug=slug,
+                    schema_version=co.schema_version,
+                    manifest_version=version,
+                    timestamp=co.timestamp,
+                    file_manifest=file_manifest,
+                    execution_metadata=filtered_metadata,
+                )
+
+                manifest_path = staging_manifests / f"{slug}.json"
+                manifest_path.write_text(
+                    raw_output.model_dump_json(indent=2),
+                    encoding="utf-8",
+                )
+                persisted[slug] = raw_output
+
+        except Exception:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            raise
+
+        # Phase 3: Commit
+        old_artifacts_id = str(uuid_mod.uuid4())
+        old_manifests_id = str(uuid_mod.uuid4())
+        artifacts_dir = raw_output_dir / "artifacts"
+        manifests_dir = raw_output_dir / "manifests"
+
+        try:
+            if artifacts_dir.exists():
+                artifacts_dir.rename(raw_output_dir / f".old-artifacts-{old_artifacts_id}")
+            if manifests_dir.exists():
+                manifests_dir.rename(raw_output_dir / f".old-manifests-{old_manifests_id}")
+            (staging_dir / "artifacts").rename(artifacts_dir)
+            (staging_dir / "manifests").rename(manifests_dir)
+        except OSError as e:
+            raise PersistenceError(
+                f"Failed to commit generation for engagement {engagement_id}: {e}"
+            ) from e
+
+        # Best-effort cleanup of old generation and staging
+        for name in [
+            f".old-artifacts-{old_artifacts_id}",
+            f".old-manifests-{old_manifests_id}",
+            f".staging-{staging_id}",
+        ]:
+            target = raw_output_dir / name
+            if target.exists():
+                shutil.rmtree(target, ignore_errors=True)
+
+        # Clean up orphaned staging dirs from prior failed runs
+        for item in raw_output_dir.iterdir():
+            if item.name.startswith(".staging-") and item.is_dir():
+                shutil.rmtree(item, ignore_errors=True)
+
+        # Best-effort source cleanup
+        for cr in successful:
+            for artifact in cr.collection_output.artifacts:
+                source = Path(artifact.source_path)
+                try:
+                    source.unlink(missing_ok=True)
+                except OSError:
+                    logger.debug("Failed to clean source file %s (non-fatal)", source)
 
         logger.info(
             "Persisted %d raw output manifests for engagement %s",
-            saved,
+            len(persisted),
             engagement_id,
         )
-        return raw_dir
+
+        # Phase 4: Return LoadedManifest list
+        return [
+            LoadedManifest(
+                source_path=manifests_dir / f"{slug}.json",
+                raw_output=raw_output,
+            )
+            for slug, raw_output in persisted.items()
+        ]
