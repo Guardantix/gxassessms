@@ -852,6 +852,10 @@ Extend existing `tests/unit/adapters/test_scubagear.py` and `test_maester.py`:
 - Mock subprocess returns include verification report JSON
 - Approved and rejected scenarios
 - `execution_metadata["module_provenance"]` populated and JSON-serializable
+- Verification succeeded but tool failed (non-zero exit after import): no
+  `RawToolOutput` is created, but Python audit log is still emitted with the full
+  `ModuleVerificationResult`. This is the failure-path durability test -- the durable
+  log must not depend on successful collection.
 
 ### 13.9 Preflight Tests
 
@@ -953,6 +957,23 @@ src/gxassessms/
 `policy.py` per adapter is intentionally small (policy constants, approved hashes).
 Changes to these files represent security-relevant decisions and should be easy to
 review in PRs.
+
+### 14.4 Implementation Ordering
+
+The highest-risk implementation seams are the PowerShell template behavior and
+Python/PowerShell hash parity. The implementation plan should front-load these:
+
+1. **First**: `sha256tree:v1` hash implementation in Python + PowerShell, with
+   golden-vector parity tests in CI. If these two implementations disagree, the
+   entire approval path is broken. This must be proven correct before anything
+   else depends on it.
+2. **Second**: The PowerShell verification template (Phases 1-8) with integration
+   tests under isolated `PSModulePath`. The template is the largest single piece of
+   untested complexity and the hardest to debug.
+3. **Third**: Core DTOs, error hierarchy, approval logic, report parsing -- these are
+   standard Python and can be unit-tested in isolation.
+4. **Fourth**: Adapter integration (`policy.py`, adapter modifications, `collect()`
+   wiring) and CLI updates (preflight, adapters check, `compute-module-hash`).
 
 ## 15. Operational Notes
 
