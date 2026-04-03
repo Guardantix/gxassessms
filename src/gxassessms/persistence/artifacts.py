@@ -8,6 +8,7 @@ engagement files after writing an audit manifest.
 
 from __future__ import annotations
 
+import glob
 import json
 import logging
 import re
@@ -102,7 +103,7 @@ class ArtifactManager:
         Scans the engagements root for a directory ending with the
         engagement ID. Raises PersistenceError if not found.
         """
-        for entry in self._engagements_root.glob(f"*-{engagement_id}"):
+        for entry in self._engagements_root.glob(f"*-{glob.escape(engagement_id)}"):
             if entry.is_dir():
                 _validate_path_within_root(entry, self._engagements_root)
                 return entry
