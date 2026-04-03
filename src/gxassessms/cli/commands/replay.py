@@ -30,6 +30,8 @@ from gxassessms.core.contracts.errors import GxAssessError
 
 logger = logging.getLogger(__name__)
 
+_STAGE_CLI_ALIASES = {"qa": "QA_REVIEW", "report": "RENDER"}
+
 
 @click.command("replay")
 @click.argument("engagement_id")
@@ -63,19 +65,9 @@ def replay_cmd(engagement_id: str, from_stage: str, qa_strategy_name: str | None
     """
     try:
         from gxassessms.core.config.config import EngagementConfig
-        from gxassessms.pipeline.replay import ReplayEngine
         from gxassessms.pipeline.stages import Stage
 
-        stage_map = {
-            "parse": Stage.PARSE,
-            "consolidate": Stage.CONSOLIDATE,
-            "qa": Stage.QA_REVIEW,
-            "report": Stage.RENDER,
-        }
-        start_stage = stage_map[from_stage.lower()]
-
-        replay_engine = ReplayEngine()
-        replay_engine.validate_start_stage(start_stage)
+        start_stage = Stage(_STAGE_CLI_ALIASES.get(from_stage, from_stage).upper())
 
         # Load config from the engagement's persisted snapshot so RENDER
         # has access to client_name, report_formats, etc.
@@ -105,17 +97,16 @@ def replay_cmd(engagement_id: str, from_stage: str, qa_strategy_name: str | None
             f"[bold]Replaying engagement {engagement_id} from {start_stage.value}...[/bold]"
         )
 
-        orchestrator = _helpers.build_orchestrator()
-        adapters = _helpers.discover_cli_adapters()
-
-        adapters = _helpers.filter_and_validate_adapters(config, adapters)
-
         qa_strategy = _helpers.discover_plugin("gxassessms.qa_strategies", name=qa_strategy_name)
         if qa_strategy_name is not None and qa_strategy is None:
             raise click.BadParameter(
                 f"QA strategy {qa_strategy_name!r} not found.",
                 param_hint="'--qa-strategy'",
             )
+
+        orchestrator = _helpers.build_orchestrator()
+        adapters = _helpers.discover_cli_adapters()
+        adapters = _helpers.filter_and_validate_adapters(config, adapters)
 
         orchestrator.reset_for_rerun(engagement_id, start_stage)
         orchestrator.run_from(
