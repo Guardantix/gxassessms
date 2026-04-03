@@ -197,6 +197,7 @@ def _register_commands() -> None:
     _try_register("gxassessms.cli.commands.preflight", "preflight_cmd", "preflight")
     _try_register("gxassessms.cli.commands.adapters", "adapters_group", "adapters")
     _try_register("gxassessms.cli.commands.analytics", "analytics_group", "analytics")
+    _try_register("gxassessms.cli.commands.compute_hash", "compute_hash_cmd", "compute-module-hash")
 
 
 _register_commands()
