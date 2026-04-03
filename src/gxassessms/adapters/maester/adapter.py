@@ -16,7 +16,6 @@ from typing import Any
 
 from gxassessms.adapters._base import (
     load_json_file,
-    run_powershell,
 )
 from gxassessms.adapters.maester.mappings import (
     CATEGORY_MAP,
@@ -58,35 +57,27 @@ class MaesterAdapter:
     )
 
     def check_prerequisites(self) -> PrerequisiteResult:
-        """Check that Maester module is installed and PowerShell is available."""
-        check_script = (
-            "if (Get-Module -ListAvailable -Name Maester) { 'installed' } else { 'missing' }"
-        )
+        """Check Maester module provenance against baseline policy."""
+        from gxassessms.adapters._verification import verify_module
+        from gxassessms.adapters.maester.policy import MODULE_POLICY
+        from gxassessms.core.contracts.errors import ModuleVerificationError
+
         try:
-            result = run_powershell(
-                script=check_script,
-                arguments=None,
-                timeout_seconds=30,
+            result = verify_module(
+                policy=MODULE_POLICY,
+                mode="preflight",
                 adapter_name=self.tool_name,
-                engagement_id="",
+                timeout_seconds=60,
             )
-        except CollectionError as exc:
-            return PrerequisiteResult(satisfied=False, message=str(exc))
-
-        stdout = (result.stdout or b"").decode(errors="replace")
-        if "installed" not in stdout:
+            version = result.approved_candidate.version if result.approved_candidate else "?"
             return PrerequisiteResult(
-                satisfied=False,
-                message=(
-                    "Maester PowerShell module not found. "
-                    "Install with: Install-Module -Name Maester"
-                ),
+                satisfied=True,
+                message=f"Maester {version} verified ({result.evidence_path})",
             )
-
-        return PrerequisiteResult(
-            satisfied=True,
-            message="Maester and PowerShell are available",
-        )
+        except ModuleVerificationError as exc:
+            return PrerequisiteResult(satisfied=False, message=str(exc))
+        except OSError as exc:
+            return PrerequisiteResult(satisfied=False, message=str(exc))
 
     def authenticate(
         self,
@@ -100,7 +91,7 @@ class MaesterAdapter:
         config: Any,  # EngagementConfig at runtime
         auth: AuthContext | None,
     ) -> CollectionOutput:
-        """Execute Maester and return raw output.
+        """Execute Maester with provenance verification.
 
         Each run is isolated in ``output_dir/run-<uuid>/`` so that prior
         run artifacts cannot contaminate the current collection. Maester's
@@ -113,6 +104,8 @@ class MaesterAdapter:
         """
         import uuid as uuid_mod
 
+        from gxassessms.adapters._base import run_verified_powershell
+        from gxassessms.adapters.maester.policy import ALLOWED_COMMANDS, MODULE_POLICY
         from gxassessms.core.config.datetime_utils import utc_now
         from gxassessms.core.hashing import sha256_file
 
@@ -126,17 +119,20 @@ class MaesterAdapter:
         output_dir = Path(tc.output_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         timeout = tc.timeout if tc.timeout is not None else 600
-        extra_args = tc.extra_args
 
         run_dir = output_dir / f"run-{uuid_mod.uuid4()}"
         run_dir.mkdir()
 
-        safe_run_dir = str(run_dir).replace("'", "''")
-        script = f"Import-Module Maester; Invoke-Maester -OutputFolder '{safe_run_dir}'"
+        named_args: dict[str, Any] = {"OutputFolder": str(run_dir)}
 
-        run_powershell(
-            script=script,
-            arguments=extra_args,
+        override = getattr(tc, "module_policy_override", None)
+
+        verification_result = run_verified_powershell(
+            policy=MODULE_POLICY,
+            allowed_commands=ALLOWED_COMMANDS,
+            command_name="Invoke-Maester",
+            named_args=named_args,
+            override=override,
             timeout_seconds=timeout,
             adapter_name=self.tool_name.lower(),
             engagement_id=getattr(config, "engagement_id", ""),
@@ -175,7 +171,9 @@ class MaesterAdapter:
                     sha256=sha,
                 )
             ],
-            execution_metadata={},
+            execution_metadata={
+                "module_provenance": verification_result.to_json_dict(),
+            },
         )
 
     def validate_raw(self, raw: ResolvedManifest) -> None:

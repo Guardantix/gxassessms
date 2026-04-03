@@ -225,3 +225,41 @@ def load_json_file(
             f"Invalid JSON in {path}: {exc}",
             adapter_name=adapter_name,
         ) from exc
+
+
+def run_verified_powershell(
+    *,
+    policy: Any,  # ModulePolicy
+    allowed_commands: frozenset[str],
+    command_name: str,
+    named_args: dict[str, Any],
+    switches: dict[str, bool] | None = None,
+    override: Any = None,  # ModulePolicyOverride | None
+    timeout_seconds: int = 1800,
+    adapter_name: str = "",
+    engagement_id: str = "",
+) -> Any:
+    """Verify module provenance and invoke a tool command in one shot.
+
+    Returns ModuleVerificationResult on success.
+    Raises ModuleVerificationError subclasses or CollectionError.
+    """
+    from gxassessms.adapters._verification import validate_command_allowlist, verify_module
+
+    validate_command_allowlist(command_name, allowed_commands)
+
+    invocation = {
+        "command_name": command_name,
+        "named_args": named_args,
+        "switches": switches or {},
+    }
+
+    return verify_module(
+        policy=policy,
+        override=override,
+        mode="collection",
+        post_import_invocation=invocation,
+        adapter_name=adapter_name,
+        engagement_id=engagement_id,
+        timeout_seconds=timeout_seconds,
+    )

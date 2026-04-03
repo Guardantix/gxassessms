@@ -14,7 +14,6 @@ from typing import Any, cast
 from gxassessms.adapters._base import (
     find_latest_output_dir,
     load_json_file,
-    run_powershell,
 )
 from gxassessms.adapters.scubagear.mappings import (
     CATEGORY_MAP,
@@ -60,44 +59,44 @@ class ScubaGearAdapter:
     )
 
     def check_prerequisites(self) -> PrerequisiteResult:
-        """Check that PowerShell and the ScubaGear module are available."""
+        """Check ScubaGear module provenance against baseline policy."""
+        from gxassessms.adapters._verification import verify_module
+        from gxassessms.adapters.scubagear.policy import MODULE_POLICY
+        from gxassessms.core.contracts.errors import ModuleVerificationError
+
         try:
-            result = run_powershell(
-                script="Get-Module -ListAvailable -Name ScubaGear",
-                arguments=None,
-                timeout_seconds=30,
+            result = verify_module(
+                policy=MODULE_POLICY,
+                mode="preflight",
                 adapter_name=self.tool_name,
-                engagement_id="",
+                timeout_seconds=60,
             )
-        except CollectionError as exc:
-            return PrerequisiteResult(satisfied=False, message=str(exc))
-
-        stdout = (result.stdout or b"").decode(errors="replace").strip()
-        if not stdout:
+            version = result.approved_candidate.version if result.approved_candidate else "?"
             return PrerequisiteResult(
-                satisfied=False,
-                message=(
-                    "ScubaGear PowerShell module not found. "
-                    "Install with: Install-Module -Name ScubaGear"
-                ),
+                satisfied=True,
+                message=f"ScubaGear {version} verified ({result.evidence_path})",
             )
-
-        logger.info("ScubaGear prerequisites satisfied (module found)")
-        return PrerequisiteResult(satisfied=True, message="ScubaGear prerequisites satisfied")
+        except ModuleVerificationError as exc:
+            return PrerequisiteResult(satisfied=False, message=str(exc))
+        except OSError as exc:
+            return PrerequisiteResult(satisfied=False, message=str(exc))
 
     def authenticate(self, config: EngagementConfig) -> AuthContext | None:
         """No-op: ScubaGear handles authentication internally via Connect-MgGraph."""
         return None
 
     def collect(self, config: EngagementConfig, auth: AuthContext | None) -> CollectionOutput:
-        """Invoke ScubaGear and capture its output directory.
+        """Invoke ScubaGear with provenance verification.
 
         Reads from ``config.tools["scubagear"]``: ``output_dir`` (required),
         ``modules``, ``timeout`` (default 1800), ``extra_args``.
 
         Raises:
             CollectionError: On PowerShell failure, timeout, or missing output.
+            ModuleVerificationError: On provenance or platform failures.
         """
+        from gxassessms.adapters._base import run_verified_powershell
+        from gxassessms.adapters.scubagear.policy import ALLOWED_COMMANDS, MODULE_POLICY
         from gxassessms.core.config.datetime_utils import utc_now
         from gxassessms.core.hashing import sha256_file
 
@@ -113,11 +112,8 @@ class ScubaGearAdapter:
 
         modules = tc.modules
         timeout_seconds = tc.timeout if tc.timeout is not None else _DEFAULT_TIMEOUT_SECONDS
-        extra_args = tc.extra_args
 
-        script_parts = ["Import-Module ScubaGear;", "Invoke-SCuBA"]
-        escaped_path = str(output_dir).replace("'", "''")
-        script_parts.append(f"-OutPath '{escaped_path}'")
+        named_args: dict[str, Any] = {"OutPath": str(output_dir)}
         if modules:
             canonical_modules: list[str] = []
             invalid: list[str] = []
@@ -133,19 +129,21 @@ class ScubaGearAdapter:
                     f"Valid modules: {sorted(_VALID_PRODUCT_NAMES)}",
                     adapter_name=self.tool_name,
                 )
-            module_list = ",".join(canonical_modules)
-            script_parts.append(f"-ProductNames {module_list}")
+            named_args["ProductNames"] = canonical_modules
 
-        script = " ".join(script_parts)
+        # Get override from config if present
+        override = getattr(tc, "module_policy_override", None)
 
-        # Snapshot existing output dirs so we can detect stale results
         existing_dirs = {
             d for d in output_dir.iterdir() if d.is_dir() and d.name.startswith(_OUTPUT_DIR_PREFIX)
         }
 
-        run_powershell(
-            script=script,
-            arguments=extra_args or None,
+        verification_result = run_verified_powershell(
+            policy=MODULE_POLICY,
+            allowed_commands=ALLOWED_COMMANDS,
+            command_name="Invoke-SCuBA",
+            named_args=named_args,
+            override=override,
             timeout_seconds=timeout_seconds,
             adapter_name=self.tool_name,
             engagement_id="",
@@ -194,7 +192,10 @@ class ScubaGearAdapter:
             schema_version=_SCHEMA_VERSION,
             timestamp=utc_now(),
             artifacts=artifacts,
-            execution_metadata={"modules": modules},
+            execution_metadata={
+                "modules": modules,
+                "module_provenance": verification_result.to_json_dict(),
+            },
         )
 
     def validate_raw(self, raw: ResolvedManifest) -> None:
