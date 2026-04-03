@@ -589,7 +589,8 @@ validate_raw(resolved) -> parse(resolved) / coverage(resolved)
 
 ```
 load_raw_outputs(engagement_dir)
-  -> read manifests/*.json, validate slug against registry
+  -> read manifests/*.json, validate directory shape (lowercase
+     filenames, no subdirectories, no non-JSON files)
   -> list[LoadedManifest]
 
 confine_and_resolve(loaded_manifests, engagement_dir, adapters)
@@ -638,14 +639,16 @@ elif stage == Stage.PARSE:
 - `MissingRawOutputError` -- missing `manifests/` directory or empty
   manifest set
 - `InvalidRawOutputError` -- malformed JSON, schema validation failures
-  during deserialization, AND manifest-directory shape violations:
-  - Manifest filename with unregistered slug
+  during deserialization, AND manifest-directory shape violations
+  detectable without adapter registry context:
   - Mixed-case manifest filename
   - Non-JSON file in `manifests/`
   - Subdirectory inside `manifests/`
 
-  These are all classified as invalid raw output because they represent
-  malformed or unexpected content at the replay input boundary.
+  These are classified as invalid raw output because they represent
+  malformed content at the replay input boundary. Unregistered-slug
+  detection requires the adapter registry and is performed by
+  `confine_and_resolve()`, which raises `ManifestConfinementError`.
 - `PersistenceError` -- I/O failures AND persistence-boundary validation
   failures in `save_raw_outputs()`:
   - Source hash mismatch
@@ -738,9 +741,11 @@ elif stage == Stage.PARSE:
 
 **load_raw_outputs():**
 - Loads from `manifests/*.json` only
-- Rejects: wrong slug, mixed-case filename, non-JSON file,
-  subdirectory under `manifests/`
+- Rejects: mixed-case filename, non-JSON file, subdirectory under
+  `manifests/`
 - Returns `list[LoadedManifest]` preserving source path
+- Does NOT validate slugs against adapter registry (that is
+  `confine_and_resolve()`'s responsibility)
 
 ### 7.4 Adapter Collection Tests
 
