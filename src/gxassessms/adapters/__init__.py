@@ -126,6 +126,50 @@ def _validate_adapter(name: str, adapter_class: Any) -> list[str]:
     return failures
 
 
+def _validate_registry_constraints(adapters: list[Any]) -> None:
+    """Validate uniqueness and format constraints across all adapters.
+
+    Hard failure on any of:
+    - Missing or empty storage_slug
+    - storage_slug not matching [a-z0-9][a-z0-9-]*
+    - Duplicate storage_slug across adapters
+    - Duplicate tool_source across adapters
+    """
+    import re
+
+    from gxassessms.core.domain.constants import TOOL_SLUG_PATTERN
+
+    seen_slugs: dict[str, str] = {}  # slug -> tool_name
+    seen_sources: dict[str, str] = {}  # tool_source -> tool_name
+
+    for adapter in adapters:
+        name = getattr(adapter, "tool_name", "<unknown>")
+        slug = getattr(adapter, "storage_slug", "")
+        source = getattr(adapter, "tool_source", None)
+
+        if not slug:
+            raise ValueError(f"Adapter {name!r} has empty storage_slug")
+        if not re.fullmatch(TOOL_SLUG_PATTERN, slug):
+            raise ValueError(
+                f"Adapter {name!r} storage_slug {slug!r} has invalid format "
+                f"(must match {TOOL_SLUG_PATTERN!r})"
+            )
+        if slug in seen_slugs:
+            raise ValueError(
+                f"Duplicate storage_slug {slug!r}: {name!r} conflicts with {seen_slugs[slug]!r}"
+            )
+        seen_slugs[slug] = name
+
+        if source is not None:
+            source_val = source.value if hasattr(source, "value") else str(source)
+            if source_val in seen_sources:
+                raise ValueError(
+                    f"Duplicate tool_source {source_val!r}: "
+                    f"{name!r} conflicts with {seen_sources[source_val]!r}"
+                )
+            seen_sources[source_val] = name
+
+
 # ---------------------------------------------------------------------------
 # Discovery
 # ---------------------------------------------------------------------------
@@ -167,6 +211,10 @@ def discover_adapters() -> AdapterRegistry:
         else:
             adapters[adapter_name] = adapter_class
             logger.debug("Registered adapter %r", adapter_name)
+
+    # Cross-adapter constraint validation (duplicates, slug format)
+    if adapters:
+        _validate_registry_constraints(list(adapters.values()))
 
     # Summary log
     valid_count = len(adapters)

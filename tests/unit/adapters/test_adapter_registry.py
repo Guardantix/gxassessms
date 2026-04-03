@@ -282,3 +282,71 @@ class TestDiscoverAdapters:
         # Exactly 1 error: the carried-forward load error
         assert len(registry.validation_errors) == 1
         assert registry.validation_errors[0].plugin_name == "broken"
+
+
+# ---------------------------------------------------------------------------
+# TestAdapterRegistryStartupValidation
+# ---------------------------------------------------------------------------
+
+
+class TestAdapterRegistryStartupValidation:
+    def test_rejects_duplicate_storage_slug(self) -> None:
+        """Two adapters with the same storage_slug -> hard failure."""
+        from gxassessms.adapters import _validate_registry_constraints
+
+        class Adapter1:
+            tool_name = "Adapter1"
+            storage_slug = "duplicate"
+            tool_source = ToolSource.SCUBAGEAR
+            capabilities = frozenset()
+
+        class Adapter2:
+            tool_name = "Adapter2"
+            storage_slug = "duplicate"
+            tool_source = ToolSource.MAESTER
+            capabilities = frozenset()
+
+        with pytest.raises(ValueError, match=r"[Dd]uplicate.*storage_slug"):
+            _validate_registry_constraints([Adapter1(), Adapter2()])
+
+    def test_rejects_duplicate_tool_source(self) -> None:
+        from gxassessms.adapters import _validate_registry_constraints
+
+        class Adapter1:
+            tool_name = "Adapter1"
+            storage_slug = "adapter1"
+            tool_source = ToolSource.SCUBAGEAR
+            capabilities = frozenset()
+
+        class Adapter2:
+            tool_name = "Adapter2"
+            storage_slug = "adapter2"
+            tool_source = ToolSource.SCUBAGEAR
+            capabilities = frozenset()
+
+        with pytest.raises(ValueError, match=r"[Dd]uplicate.*tool_source"):
+            _validate_registry_constraints([Adapter1(), Adapter2()])
+
+    def test_rejects_missing_storage_slug(self) -> None:
+        from gxassessms.adapters import _validate_registry_constraints
+
+        class Adapter:
+            tool_name = "BadAdapter"
+            storage_slug = ""
+            tool_source = ToolSource.SCUBAGEAR
+            capabilities = frozenset()
+
+        with pytest.raises(ValueError, match=r"empty.*storage_slug"):
+            _validate_registry_constraints([Adapter()])
+
+    def test_rejects_invalid_slug_format(self) -> None:
+        from gxassessms.adapters import _validate_registry_constraints
+
+        class Adapter:
+            tool_name = "BadAdapter"
+            storage_slug = "ScubaGear"  # uppercase
+            tool_source = ToolSource.SCUBAGEAR
+            capabilities = frozenset()
+
+        with pytest.raises(ValueError, match=r"[Ss]lug.*format"):
+            _validate_registry_constraints([Adapter()])
