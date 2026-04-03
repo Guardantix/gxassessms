@@ -157,6 +157,36 @@ class TestModulePolicyOverride:
         assert override.pinned_package_hashes is None
 
 
+class TestToolConfigWithOverride:
+    @pytest.fixture(autouse=True)
+    def _import(self) -> None:
+        from gxassessms.core.config.config import ToolConfig
+
+        self.ToolConfig = ToolConfig
+
+    def test_tool_config_accepts_module_policy_override(self) -> None:
+        tc = self.ToolConfig(
+            enabled=True,
+            output_dir="/out",
+            module_policy_override={"version_range": "==1.5.2"},
+        )
+        assert tc.module_policy_override is not None
+        assert tc.module_policy_override.version_range == "==1.5.2"
+
+    def test_tool_config_default_no_override(self) -> None:
+        tc = self.ToolConfig(enabled=True)
+        assert tc.module_policy_override is None
+
+    def test_invalid_override_rejected_at_config_load(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            self.ToolConfig(
+                enabled=True,
+                module_policy_override={"version_range": ">=1.0.0"},  # not exact pin
+            )
+
+
 class TestModuleVerificationErrors:
     @pytest.fixture(autouse=True)
     def _import(self) -> None:
