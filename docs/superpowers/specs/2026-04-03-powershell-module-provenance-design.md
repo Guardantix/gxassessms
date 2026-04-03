@@ -618,17 +618,23 @@ concern). The `verification_result` shows both axes failed.
 Provenance is logged at two points:
 
 **Inside the PowerShell template (before import/execution)**: The verification report
-JSON file written in Phase 8 IS the pre-execution audit record. It is written to the
-Python-owned temp directory before Phase 9 (`Import-Module`) runs. Because the report
-file is on disk before import, it survives crashes, hangs, and abnormal termination.
-Python reads it after the subprocess exits regardless of exit code. No reliance on
-PowerShell stream capture -- the durable artifact is the file, not console output.
+JSON file is written to the Python-owned temp directory in Phase 8, before Phase 9
+(`Import-Module`) runs. This file is a recovery artifact: if the subprocess crashes or
+hangs during Phase 9, Python can still read it to determine what was verified. It is
+NOT a durable audit record -- it lives in a temp directory and is cleaned up after
+Python processes it.
 
-**Python-side (after subprocess exits)**: Python parses the verification report and
-emits a structured Python `logging` event with the full `ModuleVerificationResult`. This
-is the rich, structured log that integrates with the Python logging pipeline. It fires
-after the subprocess completes, so in collection mode, import and tool execution have
-already happened. This is the audit/observability log, not the pre-execution guarantee.
+**Python-side (after subprocess exits)**: Python reads the temp report, parses it into
+`ModuleVerificationResult`, and then creates the durable audit records:
+
+1. **Python `logging` event** -- structured log with both axes, evidence path, hash,
+   signer details, paths. This is the runtime audit trail.
+2. **`execution_metadata["module_provenance"]`** -- serialized into the persisted
+   `RawToolOutput`. This is the durable, queryable provenance record that survives
+   beyond the process lifetime.
+
+The temp report file is cleaned up after both durable records are created. The
+durable records are the Python log and the persisted metadata, not the temp file.
 
 Python-side log events always surface both axes explicitly:
 
@@ -861,8 +867,8 @@ Extend existing `tests/unit/cli/test_preflight.py`:
 
 New or extend `tests/unit/cli/test_adapters_check.py`:
 
-- `mseco adapters check` calls `check_prerequisites()`, which uses code-owned policy
-  (no config overrides)
+- `mseco adapters check` calls the baseline verifier directly for PowerShell adapters
+  (not `check_prerequisites()`), using code-owned policy (no config overrides)
 - Output uses `PreflightCheckResult` rendering, not the old `dict[str, str]` path
 - Provenance-approved module displays version, evidence path, hash in output
 - Provenance-rejected module displays rejection reasons
