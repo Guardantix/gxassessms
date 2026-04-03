@@ -201,3 +201,110 @@ class ModuleVerificationResult:
         data = asdict(self)
         data["can_execute"] = self.can_execute
         return data
+
+
+# ---------------------------------------------------------------------------
+# Approval logic (spec Section 4.2 decision matrix)
+# ---------------------------------------------------------------------------
+
+
+def apply_approval_logic(
+    *,
+    candidates: list[CandidateOutcome] | tuple[CandidateOutcome, ...],
+    policy: ModulePolicy,
+    powershell_executable: str,
+    required_modules_logged: tuple[str, ...],
+) -> ModuleVerificationResult:
+    """Apply the approval decision matrix from spec Section 4.2.
+
+    Pure function: no I/O, no subprocess. Takes pre-evaluated candidates
+    and returns the final ModuleVerificationResult.
+    """
+    candidates_tuple = tuple(candidates)
+
+    if not candidates_tuple:
+        return ModuleVerificationResult(
+            module_name=policy.module_name,
+            provenance_approved=False,
+            execution_supported=False,
+            evidence_path=None,
+            rejection_reasons=("no_candidates",),
+            approved_candidate=None,
+            candidates=candidates_tuple,
+            required_modules_logged=required_modules_logged,
+            powershell_executable=powershell_executable,
+        )
+
+    can_execute = [c for c in candidates_tuple if c.provenance_approved and c.execution_supported]
+    provenance_approved = [c for c in candidates_tuple if c.provenance_approved]
+
+    # Exactly one can_execute -> approved
+    if len(can_execute) == 1:
+        winner = can_execute[0]
+        return ModuleVerificationResult(
+            module_name=policy.module_name,
+            provenance_approved=True,
+            execution_supported=True,
+            evidence_path=winner.evidence_path,
+            rejection_reasons=(),
+            approved_candidate=winner,
+            candidates=candidates_tuple,
+            required_modules_logged=required_modules_logged,
+            powershell_executable=powershell_executable,
+        )
+
+    # Multiple can_execute -> ambiguity
+    if len(can_execute) > 1:
+        return ModuleVerificationResult(
+            module_name=policy.module_name,
+            provenance_approved=False,
+            execution_supported=True,
+            evidence_path=None,
+            rejection_reasons=("ambiguity",),
+            approved_candidate=None,
+            candidates=candidates_tuple,
+            required_modules_logged=required_modules_logged,
+            powershell_executable=powershell_executable,
+        )
+
+    # Zero can_execute, exactly one provenance_approved -> approved but not executable
+    if len(provenance_approved) == 1:
+        winner = provenance_approved[0]
+        return ModuleVerificationResult(
+            module_name=policy.module_name,
+            provenance_approved=True,
+            execution_supported=False,
+            evidence_path=winner.evidence_path,
+            rejection_reasons=(),
+            approved_candidate=winner,
+            candidates=candidates_tuple,
+            required_modules_logged=required_modules_logged,
+            powershell_executable=powershell_executable,
+        )
+
+    # Multiple provenance_approved, none executable -> provenance ambiguity
+    if len(provenance_approved) > 1:
+        return ModuleVerificationResult(
+            module_name=policy.module_name,
+            provenance_approved=False,
+            execution_supported=False,
+            evidence_path=None,
+            rejection_reasons=("ambiguity",),
+            approved_candidate=None,
+            candidates=candidates_tuple,
+            required_modules_logged=required_modules_logged,
+            powershell_executable=powershell_executable,
+        )
+
+    # Zero provenance_approved
+    return ModuleVerificationResult(
+        module_name=policy.module_name,
+        provenance_approved=False,
+        execution_supported=False,
+        evidence_path=None,
+        rejection_reasons=("provenance_rejected",),
+        approved_candidate=None,
+        candidates=candidates_tuple,
+        required_modules_logged=required_modules_logged,
+        powershell_executable=powershell_executable,
+    )
