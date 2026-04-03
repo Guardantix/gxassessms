@@ -15,7 +15,6 @@ from pathlib import Path
 from typing import Any
 
 from gxassessms.adapters._base import (
-    get_powershell_executable,
     load_json_file,
     run_powershell,
 )
@@ -26,6 +25,7 @@ from gxassessms.adapters.maester.mappings import (
 )
 from gxassessms.adapters.maester.parser import parse_maester_tests
 from gxassessms.core.contracts.errors import (
+    CollectionError,
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
@@ -56,58 +56,28 @@ class MaesterAdapter:
 
     def check_prerequisites(self) -> PrerequisiteResult:
         """Check that Maester module is installed and PowerShell is available."""
-        import subprocess
-
-        ps_exe = get_powershell_executable()
-
-        # Check PowerShell availability
-        try:
-            result = subprocess.run(  # noqa: S603
-                [ps_exe, "-NoProfile", "-Command", "Write-Output 'ok'"],
-                capture_output=True,
-                text=True,
-                timeout=15,
-                shell=False,
-            )
-            if result.returncode != 0:
-                return PrerequisiteResult(
-                    satisfied=False,
-                    message=f"PowerShell ({ps_exe}) failed "
-                    f"(exit {result.returncode}): {result.stderr.strip()}",
-                )
-        except FileNotFoundError:
-            return PrerequisiteResult(
-                satisfied=False,
-                message=f"PowerShell not found: {ps_exe}. Install PowerShell Core (pwsh) on Linux.",
-            )
-        except subprocess.TimeoutExpired:
-            return PrerequisiteResult(
-                satisfied=False,
-                message=f"PowerShell ({ps_exe}) timed out during prerequisite check",
-            )
-
-        # Check Maester module availability
         check_script = (
             "if (Get-Module -ListAvailable -Name Maester) { 'installed' } else { 'missing' }"
         )
         try:
-            module_result = subprocess.run(  # noqa: S603
-                [ps_exe, "-NoProfile", "-NonInteractive", "-Command", check_script],
-                capture_output=True,
-                text=True,
-                timeout=30,
-                shell=False,
+            result = run_powershell(
+                script=check_script,
+                arguments=None,
+                timeout_seconds=30,
+                adapter_name=self.tool_name,
+                engagement_id="",
             )
-            if module_result.returncode != 0 or "installed" not in module_result.stdout:
-                return PrerequisiteResult(
-                    satisfied=False,
-                    message="Maester PowerShell module is not installed or check failed. "
-                    "Install via: Install-Module -Name Maester",
-                )
-        except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
+        except CollectionError as exc:
+            return PrerequisiteResult(satisfied=False, message=str(exc))
+
+        stdout = (result.stdout or b"").decode(errors="replace")
+        if "installed" not in stdout:
             return PrerequisiteResult(
                 satisfied=False,
-                message=f"Failed to check Maester module: {exc}",
+                message=(
+                    "Maester PowerShell module not found. "
+                    "Install with: Install-Module -Name Maester"
+                ),
             )
 
         return PrerequisiteResult(
@@ -137,7 +107,6 @@ class MaesterAdapter:
         There is NO -OutputFormat parameter. -OutputFolder generates all three.
         """
         from gxassessms.core.config.datetime_utils import utc_now
-        from gxassessms.core.contracts.errors import CollectionError
 
         tc = config.tools.get(self.tool_name.lower())
         if tc is None or not tc.output_dir:
@@ -151,13 +120,8 @@ class MaesterAdapter:
         timeout = tc.timeout if tc.timeout is not None else 600
         extra_args = tc.extra_args
 
-        script_parts = [
-            "Import-Module Maester;",
-            "Invoke-Maester",
-            f"-OutputFolder '{output_dir}'",
-        ]
-
-        script = " ".join(script_parts)
+        safe_output_dir = str(output_dir).replace("'", "''")
+        script = f"Import-Module Maester; Invoke-Maester -OutputFolder '{safe_output_dir}'"
 
         run_powershell(
             script=script,
@@ -167,13 +131,10 @@ class MaesterAdapter:
             engagement_id=getattr(config, "engagement_id", ""),
         )
 
-        # Build file manifest from output directory (single pass)
         file_manifest: dict[str, FileEncoding] = {}
-        _binary_suffixes = {".html"}
-
         for path in output_dir.glob("TestResults*"):
             if path.suffix in {".json", ".html", ".md"}:
-                encoding: FileEncoding = "binary" if path.suffix in _binary_suffixes else "utf-8"
+                encoding: FileEncoding = "binary" if path.suffix == ".html" else "utf-8"
                 file_manifest[str(path)] = encoding
 
         return RawToolOutput(
