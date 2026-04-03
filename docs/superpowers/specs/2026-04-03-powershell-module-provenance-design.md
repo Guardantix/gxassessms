@@ -108,8 +108,21 @@ Both must pass for collection to proceed. Preflight displays both axes independe
 - `collect()`: Same effective policy as preflight. Enforcement gate.
 
 The `check_prerequisites()` protocol method takes no config (backward compatibility
-with non-PowerShell adapters). `adapters check` is honestly a subset and documents
-this in its help text.
+with non-PowerShell adapters) and returns only `PrerequisiteResult(satisfied, message)`.
+This is too narrow for rich provenance display. Rather than changing the protocol,
+`mseco adapters check` calls the baseline verifier directly for PowerShell adapters
+(same pattern as preflight, but with code-owned policy instead of effective policy).
+Non-PowerShell adapters continue through `check_prerequisites()`.
+
+This means `adapters check` has two code paths:
+- PowerShell adapters: `verify_module(adapter.MODULE_POLICY, mode="preflight")` ->
+  `ModuleVerificationResult` -> `PreflightCheckResult` with full provenance
+- Non-PowerShell adapters: `adapter.check_prerequisites()` ->
+  `PrerequisiteResult` -> `PreflightCheckResult` with satisfied/message only
+
+`check_prerequisites()` on PowerShell adapters still calls the verifier internally
+(for any third-party code that calls the protocol method), but `adapters check` and
+`preflight` bypass it to get the structured result directly.
 
 Implementation must update user-facing contracts to reflect this split:
 
@@ -604,11 +617,12 @@ concern). The `verification_result` shows both axes failed.
 
 Provenance is logged at two points:
 
-**Inside the PowerShell template (before import/execution)**: After Phase 8 writes the
-verification report and before Phase 9 imports the module, the template emits a
-PowerShell `Write-Information` message with the approval decision, evidence path, hash,
-and staged path. This is the "log before execution" guarantee -- it fires inside the
-same process, before `Import-Module`.
+**Inside the PowerShell template (before import/execution)**: The verification report
+JSON file written in Phase 8 IS the pre-execution audit record. It is written to the
+Python-owned temp directory before Phase 9 (`Import-Module`) runs. Because the report
+file is on disk before import, it survives crashes, hangs, and abnormal termination.
+Python reads it after the subprocess exits regardless of exit code. No reliance on
+PowerShell stream capture -- the durable artifact is the file, not console output.
 
 **Python-side (after subprocess exits)**: Python parses the verification report and
 emits a structured Python `logging` event with the full `ModuleVerificationResult`. This
@@ -616,40 +630,52 @@ is the rich, structured log that integrates with the Python logging pipeline. It
 after the subprocess completes, so in collection mode, import and tool execution have
 already happened. This is the audit/observability log, not the pre-execution guarantee.
 
-Python-side log events:
+Python-side log events always surface both axes explicitly:
 
-**Approval (signature_and_hash) -- INFO**:
+**Provenance approved, execution supported (signature_and_hash) -- INFO**:
 ```
-[ScubaGear] Module approved (signature_and_hash): version=1.5.2,
-  live_path=/path/to/ScubaGear.psd1,
+[ScubaGear] provenance=APPROVED execution=SUPPORTED (signature_and_hash):
+  version=1.5.2, live_path=/path/to/ScubaGear.psd1,
   staged_path=/tmp/.../candidates/0/ScubaGear.psd1,
   hash=sha256tree:v1:abc123...,
   signer=CN=..., thumbprint=ABC123...,
   pwsh=/usr/bin/pwsh, candidates_discovered=1
 ```
 
-**Approval (hash_only, platform lacks signature support) -- INFO**:
+**Provenance approved, execution supported (hash_only, platform lacks sig) -- INFO**:
 ```
-[ScubaGear] Module approved (hash_only): version=1.5.2,
-  live_path=..., staged_path=..., hash=sha256tree:v1:abc123...,
-  signature_status=platform_unsupported,
+[Maester] provenance=APPROVED execution=SUPPORTED (hash_only):
+  version=1.0.25, live_path=..., staged_path=...,
+  hash=sha256tree:v1:abc123..., signature_status=platform_unsupported,
   pwsh=/usr/bin/pwsh, candidates_discovered=1
 ```
 
-**Approval (hash_only, signature available but failed) -- WARNING**:
+**Provenance approved, execution supported (hash_only, sig degraded) -- WARNING**:
 ```
-[ScubaGear] Module approved (hash_only, degraded): version=1.5.2,
-  live_path=..., staged_path=..., hash=sha256tree:v1:abc123...,
-  signature_status=NotSigned,
+[Maester] provenance=APPROVED execution=SUPPORTED (hash_only, degraded):
+  version=1.0.25, live_path=..., staged_path=...,
+  hash=sha256tree:v1:abc123..., signature_status=NotSigned,
   pwsh=/usr/bin/pwsh, candidates_discovered=1
 ```
 
 WARNING only when signature verification should have worked but didn't. INFO when
 hash-only is the policy-backed normal path on an unsupported platform.
 
-**Rejection -- ERROR**:
+**Provenance approved, execution NOT supported -- WARNING**:
 ```
-[ScubaGear] Module REJECTED: <reason>,
+[ScubaGear] provenance=APPROVED execution=UNSUPPORTED (hash_only):
+  version=1.5.2, live_path=..., staged_path=...,
+  hash=sha256tree:v1:abc123...,
+  platform_reason="requires PowerShell Desktop 5.1, running Core 7.4",
+  pwsh=/usr/bin/pwsh, candidates_discovered=1
+```
+
+WARNING because provenance is verified but the tool cannot run. Operators should not
+read this as "ready to collect."
+
+**Provenance rejected -- ERROR**:
+```
+[ScubaGear] provenance=REJECTED: <reason>,
   candidates_discovered=2, per-candidate details follow
 ```
 
