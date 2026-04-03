@@ -132,6 +132,11 @@ class CollectionResult(BaseModel):
     error: str | None = None
     duration_seconds: float = Field(ge=0)
 
+    # model_validator preserving current invariants:
+    #   SUCCESS requires collection_output, must not have error
+    #   FAILED/TIMEOUT require error message
+    #   SKIPPED must not carry collection_output
+
 
 class AdapterResult(BaseModel):
     """Wraps ResolvedManifest for parse/coverage stages."""
@@ -140,7 +145,17 @@ class AdapterResult(BaseModel):
     raw_output: ResolvedManifest | None = None
     error: str | None = None
     duration_seconds: float = Field(ge=0)
+
+    # model_validator preserving current invariants:
+    #   SUCCESS requires raw_output, must not have error
+    #   FAILED/TIMEOUT require error message
+    #   SKIPPED must not carry raw_output
 ```
+
+Both result types preserve the status/payload invariants from the
+current `AdapterResult` (see `src/gxassessms/core/domain/models.py:166`).
+These `model_validator`s enforce stage-boundary correctness and prevent
+silent construction of bad intermediate state.
 
 The runner keeps `collection_results` and `loaded_manifests` / `adapter_results`
 as separate variables. `CollectionResult` is preserved for COLLECT stage
@@ -211,11 +226,19 @@ Checks:
 
 ### Namespace Identity
 
-`storage_slug` is the canonical persistence identity:
+`storage_slug` is the canonical persistence AND dispatch identity:
 - Manifest filenames: `manifests/<storage_slug>.json`
 - Artifact subtrees: `artifacts/<storage_slug>/`
 - Replay lookup and confinement keyed by `storage_slug`
-- `tool` (`ToolSource` enum) is a consistency check, not persistence key
+- `AdapterResult.adapter_name` carries `storage_slug` (not `tool_name`)
+- `parse()` and `coverage()` stage functions match adapters by
+  `storage_slug`, not `tool_name`
+- `tool` (`ToolSource` enum) is a consistency check, not persistence or
+  dispatch key
+
+This requires updating the adapter lookup in `stages.py` (currently
+keyed by `tool_name`) to key by `storage_slug`. `tool_name` remains
+available for display/logging but is no longer used for dispatch.
 
 ### execution_metadata
 
@@ -283,9 +306,12 @@ manifest file path for the filename-stem check.
    `strict=True` surfaces missing files as `FileNotFoundError`, not hash
    noise.
 
-6. **Per-path root containment:**
-   `resolved.is_relative_to(artifacts_root.resolve())`. Catches symlink
-   escapes via resolution.
+6. **Per-path tool-subtree containment:**
+   `resolved.is_relative_to((artifacts_root / tool_slug).resolve())`.
+   Confines to the tool's own subtree, not just artifacts root. A
+   symlink inside `artifacts/scubagear/` that resolves to
+   `artifacts/maester/...` is rejected. This is the actual security
+   property: tool-subtree confinement after resolution.
 
 7. **Per-path file type:** `resolved.is_file()`. Rejects directories,
    devices.
@@ -315,9 +341,10 @@ the entire operation fails.
 
 ### Symlink Handling
 
-`resolve(strict=True)` + root containment. If the resolved path stays
-under `artifacts/`, any intermediate symlinks are acceptable. No
-categorical ban on symlinks -- only escapes.
+`resolve(strict=True)` + tool-subtree containment. If the resolved path
+stays under `artifacts/<tool_slug>/`, any intermediate symlinks are
+acceptable. A symlink that resolves outside the tool's own subtree --
+even to another tool's subtree -- is rejected.
 
 ### Replaces `validate_raw_outputs()`
 
@@ -394,17 +421,34 @@ For each tool:
 
 If any copy or verify fails, remove entire staging directory and fail.
 
-### Phase 3: Commit the Generation (Fail-Closed, Not Atomic)
+### Phase 3: Commit the Generation (Fail-Closed, Generation-Preserving)
 
-1. Remove existing `raw-output/artifacts/` (if present)
-2. Move staging `artifacts/` into place
-3. Remove existing `raw-output/manifests/` (if present)
-4. Move staging `manifests/` into place
-5. Remove staging directory (best-effort)
+Uses generation indirection to avoid destroying the last known-good
+replay state on a mid-commit failure:
 
-Manifests written last. An incomplete commit leaves either no manifests
-(undiscoverable by replay) or old manifests pointing at missing old
-artifacts (fails closed in `confine_and_resolve()`).
+1. Rename existing `raw-output/artifacts/` to
+   `raw-output/.old-artifacts-<uuid>/` (if present)
+2. Rename existing `raw-output/manifests/` to
+   `raw-output/.old-manifests-<uuid>/` (if present)
+3. Move staging `artifacts/` into place as `raw-output/artifacts/`
+4. Move staging `manifests/` into place as `raw-output/manifests/`
+5. Remove `.old-artifacts-<uuid>/` and `.old-manifests-<uuid>/`
+   (best-effort)
+6. Remove staging directory (best-effort)
+
+Manifests written last. On failure:
+- If step 1-2 fail: old generation intact, staging orphaned (harmless).
+- If step 3-4 fail: old generation preserved under `.old-*` names.
+  Replay discovers nothing (no `manifests/`), which fails closed.
+  The `.old-*` directories can be recovered manually or by a future
+  save attempt.
+- If step 5-6 fail: new generation is live, old data is orphaned but
+  not discoverable by replay. Cleaned up best-effort on next save.
+
+**Availability risk:** A mid-commit failure temporarily loses replay
+capability until the next successful run or manual recovery. This is
+fail-closed behavior -- no silent data corruption -- but replay is
+unavailable during that window.
 
 ### Phase 4: Return LoadedManifest List
 
@@ -581,8 +625,15 @@ elif stage == Stage.PARSE:
 
 - `MissingRawOutputError` -- missing `manifests/` directory or empty
   manifest set
-- `InvalidRawOutputError` -- malformed JSON or schema validation failures
-  during deserialization
+- `InvalidRawOutputError` -- malformed JSON, schema validation failures
+  during deserialization, AND manifest-directory shape violations:
+  - Manifest filename with unregistered slug
+  - Mixed-case manifest filename
+  - Non-JSON file in `manifests/`
+  - Subdirectory inside `manifests/`
+
+  These are all classified as invalid raw output because they represent
+  malformed or unexpected content at the replay input boundary.
 - `PersistenceError` -- I/O failures AND persistence-boundary validation
   failures in `save_raw_outputs()`:
   - Source hash mismatch
@@ -661,7 +712,9 @@ elif stage == Stage.PARSE:
 - Rejects manifest filename stem != tool_slug
 - Rejects tool != adapter tool_source
 - Rejects absolute paths, `..` traversal, paths not starting with slug
-- Rejects symlink escape (symlink under artifacts/ pointing outside)
+- Rejects symlink escape from tool subtree (symlink under
+  artifacts/scubagear/ pointing outside artifacts/scubagear/, including
+  to artifacts/maester/)
 - Rejects missing artifact, non-file artifact (directory)
 - Rejects SHA-256 mismatch
 - Rejects duplicate resolved absolute paths
@@ -708,8 +761,16 @@ elif stage == Stage.PARSE:
 `tests/conformance/adapter_suite.py`, `test_scubagear_conformance.py`,
 `test_maester_conformance.py`:
 
-- Updated to use CollectionOutput from collect()
-- Updated to use ResolvedManifest for validate_raw(), parse(), coverage()
+The conformance suite is fixture-driven and intentionally bypasses tool
+execution. It does NOT use `collect()`. Updates:
+
+- Fixtures updated to build `ResolvedManifest` objects (replacing the
+  old `RawToolOutput` fixtures) with absolute paths pointing to the
+  existing fixture JSON files
+- `validate_raw()`, `parse()`, and `coverage()` calls updated to pass
+  `ResolvedManifest` instead of `RawToolOutput`
+- No collection-time types (`CollectionOutput`, `CollectionResult`)
+  appear in conformance tests
 
 ### 7.7 Windows-Specific Tests
 
