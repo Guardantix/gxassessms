@@ -45,6 +45,7 @@ _VALID_PRODUCT_NAMES: frozenset[str] = frozenset(
     {"AAD", "Defender", "EXO", "PowerPlatform", "SharePoint", "Teams"}
 )
 _PRODUCT_NAME_MAP: dict[str, str] = {name.lower(): name for name in _VALID_PRODUCT_NAMES}
+_OUTPUT_DIR_PREFIX = "M365BaselineConformance"
 
 
 class ScubaGearAdapter:
@@ -54,10 +55,6 @@ class ScubaGearAdapter:
     capabilities: frozenset[str] = frozenset(
         {"collect", "parse", "prerequisites", "coverage_export", "benchmark_mapping"}
     )
-
-    # ------------------------------------------------------------------
-    # ToolAdapter Protocol methods
-    # ------------------------------------------------------------------
 
     def check_prerequisites(self) -> PrerequisiteResult:
         """Check that PowerShell and the ScubaGear module are available."""
@@ -114,7 +111,6 @@ class ScubaGearAdapter:
         timeout_seconds = tc.timeout if tc.timeout is not None else _DEFAULT_TIMEOUT_SECONDS
         extra_args = tc.extra_args
 
-        # Build Invoke-SCuBA command
         script_parts = ["Import-Module ScubaGear;", "Invoke-SCuBA"]
         escaped_path = str(output_dir).replace("'", "''")
         script_parts.append(f"-OutPath '{escaped_path}'")
@@ -140,21 +136,18 @@ class ScubaGearAdapter:
 
         # Snapshot existing output dirs so we can detect stale results
         existing_dirs = {
-            d
-            for d in output_dir.iterdir()
-            if d.is_dir() and d.name.startswith("M365BaselineConformance")
+            d for d in output_dir.iterdir() if d.is_dir() and d.name.startswith(_OUTPUT_DIR_PREFIX)
         }
 
         run_powershell(
             script=script,
-            arguments=extra_args if extra_args else None,
+            arguments=extra_args or None,
             timeout_seconds=timeout_seconds,
             adapter_name=self.tool_name,
             engagement_id="",
         )
 
-        # Locate the output subdirectory ScubaGear created
-        run_dir = find_latest_output_dir(output_dir, prefix="M365BaselineConformance")
+        run_dir = find_latest_output_dir(output_dir, prefix=_OUTPUT_DIR_PREFIX)
 
         if run_dir in existing_dirs:
             raise CollectionError(
@@ -163,7 +156,6 @@ class ScubaGearAdapter:
                 adapter_name=self.tool_name,
             )
 
-        # Collect JSON and HTML output files
         file_manifest: dict[str, FileEncoding] = {}
         for f in run_dir.iterdir():
             if f.suffix in (".json", ".html"):
@@ -253,10 +245,6 @@ class ScubaGearAdapter:
         logger.info("ScubaGear coverage export: %d records", len(records))
         return records
 
-    # ------------------------------------------------------------------
-    # Properties for NormalizationPolicy consumption
-    # ------------------------------------------------------------------
-
     @property
     def severity_map(self) -> dict[tuple[str, str], Any]:
         """(Criticality, Result) -> Severity for NormalizationPolicy."""
@@ -272,18 +260,13 @@ class ScubaGearAdapter:
         """PolicyId -> canonical cross-reference ID for deduplication."""
         return DEDUP_KEY_RULES
 
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
     def _validate_and_load_results(
         self, raw: RawToolOutput
     ) -> tuple[str, dict[str, list[dict[str, Any]]]]:
         """Validate raw output and return ``(results_file_path, Results dict)``.
 
-        Single entry point for validation + JSON loading so that ``parse()``
-        and ``coverage()`` avoid re-reading the file that ``validate_raw()``
-        already parsed.
+        Shared helper used by ``validate_raw()``, ``parse()``, and ``coverage()``
+        to consolidate validation logic in one place.
 
         Raises:
             RawOutputValidationError: If any structural check fails.
