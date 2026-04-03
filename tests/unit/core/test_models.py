@@ -641,6 +641,8 @@ class TestAuthContext:
         credential_refs = {
             "client_secret": "GX_CLIENT_SECRET",  # pragma: allowlist secret
             "graph_secret": "env:GX_GRAPH_SECRET",  # pragma: allowlist secret
+            "legacy_secret": "_CLIENT_SECRET",  # pragma: allowlist secret
+            "legacy_graph_secret": "env:_GRAPH_SECRET",  # pragma: allowlist secret
             "vault_secret": "key_vault:tenant/prod/client-secret",  # pragma: allowlist secret
             "shared_secret": "encrypted_file:shared/graph-app",  # pragma: allowlist secret
         }

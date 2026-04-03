@@ -28,7 +28,7 @@ from gxassessms.core.domain.enums import (
     ToolSource,
 )
 
-_ENV_CREDENTIAL_REF_RE: re.Pattern[str] = re.compile(r"^[A-Z][A-Z0-9_]*$")
+_ENV_CREDENTIAL_REF_RE: re.Pattern[str] = re.compile(r"^[_A-Z][_A-Z0-9]*$")
 _PROVIDER_NAME_RE: re.Pattern[str] = re.compile(r"^[a-z][a-z0-9_]*$")
 _PROVIDER_KEY_RE: re.Pattern[str] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
 
