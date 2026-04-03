@@ -31,10 +31,11 @@ from gxassessms.core.contracts.types import PrerequisiteResult
 from gxassessms.core.domain.constants import FileEncoding
 from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
-    ArtifactRecord,
     AuthContext,
+    CollectedArtifact,
+    CollectionOutput,
     CoverageRecord,
-    RawToolOutput,
+    ResolvedManifest,
     ToolObservation,
 )
 
@@ -53,6 +54,8 @@ class ScubaGearAdapter:
     """ToolAdapter implementation for ScubaGear (CISA SCuBA baseline assessor for M365)."""
 
     tool_name: str = "ScubaGear"
+    storage_slug: str = "scubagear"
+    tool_source: ToolSource = ToolSource.SCUBAGEAR
     capabilities: frozenset[str] = frozenset(
         {"collect", "parse", "prerequisites", "coverage_export", "benchmark_mapping"}
     )
@@ -87,7 +90,7 @@ class ScubaGearAdapter:
         """No-op: ScubaGear handles authentication internally via Connect-MgGraph."""
         return None
 
-    def collect(self, config: EngagementConfig, auth: AuthContext | None) -> RawToolOutput:
+    def collect(self, config: EngagementConfig, auth: AuthContext | None) -> CollectionOutput:
         """Invoke ScubaGear and capture its output directory.
 
         Reads from ``config.tools["scubagear"]``: ``output_dir`` (required),
@@ -96,6 +99,8 @@ class ScubaGearAdapter:
         Raises:
             CollectionError: On PowerShell failure, timeout, or missing output.
         """
+        import hashlib
+
         from gxassessms.core.config.datetime_utils import utc_now
 
         tc = config.tools.get(self.tool_name.lower())
@@ -157,22 +162,21 @@ class ScubaGearAdapter:
                 adapter_name=self.tool_name,
             )
 
-        # TODO(#35/Task-10): Rework to use CollectionOutput + confine_and_resolve.
-        # Temporary: build ArtifactRecord manifest with POSIX-relative paths
-        # and placeholder sha256 values. Task 10 will compute real hashes.
-        _PLACEHOLDER_SHA = "0" * 64
-        _TOOL_SLUG = "scubagear"
-        file_manifest: dict[str, ArtifactRecord] = {}
+        artifacts: list[CollectedArtifact] = []
         for f in run_dir.iterdir():
             if f.suffix in (".json", ".html"):
-                relpath = f"{_TOOL_SLUG}/{f.name}"
                 encoding: FileEncoding = "utf-8"
-                file_manifest[relpath] = ArtifactRecord(
-                    encoding=encoding,
-                    sha256=_PLACEHOLDER_SHA,
+                sha = hashlib.sha256(f.read_bytes()).hexdigest()
+                artifacts.append(
+                    CollectedArtifact(
+                        source_path=str(f),
+                        target_relpath=f"{self.storage_slug}/{f.name}",
+                        encoding=encoding,
+                        sha256=sha,
+                    )
                 )
 
-        if not file_manifest:
+        if not artifacts:
             raise CollectionError(
                 f"ScubaGear created output directory {run_dir.name} but "
                 f"no JSON/HTML files were found",
@@ -180,26 +184,21 @@ class ScubaGearAdapter:
             )
 
         logger.info(
-            "ScubaGear collection complete. Output dir: %s, %d files in manifest",
+            "ScubaGear collection complete. Output dir: %s, %d artifacts",
             run_dir,
-            len(file_manifest),
+            len(artifacts),
         )
 
-        return RawToolOutput(
+        return CollectionOutput(
             tool=ToolSource.SCUBAGEAR,
-            tool_slug=_TOOL_SLUG,
+            tool_slug=self.storage_slug,
             schema_version=_SCHEMA_VERSION,
-            manifest_version="1.0.0",
             timestamp=utc_now(),
-            file_manifest=file_manifest,
-            execution_metadata={
-                "output_dir": str(run_dir),
-                "modules": modules,
-                "extra_args": extra_args,
-            },
+            artifacts=artifacts,
+            execution_metadata={"modules": modules},
         )
 
-    def validate_raw(self, raw: RawToolOutput) -> None:
+    def validate_raw(self, raw: ResolvedManifest) -> None:
         """Validate ScubaGear raw output structure.
 
         Checks (in order): (1) manifest non-empty, (2) ScubaResults*.json present,
@@ -212,7 +211,7 @@ class ScubaGearAdapter:
         results_file, _ = self._validate_and_load_results(raw)
         logger.debug("ScubaGear raw output validated: %s", results_file)
 
-    def parse(self, raw: RawToolOutput) -> list[ToolObservation]:
+    def parse(self, raw: ResolvedManifest) -> list[ToolObservation]:
         """Parse ScubaGear raw output into ToolObservations (validates first)."""
         results_file, results = self._validate_and_load_results(raw)
         observations = parse_scuba_results(results)
@@ -224,7 +223,7 @@ class ScubaGearAdapter:
         )
         return observations
 
-    def coverage(self, raw: RawToolOutput) -> list[CoverageRecord]:
+    def coverage(self, raw: ResolvedManifest) -> list[CoverageRecord]:
         """Extract per-control coverage records.
 
         FindingStatus.NOT_APPLICABLE -> NOT_ASSESSED, all others -> ASSESSED.
@@ -274,7 +273,7 @@ class ScubaGearAdapter:
         return DEDUP_KEY_RULES
 
     def _validate_and_load_results(
-        self, raw: RawToolOutput
+        self, raw: ResolvedManifest
     ) -> tuple[str, dict[str, list[dict[str, Any]]]]:
         """Validate raw output and return ``(results_file_path, Results dict)``.
 

@@ -32,10 +32,11 @@ from gxassessms.core.contracts.types import PrerequisiteResult
 from gxassessms.core.domain.constants import FileEncoding
 from gxassessms.core.domain.enums import CoverageStatus, ToolSource
 from gxassessms.core.domain.models import (
-    ArtifactRecord,
     AuthContext,
+    CollectedArtifact,
+    CollectionOutput,
     CoverageRecord,
-    RawToolOutput,
+    ResolvedManifest,
     ToolObservation,
 )
 
@@ -51,6 +52,8 @@ class MaesterAdapter:
     """
 
     tool_name: str = "Maester"
+    storage_slug: str = "maester"
+    tool_source: ToolSource = ToolSource.MAESTER
     capabilities: frozenset[str] = frozenset(
         {"collect", "parse", "prerequisites", "coverage_export", "benchmark_mapping"}
     )
@@ -97,7 +100,7 @@ class MaesterAdapter:
         self,
         config: Any,  # EngagementConfig at runtime
         auth: AuthContext | None,
-    ) -> RawToolOutput:
+    ) -> CollectionOutput:
         """Execute Maester and return raw output.
 
         Maester's Invoke-Maester -OutputFolder generates three files:
@@ -107,6 +110,8 @@ class MaesterAdapter:
 
         There is NO -OutputFormat parameter. -OutputFolder generates all three.
         """
+        import hashlib
+
         from gxassessms.core.config.datetime_utils import utc_now
 
         tc = config.tools.get(self.tool_name.lower())
@@ -132,34 +137,30 @@ class MaesterAdapter:
             engagement_id=getattr(config, "engagement_id", ""),
         )
 
-        # TODO(#35/Task-10): Rework to use CollectionOutput + confine_and_resolve.
-        # Temporary: build ArtifactRecord manifest with POSIX-relative paths
-        # and placeholder sha256 values. Task 10 will compute real hashes.
-        _PLACEHOLDER_SHA = "0" * 64
-        _TOOL_SLUG = "maester"
-        file_manifest: dict[str, ArtifactRecord] = {}
+        artifacts: list[CollectedArtifact] = []
         for path in output_dir.glob("TestResults*"):
             if path.suffix in {".json", ".html", ".md"}:
                 encoding: FileEncoding = "binary" if path.suffix == ".html" else "utf-8"
-                relpath = f"{_TOOL_SLUG}/{path.name}"
-                file_manifest[relpath] = ArtifactRecord(
-                    encoding=encoding,
-                    sha256=_PLACEHOLDER_SHA,
+                sha = hashlib.sha256(path.read_bytes()).hexdigest()
+                artifacts.append(
+                    CollectedArtifact(
+                        source_path=str(path),
+                        target_relpath=f"{self.storage_slug}/{path.name}",
+                        encoding=encoding,
+                        sha256=sha,
+                    )
                 )
 
-        return RawToolOutput(
+        return CollectionOutput(
             tool=ToolSource.MAESTER,
-            tool_slug=_TOOL_SLUG,
+            tool_slug=self.storage_slug,
             schema_version="1.0.0",
-            manifest_version="1.0.0",
             timestamp=utc_now(),
-            file_manifest=file_manifest,
-            execution_metadata={
-                "output_dir": str(output_dir),
-            },
+            artifacts=artifacts,
+            execution_metadata={},
         )
 
-    def validate_raw(self, raw: RawToolOutput) -> None:
+    def validate_raw(self, raw: ResolvedManifest) -> None:
         """Validate raw Maester output structure before parsing.
 
         Raises:
@@ -167,12 +168,12 @@ class MaesterAdapter:
         """
         self._validate_and_load_tests(raw)
 
-    def parse(self, raw: RawToolOutput) -> list[ToolObservation]:
+    def parse(self, raw: ResolvedManifest) -> list[ToolObservation]:
         """Parse validated Maester output into ToolObservations."""
         _, tests = self._validate_and_load_tests(raw)
         return parse_maester_tests(tests)
 
-    def coverage(self, raw: RawToolOutput) -> list[CoverageRecord]:
+    def coverage(self, raw: ResolvedManifest) -> list[CoverageRecord]:
         """Report per-control coverage from Maester output.
 
         Skipped, Error, and NotRun tests are reported as not_assessed.
@@ -223,7 +224,7 @@ class MaesterAdapter:
         """Expose dedup key rules for NormalizationPolicy consumption."""
         return DEDUP_KEY_RULES
 
-    def _validate_and_load_tests(self, raw: RawToolOutput) -> tuple[str, list[dict[str, Any]]]:
+    def _validate_and_load_tests(self, raw: ResolvedManifest) -> tuple[str, list[dict[str, Any]]]:
         """Validate raw output and return ``(results_file_path, Tests list)``.
 
         Single entry point for validation + JSON loading so that ``parse()``
