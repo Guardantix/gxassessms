@@ -220,18 +220,44 @@ class ResolvedManifest(BaseModel):
 
 
 class RawToolOutput(BaseModel):
-    """Serializable container for raw tool output (enables replay)."""
+    """On-disk replay manifest. POSIX-relative canonical paths."""
+
+    model_config = ConfigDict(extra="forbid")
 
     tool: ToolSource
+    tool_slug: str
     schema_version: str
+    manifest_version: str  # replay security contract, required, no default
     timestamp: datetime
-    file_manifest: dict[str, FileEncoding]
+    file_manifest: dict[str, ArtifactRecord]  # POSIX-relative -> {encoding, sha256}
     execution_metadata: dict[str, Any]
 
     @field_validator("timestamp")
     @classmethod
     def timestamp_must_be_utc(cls, v: datetime) -> datetime:
         return ensure_utc(v)
+
+    @field_validator("tool_slug")
+    @classmethod
+    def tool_slug_must_be_valid(cls, v: str) -> str:
+        import re
+
+        from gxassessms.core.domain.constants import TOOL_SLUG_PATTERN
+
+        if not re.fullmatch(TOOL_SLUG_PATTERN, v):
+            raise ValueError(f"tool_slug must match {TOOL_SLUG_PATTERN!r}, got {v!r}")
+        return v
+
+    @field_validator("file_manifest")
+    @classmethod
+    def file_manifest_must_be_valid(cls, v: dict[str, ArtifactRecord]) -> dict[str, ArtifactRecord]:
+        if not v:
+            raise ValueError("file_manifest must not be empty")
+        from gxassessms.core.domain.path_validation import validate_canonical_posix_path
+
+        for key in v:
+            validate_canonical_posix_path(key)
+        return v
 
 
 class AdapterResult(BaseModel):

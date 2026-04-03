@@ -33,12 +33,22 @@ from gxassessms.pipeline.stages import Stage
 
 
 def _make_raw_output(tool: ToolSource = ToolSource.SCUBAGEAR) -> RawToolOutput:
+    from gxassessms.core.domain.models import ArtifactRecord
+
+    slug = tool.value.lower()
     return RawToolOutput(
         tool=tool,
+        tool_slug=slug,
         schema_version="1.0.0",
+        manifest_version="1.0.0",
         timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-        file_manifest={"TestResults.json": "utf-8"},
-        execution_metadata={"exit_code": 0},
+        file_manifest={
+            f"{slug}/TestResults.json": ArtifactRecord(
+                encoding="utf-8",
+                sha256="a" * 64,
+            ),
+        },
+        execution_metadata={},
     )
 
 

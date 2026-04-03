@@ -240,69 +240,173 @@ class TestCoverageRecord:
 
 
 class TestRawToolOutput:
-    def test_create_with_schema_version(self) -> None:
-        rto = RawToolOutput(
-            tool=ToolSource.SCUBAGEAR,
-            schema_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={"TestResults.json": "utf-8"},
-            execution_metadata={"exit_code": 0},
-        )
-        assert rto.schema_version == "1.0.0"
-        assert rto.file_manifest["TestResults.json"] == "utf-8"
+    def _make_valid_raw(self) -> RawToolOutput:
+        from gxassessms.core.domain.models import ArtifactRecord
 
-    def test_rejects_naive_timestamp(self) -> None:
-        with pytest.raises(ValidationError, match="timezone-aware"):
+        return RawToolOutput(
+            tool=ToolSource.SCUBAGEAR,
+            tool_slug="scubagear",
+            schema_version="1.7.1",
+            manifest_version="1.0.0",
+            timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+            file_manifest={
+                "scubagear/ScubaResults.json": ArtifactRecord(
+                    encoding="utf-8",
+                    sha256="f" * 64,
+                ),
+            },
+            execution_metadata={},
+        )
+
+    def test_create_valid(self) -> None:
+        raw = self._make_valid_raw()
+        assert raw.tool_slug == "scubagear"
+        assert raw.manifest_version == "1.0.0"
+
+    def test_rejects_extra_fields(self) -> None:
+        from gxassessms.core.domain.models import ArtifactRecord
+
+        with pytest.raises(ValidationError):
             RawToolOutput(
                 tool=ToolSource.SCUBAGEAR,
-                schema_version="1.0.0",
-                timestamp=datetime(2026, 3, 25, 10, 0, 0),
+                tool_slug="scubagear",
+                schema_version="1.7.1",
+                manifest_version="1.0.0",
+                timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+                file_manifest={
+                    "scubagear/r.json": ArtifactRecord(encoding="utf-8", sha256="a" * 64),
+                },
+                execution_metadata={},
+                bonus="bad",
+            )
+
+    def test_timestamp_must_be_utc(self) -> None:
+        from gxassessms.core.domain.models import ArtifactRecord
+
+        with pytest.raises(ValidationError):
+            RawToolOutput(
+                tool=ToolSource.SCUBAGEAR,
+                tool_slug="scubagear",
+                schema_version="1.7.1",
+                manifest_version="1.0.0",
+                timestamp=datetime(2026, 4, 1, 10, 0, 0),  # naive
+                file_manifest={
+                    "scubagear/results.json": ArtifactRecord(encoding="utf-8", sha256="a" * 64),
+                },
+                execution_metadata={},
+            )
+
+    def test_rejects_backslash_in_manifest_key(self) -> None:
+        from gxassessms.core.domain.models import ArtifactRecord
+
+        with pytest.raises(ValidationError, match="backslash"):
+            RawToolOutput(
+                tool=ToolSource.SCUBAGEAR,
+                tool_slug="scubagear",
+                schema_version="1.7.1",
+                manifest_version="1.0.0",
+                timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+                file_manifest={
+                    "scubagear\\results.json": ArtifactRecord(encoding="utf-8", sha256="a" * 64),
+                },
+                execution_metadata={},
+            )
+
+    def test_rejects_absolute_path_in_manifest_key(self) -> None:
+        from gxassessms.core.domain.models import ArtifactRecord
+
+        with pytest.raises(ValidationError, match="absolute"):
+            RawToolOutput(
+                tool=ToolSource.SCUBAGEAR,
+                tool_slug="scubagear",
+                schema_version="1.7.1",
+                manifest_version="1.0.0",
+                timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+                file_manifest={
+                    "/etc/passwd": ArtifactRecord(encoding="utf-8", sha256="a" * 64),
+                },
+                execution_metadata={},
+            )
+
+    def test_rejects_dotdot_traversal_in_manifest_key(self) -> None:
+        from gxassessms.core.domain.models import ArtifactRecord
+
+        with pytest.raises(ValidationError, match="traversal"):
+            RawToolOutput(
+                tool=ToolSource.SCUBAGEAR,
+                tool_slug="scubagear",
+                schema_version="1.7.1",
+                manifest_version="1.0.0",
+                timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+                file_manifest={
+                    "scubagear/../etc/passwd": ArtifactRecord(encoding="utf-8", sha256="a" * 64),
+                },
+                execution_metadata={},
+            )
+
+    def test_rejects_empty_manifest(self) -> None:
+        with pytest.raises(ValidationError, match="empty"):
+            RawToolOutput(
+                tool=ToolSource.SCUBAGEAR,
+                tool_slug="scubagear",
+                schema_version="1.7.1",
+                manifest_version="1.0.0",
+                timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
                 file_manifest={},
                 execution_metadata={},
             )
 
-    def test_normalizes_non_utc_timestamp_to_utc(self) -> None:
-        ist = timezone(timedelta(hours=5, minutes=30))
-        rto = RawToolOutput(
-            tool=ToolSource.SCUBAGEAR,
-            schema_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 12, 30, 0, tzinfo=ist),
-            file_manifest={},
-            execution_metadata={},
-        )
-        assert rto.timestamp.tzinfo == UTC
-        assert rto.timestamp == datetime(2026, 3, 25, 7, 0, 0, tzinfo=UTC)
+    def test_rejects_invalid_tool_slug_format(self) -> None:
+        from gxassessms.core.domain.models import ArtifactRecord
 
-    def test_rejects_invalid_file_manifest_encoding(self) -> None:
-        with pytest.raises(ValidationError):
+        with pytest.raises(ValidationError, match="slug"):
             RawToolOutput(
                 tool=ToolSource.SCUBAGEAR,
-                schema_version="1.0.0",
-                timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-                file_manifest={"TestResults.json": "utf8"},  # type: ignore[dict-item]
+                tool_slug="ScubaGear",  # uppercase not allowed
+                schema_version="1.7.1",
+                manifest_version="1.0.0",
+                timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+                file_manifest={
+                    "scubagear/results.json": ArtifactRecord(encoding="utf-8", sha256="a" * 64),
+                },
                 execution_metadata={},
             )
 
-    def test_accepts_binary_file_manifest_encoding(self) -> None:
-        rto = RawToolOutput(
-            tool=ToolSource.SCUBAGEAR,
-            schema_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={"report.zip": "binary", "results.json": "utf-8"},
-            execution_metadata={},
-        )
-        assert rto.file_manifest["report.zip"] == "binary"
+    def test_rejects_slug_starting_with_hyphen(self) -> None:
+        from gxassessms.core.domain.models import ArtifactRecord
+
+        with pytest.raises(ValidationError, match="slug"):
+            RawToolOutput(
+                tool=ToolSource.SCUBAGEAR,
+                tool_slug="-scubagear",
+                schema_version="1.7.1",
+                manifest_version="1.0.0",
+                timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+                file_manifest={
+                    "scubagear/results.json": ArtifactRecord(encoding="utf-8", sha256="a" * 64),
+                },
+                execution_metadata={},
+            )
 
 
 class TestAdapterResult:
-    def test_success_result_has_raw_output(self) -> None:
-        rto = RawToolOutput(
+    def _make_rto(self) -> RawToolOutput:
+        from gxassessms.core.domain.models import ArtifactRecord
+
+        return RawToolOutput(
             tool=ToolSource.SCUBAGEAR,
+            tool_slug="scubagear",
             schema_version="1.0.0",
+            manifest_version="1.0.0",
             timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={},
+            file_manifest={
+                "scubagear/TestResults.json": ArtifactRecord(encoding="utf-8", sha256="a" * 64),
+            },
             execution_metadata={},
         )
+
+    def test_success_result_has_raw_output(self) -> None:
+        rto = self._make_rto()
         ar = AdapterResult(
             adapter_name="scubagear",
             status=AdapterRunStatus.SUCCESS,
@@ -368,13 +472,7 @@ class TestAdapterResult:
             )
 
     def test_success_with_error_raises(self) -> None:
-        rto = RawToolOutput(
-            tool=ToolSource.SCUBAGEAR,
-            schema_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={},
-            execution_metadata={},
-        )
+        rto = self._make_rto()
         with pytest.raises(ValidationError, match="must not carry an error"):
             AdapterResult(
                 adapter_name="scubagear",
@@ -385,13 +483,7 @@ class TestAdapterResult:
             )
 
     def test_failed_preserves_raw_output_for_replay(self) -> None:
-        rto = RawToolOutput(
-            tool=ToolSource.SCUBAGEAR,
-            schema_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={"TestResults.json": "utf-8"},
-            execution_metadata={},
-        )
+        rto = self._make_rto()
         ar = AdapterResult(
             adapter_name="scubagear",
             status=AdapterRunStatus.FAILED,
@@ -403,13 +495,7 @@ class TestAdapterResult:
         assert ar.error is not None
 
     def test_skipped_with_raw_output_raises(self) -> None:
-        rto = RawToolOutput(
-            tool=ToolSource.SCUBAGEAR,
-            schema_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={},
-            execution_metadata={},
-        )
+        rto = self._make_rto()
         with pytest.raises(ValidationError, match="must not carry raw_output"):
             AdapterResult(
                 adapter_name="scubagear",

@@ -31,6 +31,7 @@ from gxassessms.core.contracts.types import PrerequisiteResult
 from gxassessms.core.domain.constants import FileEncoding
 from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
+    ArtifactRecord,
     AuthContext,
     CoverageRecord,
     RawToolOutput,
@@ -156,10 +157,20 @@ class ScubaGearAdapter:
                 adapter_name=self.tool_name,
             )
 
-        file_manifest: dict[str, FileEncoding] = {}
+        # TODO(#35/Task-10): Rework to use CollectionOutput + confine_and_resolve.
+        # Temporary: build ArtifactRecord manifest with POSIX-relative paths
+        # and placeholder sha256 values. Task 10 will compute real hashes.
+        _PLACEHOLDER_SHA = "0" * 64
+        _TOOL_SLUG = "scubagear"
+        file_manifest: dict[str, ArtifactRecord] = {}
         for f in run_dir.iterdir():
             if f.suffix in (".json", ".html"):
-                file_manifest[str(f)] = "utf-8"
+                relpath = f"{_TOOL_SLUG}/{f.name}"
+                encoding: FileEncoding = "utf-8"
+                file_manifest[relpath] = ArtifactRecord(
+                    encoding=encoding,
+                    sha256=_PLACEHOLDER_SHA,
+                )
 
         if not file_manifest:
             raise CollectionError(
@@ -176,7 +187,9 @@ class ScubaGearAdapter:
 
         return RawToolOutput(
             tool=ToolSource.SCUBAGEAR,
+            tool_slug=_TOOL_SLUG,
             schema_version=_SCHEMA_VERSION,
+            manifest_version="1.0.0",
             timestamp=utc_now(),
             file_manifest=file_manifest,
             execution_metadata={

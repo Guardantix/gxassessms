@@ -11,6 +11,14 @@ from unittest.mock import patch
 
 import pytest
 
+from gxassessms.core.domain.models import ArtifactRecord
+
+
+def _ar(encoding: str = "utf-8") -> ArtifactRecord:
+    """Shorthand ArtifactRecord for tests."""
+    return ArtifactRecord(encoding=encoding, sha256="a" * 64)
+
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -47,16 +55,27 @@ _COMPLETE_CONTROL: dict[str, Any] = {
 # ---------------------------------------------------------------------------
 
 
-def _make_raw_output(file_manifest: dict[str, str] | None = None) -> Any:
+def _make_raw_output(
+    file_manifest: dict[str, Any] | None = None,
+) -> Any:
     """Build a minimal RawToolOutput for testing."""
     from gxassessms.core.domain.enums import ToolSource
-    from gxassessms.core.domain.models import RawToolOutput
+    from gxassessms.core.domain.models import ArtifactRecord, RawToolOutput
 
+    if file_manifest is None:
+        file_manifest = {
+            "scubagear/ScubaResults.json": ArtifactRecord(
+                encoding="utf-8",
+                sha256="a" * 64,
+            ),
+        }
     return RawToolOutput(
         tool=ToolSource.SCUBAGEAR,
+        tool_slug="scubagear",
         schema_version="1.7.1",
+        manifest_version="1.0.0",
         timestamp=datetime.now(UTC),
-        file_manifest=file_manifest or {},
+        file_manifest=file_manifest,
         execution_metadata={},
     )
 
@@ -75,69 +94,70 @@ class TestValidateRaw:
         self.adapter = ScubaGearAdapter()
         self.RawOutputValidationError = RawOutputValidationError
 
-    def test_empty_manifest_raises(self) -> None:
-        raw = _make_raw_output(file_manifest={})
-        with pytest.raises(self.RawOutputValidationError, match="manifest is empty"):
-            self.adapter.validate_raw(raw)
+    def test_empty_manifest_raises_at_model_level(self) -> None:
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="empty"):
+            _make_raw_output(file_manifest={})
 
     def test_no_scuba_results_file_raises(self) -> None:
-        raw = _make_raw_output(file_manifest={"report.html": "utf-8"})
+        raw = _make_raw_output(file_manifest={"scubagear/report.html": _ar()})
         with pytest.raises(self.RawOutputValidationError, match="not found in manifest"):
             self.adapter.validate_raw(raw)
 
     @patch("gxassessms.adapters.scubagear.adapter.load_json_file")
     def test_non_dict_json_raises(self, mock_load: Any) -> None:
         mock_load.return_value = [1, 2, 3]
-        raw = _make_raw_output(file_manifest={"ScubaResults.json": "utf-8"})
+        raw = _make_raw_output(file_manifest={"scubagear/ScubaResults.json": _ar()})
         with pytest.raises(self.RawOutputValidationError, match="not a dict"):
             self.adapter.validate_raw(raw)
 
     @patch("gxassessms.adapters.scubagear.adapter.load_json_file")
     def test_missing_results_key_raises(self, mock_load: Any) -> None:
         mock_load.return_value = {"MetaData": {}}
-        raw = _make_raw_output(file_manifest={"ScubaResults.json": "utf-8"})
+        raw = _make_raw_output(file_manifest={"scubagear/ScubaResults.json": _ar()})
         with pytest.raises(self.RawOutputValidationError, match="missing required 'Results'"):
             self.adapter.validate_raw(raw)
 
     @patch("gxassessms.adapters.scubagear.adapter.load_json_file")
     def test_results_is_list_raises(self, mock_load: Any) -> None:
         mock_load.return_value = {"Results": [1, 2, 3]}
-        raw = _make_raw_output(file_manifest={"ScubaResults.json": "utf-8"})
+        raw = _make_raw_output(file_manifest={"scubagear/ScubaResults.json": _ar()})
         with pytest.raises(self.RawOutputValidationError, match="empty or not a dict"):
             self.adapter.validate_raw(raw)
 
     @patch("gxassessms.adapters.scubagear.adapter.load_json_file")
     def test_results_is_none_raises(self, mock_load: Any) -> None:
         mock_load.return_value = {"Results": None}
-        raw = _make_raw_output(file_manifest={"ScubaResults.json": "utf-8"})
+        raw = _make_raw_output(file_manifest={"scubagear/ScubaResults.json": _ar()})
         with pytest.raises(self.RawOutputValidationError, match="empty or not a dict"):
             self.adapter.validate_raw(raw)
 
     @patch("gxassessms.adapters.scubagear.adapter.load_json_file")
     def test_results_empty_dict_raises(self, mock_load: Any) -> None:
         mock_load.return_value = {"Results": {}}
-        raw = _make_raw_output(file_manifest={"ScubaResults.json": "utf-8"})
+        raw = _make_raw_output(file_manifest={"scubagear/ScubaResults.json": _ar()})
         with pytest.raises(self.RawOutputValidationError, match="empty or not a dict"):
             self.adapter.validate_raw(raw)
 
     @patch("gxassessms.adapters.scubagear.adapter.load_json_file")
     def test_no_controls_raises(self, mock_load: Any) -> None:
         mock_load.return_value = {"Results": {"AAD": [{"GroupName": "G", "Controls": []}]}}
-        raw = _make_raw_output(file_manifest={"ScubaResults.json": "utf-8"})
+        raw = _make_raw_output(file_manifest={"scubagear/ScubaResults.json": _ar()})
         with pytest.raises(self.RawOutputValidationError, match="no controls"):
             self.adapter.validate_raw(raw)
 
     @patch("gxassessms.adapters.scubagear.adapter.load_json_file")
     def test_module_value_not_list_raises(self, mock_load: Any) -> None:
         mock_load.return_value = {"Results": {"AAD": "not-a-list"}}
-        raw = _make_raw_output(file_manifest={"ScubaResults.json": "utf-8"})
+        raw = _make_raw_output(file_manifest={"scubagear/ScubaResults.json": _ar()})
         with pytest.raises(self.RawOutputValidationError, match="not a list"):
             self.adapter.validate_raw(raw)
 
     @patch("gxassessms.adapters.scubagear.adapter.load_json_file")
     def test_group_not_dict_raises(self, mock_load: Any) -> None:
         mock_load.return_value = {"Results": {"AAD": ["not-a-dict"]}}
-        raw = _make_raw_output(file_manifest={"ScubaResults.json": "utf-8"})
+        raw = _make_raw_output(file_manifest={"scubagear/ScubaResults.json": _ar()})
         with pytest.raises(self.RawOutputValidationError, match="not a dict"):
             self.adapter.validate_raw(raw)
 
@@ -146,14 +166,14 @@ class TestValidateRaw:
         mock_load.return_value = {
             "Results": {"AAD": [{"GroupName": "G", "Controls": "not-a-list"}]}
         }
-        raw = _make_raw_output(file_manifest={"ScubaResults.json": "utf-8"})
+        raw = _make_raw_output(file_manifest={"scubagear/ScubaResults.json": _ar()})
         with pytest.raises(self.RawOutputValidationError, match=r"Controls.*not a list"):
             self.adapter.validate_raw(raw)
 
     @patch("gxassessms.adapters.scubagear.adapter.load_json_file")
     def test_controls_null_raises(self, mock_load: Any) -> None:
         mock_load.return_value = {"Results": {"AAD": [{"GroupName": "G", "Controls": None}]}}
-        raw = _make_raw_output(file_manifest={"ScubaResults.json": "utf-8"})
+        raw = _make_raw_output(file_manifest={"scubagear/ScubaResults.json": _ar()})
         with pytest.raises(self.RawOutputValidationError, match=r"Controls.*not a list"):
             self.adapter.validate_raw(raw)
 
@@ -162,12 +182,16 @@ class TestValidateRaw:
         mock_load.return_value = {
             "Results": {"AAD": [{"GroupName": "G", "Controls": ["not-a-dict"]}]}
         }
-        raw = _make_raw_output(file_manifest={"ScubaResults.json": "utf-8"})
+        raw = _make_raw_output(file_manifest={"scubagear/ScubaResults.json": _ar()})
         with pytest.raises(self.RawOutputValidationError, match=r"control entry.*not a dict"):
             self.adapter.validate_raw(raw)
 
-    def test_valid_fixture_passes(self) -> None:
-        manifest = {str(FIXTURE_PATH): "utf-8"}
+    @patch("gxassessms.adapters.scubagear.adapter.load_json_file")
+    def test_valid_fixture_passes(self, mock_load: Any) -> None:
+        import json
+
+        mock_load.return_value = json.loads(FIXTURE_PATH.read_text())
+        manifest = {"scubagear/ScubaResults.json": _ar()}
         raw = _make_raw_output(file_manifest=manifest)
         # Should not raise
         self.adapter.validate_raw(raw)

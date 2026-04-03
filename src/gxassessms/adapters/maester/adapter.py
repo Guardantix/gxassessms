@@ -32,6 +32,7 @@ from gxassessms.core.contracts.types import PrerequisiteResult
 from gxassessms.core.domain.constants import FileEncoding
 from gxassessms.core.domain.enums import CoverageStatus, ToolSource
 from gxassessms.core.domain.models import (
+    ArtifactRecord,
     AuthContext,
     CoverageRecord,
     RawToolOutput,
@@ -131,15 +132,26 @@ class MaesterAdapter:
             engagement_id=getattr(config, "engagement_id", ""),
         )
 
-        file_manifest: dict[str, FileEncoding] = {}
+        # TODO(#35/Task-10): Rework to use CollectionOutput + confine_and_resolve.
+        # Temporary: build ArtifactRecord manifest with POSIX-relative paths
+        # and placeholder sha256 values. Task 10 will compute real hashes.
+        _PLACEHOLDER_SHA = "0" * 64
+        _TOOL_SLUG = "maester"
+        file_manifest: dict[str, ArtifactRecord] = {}
         for path in output_dir.glob("TestResults*"):
             if path.suffix in {".json", ".html", ".md"}:
                 encoding: FileEncoding = "binary" if path.suffix == ".html" else "utf-8"
-                file_manifest[str(path)] = encoding
+                relpath = f"{_TOOL_SLUG}/{path.name}"
+                file_manifest[relpath] = ArtifactRecord(
+                    encoding=encoding,
+                    sha256=_PLACEHOLDER_SHA,
+                )
 
         return RawToolOutput(
             tool=ToolSource.MAESTER,
+            tool_slug=_TOOL_SLUG,
             schema_version="1.0.0",
+            manifest_version="1.0.0",
             timestamp=utc_now(),
             file_manifest=file_manifest,
             execution_metadata={
