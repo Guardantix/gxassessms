@@ -22,6 +22,10 @@ from gxassessms.core.contracts.errors import PersistenceError
 logger = logging.getLogger(__name__)
 
 _MAX_SLUG_LENGTH = 64
+RAW_OUTPUT_DIR = "raw-output"
+_REPORTS_DIR = "reports"
+_ARCHIVE_NAME = "raw-output.tar.gz"
+_RESTORE_STAGING_DIR = ".restore-staging"
 
 
 def _sanitize_slug(name: str) -> str:
@@ -86,8 +90,8 @@ class ArtifactManager:
         _validate_path_within_root(eng_dir, self._engagements_root)
 
         eng_dir.mkdir(parents=True, exist_ok=True)
-        (eng_dir / "raw-output").mkdir(exist_ok=True)
-        (eng_dir / "reports").mkdir(exist_ok=True)
+        (eng_dir / RAW_OUTPUT_DIR).mkdir(exist_ok=True)
+        (eng_dir / _REPORTS_DIR).mkdir(exist_ok=True)
 
         logger.info("Created engagement directory: %s", eng_dir)
         return eng_dir
@@ -98,8 +102,8 @@ class ArtifactManager:
         Scans the engagements root for a directory ending with the
         engagement ID. Raises PersistenceError if not found.
         """
-        for entry in self._engagements_root.iterdir():
-            if entry.is_dir() and entry.name.endswith(f"-{engagement_id}"):
+        for entry in self._engagements_root.glob(f"*-{engagement_id}"):
+            if entry.is_dir():
                 _validate_path_within_root(entry, self._engagements_root)
                 return entry
         raise PersistenceError(f"Engagement directory not found for: {engagement_id}")
@@ -111,12 +115,12 @@ class ArtifactManager:
         files. Reports and config remain on disk. Returns the archive path.
         """
         eng_dir = self.get_engagement_dir(engagement_id)
-        raw_dir = eng_dir / "raw-output"
+        raw_dir = eng_dir / RAW_OUTPUT_DIR
 
         if not raw_dir.exists() or not any(raw_dir.iterdir()):
             raise PersistenceError(f"No raw output to archive for engagement {engagement_id}")
 
-        archive_path = eng_dir / "raw-output.tar.gz"
+        archive_path = eng_dir / _ARCHIVE_NAME
         if archive_path.exists():
             raise PersistenceError(
                 f"Archive already exists for engagement {engagement_id}. "
@@ -127,7 +131,7 @@ class ArtifactManager:
         # the TarError/OSError handler so it doesn't suppress archive_path cleanup.
         try:
             with tarfile.open(str(archive_path), "w:gz") as tar:
-                tar.add(str(raw_dir), arcname="raw-output")
+                tar.add(str(raw_dir), arcname=RAW_OUTPUT_DIR)
             with tarfile.open(str(archive_path), "r:gz") as verify_tar:
                 members = verify_tar.getmembers()
         except (tarfile.TarError, OSError) as e:
@@ -158,12 +162,12 @@ class ArtifactManager:
         Returns the raw-output directory path.
         """
         eng_dir = self.get_engagement_dir(engagement_id)
-        archive_path = eng_dir / "raw-output.tar.gz"
+        archive_path = eng_dir / _ARCHIVE_NAME
         if not archive_path.exists():
             raise PersistenceError(f"No archive found for engagement {engagement_id}")
 
-        raw_dir = eng_dir / "raw-output"
-        staging_dir = eng_dir / ".restore-staging"
+        raw_dir = eng_dir / RAW_OUTPUT_DIR
+        staging_dir = eng_dir / _RESTORE_STAGING_DIR
         try:
             staging_dir.mkdir()
             with tarfile.open(str(archive_path), "r:gz") as tar:
@@ -172,8 +176,7 @@ class ArtifactManager:
             shutil.rmtree(staging_dir, ignore_errors=True)
             raise PersistenceError(f"Failed to restore engagement {engagement_id}: {e}") from e
 
-        # Verify extraction produced the expected directory
-        extracted_raw = staging_dir / "raw-output"
+        extracted_raw = staging_dir / RAW_OUTPUT_DIR
         if not extracted_raw.exists():
             shutil.rmtree(staging_dir, ignore_errors=True)
             raise PersistenceError(f"Archive for {engagement_id} contained no raw-output directory")
@@ -203,7 +206,6 @@ class ArtifactManager:
         """
         eng_dir = self.get_engagement_dir(engagement_id)
 
-        # Collect file inventory before deletion
         files_deleted: list[str] = []
         for item in eng_dir.rglob("*"):
             if item.is_file():
@@ -214,7 +216,6 @@ class ArtifactManager:
                 f"Engagement directory is empty, nothing to purge: {engagement_id}"
             )
 
-        # Build audit manifest
         now = utc_now()
         manifest: dict[str, Any] = {
             "engagement_id": engagement_id,
@@ -225,14 +226,12 @@ class ArtifactManager:
             "file_count": len(files_deleted),
         }
 
-        # Write manifest to audit dir BEFORE deleting anything
         self._audit_dir.mkdir(parents=True, exist_ok=True)
         timestamp_slug = format_utc(now).replace(":", "-").replace(".", "-")
         manifest_path = self._audit_dir / f"purge-{engagement_id}-{timestamp_slug}.json"
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
         logger.info("Wrote purge audit manifest to %s", manifest_path)
 
-        # Now delete the engagement directory
         try:
             shutil.rmtree(eng_dir)
         except OSError as e:
@@ -279,11 +278,10 @@ class ArtifactManager:
         except PersistenceError:
             eng_dir = self.create_engagement_dir(engagement_id, client_name)
 
-        raw_dir = eng_dir / "raw-output"
+        raw_dir = eng_dir / RAW_OUTPUT_DIR
         raw_dir.mkdir(exist_ok=True)
 
-        # Clear previous manifests so stale data from earlier runs
-        # is not ingested by replay/reparse (DELETE+INSERT pattern).
+        # Stale data from earlier runs must not reach replay/reparse (DELETE+INSERT pattern).
         for old_file in raw_dir.glob("*.json"):
             try:
                 old_file.unlink()
