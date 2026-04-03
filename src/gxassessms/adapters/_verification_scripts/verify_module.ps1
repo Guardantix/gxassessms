@@ -47,7 +47,7 @@ $ErrorActionPreference = 'Stop'
 # Read input
 # ---------------------------------------------------------------------------
 
-$inputJson = Get-Content -Path $InputPath -Raw -Encoding UTF8
+$inputJson = [IO.File]::ReadAllText($InputPath)
 $input = $inputJson | ConvertFrom-Json
 
 $moduleName = $input.module_name
@@ -187,7 +187,10 @@ function Get-SafeAuthenticodeSignature {
         # On Linux/macOS, Get-AuthenticodeSignature exists but returns NotSupportedFileFormat
         # or other non-Valid statuses for non-PE files. Treat as platform_unsupported on
         # non-Windows platforms.
-        if (-not $IsWindows) {
+        # NOTE: $IsWindows is PowerShell Core 6.0+. In Windows PowerShell 5.1 it is
+        # undefined ($null), so we fall back to $true (5.1 only runs on Windows).
+        $actualIsWindows = if ($null -ne $IsWindows) { $IsWindows } else { $true }
+        if (-not $actualIsWindows) {
             return @{
                 Status     = 'platform_unsupported'
                 Subject    = $null
@@ -200,8 +203,8 @@ function Get-SafeAuthenticodeSignature {
         $issuer = $null
         $thumbprint = $null
         if ($null -ne $sig.SignerCertificate) {
-            $subject = $sig.SignerCertificate.Subject
-            $issuer = $sig.SignerCertificate.Issuer
+            $subject = $sig.SignerCertificate.Subject.Trim()
+            $issuer = $sig.SignerCertificate.Issuer.Trim()
             $thumbprint = $sig.SignerCertificate.Thumbprint
         }
 
@@ -325,11 +328,13 @@ function Test-ManifestConfinement {
                 return "Confinement violation in ${field}: UNC path '$valueStr'"
             }
 
-            # Reject absolute paths outside tree
+            # Reject absolute paths outside tree (boundary-safe: append separator to
+            # prevent /path/mod matching /path/mod-evil)
             if ([IO.Path]::IsPathRooted($valueStr)) {
                 try {
                     $resolved = [IO.Path]::GetFullPath($valueStr)
-                    if (-not $resolved.StartsWith($ModuleBase)) {
+                    $boundary = $ModuleBase.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+                    if (-not $resolved.StartsWith($boundary) -and $resolved -ne $ModuleBase) {
                         return "Confinement violation in ${field}: absolute path '$valueStr' outside module base"
                     }
                 }
@@ -688,9 +693,9 @@ if ($mode -eq 'collection' -and $report.provenance_approved -eq $true -and $repo
         }
     }
 
-    if ($null -ne $postImportInvocation.switches) {
-        foreach ($sw in @($postImportInvocation.switches)) {
-            $params[$sw] = $true
+    if ($null -ne $postImportInvocation.switches -and $postImportInvocation.switches -is [System.Management.Automation.PSCustomObject]) {
+        $postImportInvocation.switches.PSObject.Properties | ForEach-Object {
+            if ($_.Value -eq $true) { $params[$_.Name] = $true }
         }
     }
 

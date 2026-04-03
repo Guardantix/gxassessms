@@ -82,6 +82,28 @@ class TestBuildInputBlob:
         data = json.loads(blob)
         assert len(data["effective_approved_hashes"]) == 1
 
+    def test_override_version_outside_range_rejected(self) -> None:
+        override = ModulePolicyOverride(version_range="==3.0.0")
+        with pytest.raises(ValueError, match="does not satisfy"):
+            self.build_input_blob(
+                policy=_policy(),
+                override=override,
+                mode="preflight",
+                post_import_invocation=None,
+            )
+
+    def test_override_hashes_not_in_approved_set_rejected(self) -> None:
+        override = ModulePolicyOverride(
+            pinned_package_hashes=frozenset({"sha256tree:v1:" + "b" * 64})
+        )
+        with pytest.raises(ValueError, match=r"not in.*code-owned"):
+            self.build_input_blob(
+                policy=_policy(),
+                override=override,
+                mode="preflight",
+                post_import_invocation=None,
+            )
+
 
 class TestValidateCommandAllowlist:
     @pytest.fixture(autouse=True)

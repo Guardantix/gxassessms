@@ -381,7 +381,7 @@ class TestModuleVerificationIntegration:
         mod_hash = _compute_module_hash(mod_dir)
 
         input_blob = _make_basic_input(approved_hashes=[mod_hash])
-        _report, _proc = _run_template(input_blob, tmp_path, ps_module_path=str(modules_dir))
+        _run_template(input_blob, tmp_path, ps_module_path=str(modules_dir))
 
         # report.json already exists from _run_template, re-parse with Python parser
         report_path = tmp_path / "report.json"

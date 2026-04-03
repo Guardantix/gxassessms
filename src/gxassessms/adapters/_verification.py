@@ -39,6 +39,7 @@ from gxassessms.core.contracts.verification import (
     ModulePolicyOverride,
     ModuleVerificationResult,
     parse_verification_report,
+    version_satisfies_range,
 )
 from gxassessms.core.domain.constants import VerificationMode
 
@@ -105,8 +106,22 @@ def build_input_blob(
 
     if override is not None:
         if override.version_range is not None:
+            # Spec: override version pin must satisfy the code-owned range
+            pin = override.version_range[2:]  # strip "==" prefix (validated by __post_init__)
+            if not version_satisfies_range(pin, policy.version_range):
+                raise ValueError(
+                    f"Override version pin {override.version_range!r} does not satisfy "
+                    f"code-owned range {policy.version_range!r}"
+                )
             effective_version_range = override.version_range
         if override.pinned_package_hashes is not None:
+            # Spec: pinned hashes must be a subset of code-owned approved hashes
+            extra = override.pinned_package_hashes - policy.approved_package_hashes
+            if extra:
+                raise ValueError(
+                    f"Override pinned_package_hashes contains hashes not in "
+                    f"code-owned approved set: {sorted(extra)}"
+                )
             effective_hashes = sorted(override.pinned_package_hashes)
 
     signers = [
