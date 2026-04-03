@@ -18,7 +18,7 @@ from pathlib import Path
 from subprocess import CompletedProcess
 from typing import Any
 
-from gxassessms.core.contracts.errors import CollectionError
+from gxassessms.core.contracts.errors import CollectionError, RawOutputValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -92,9 +92,7 @@ def run_powershell(
         CollectionError: On timeout, non-zero exit code, or missing executable.
     """
     exe = get_powershell_executable()
-    validated_args: list[str] = []
-    if arguments:
-        validated_args = validate_extra_args(arguments)
+    validated_args = validate_extra_args(arguments) if arguments else []
 
     cmd: list[str] = [
         exe,
@@ -206,12 +204,9 @@ def load_json_file(
         RawOutputValidationError: If the file is missing, empty, or contains
                                    invalid JSON.
     """
-    # Local import to avoid potential circular imports at module load time.
-    from gxassessms.core.contracts.errors import RawOutputValidationError
-
     try:
         text = path.read_text(encoding=encoding)
-    except OSError as exc:
+    except (OSError, LookupError) as exc:
         raise RawOutputValidationError(
             f"Cannot read output file {path}: {exc}",
             adapter_name=adapter_name,
