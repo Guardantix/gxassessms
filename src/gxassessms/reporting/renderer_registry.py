@@ -119,7 +119,7 @@ def check_node_available() -> str | None:
             timeout=10,
         )
         return node_exe if result.returncode == 0 else None
-    except FileNotFoundError, subprocess.TimeoutExpired:
+    except OSError, subprocess.TimeoutExpired:
         return None
 
 
@@ -196,6 +196,7 @@ class NodeRenderer:
         output_path.unlink(missing_ok=True)
 
         tmp = Path(tempfile.mkdtemp(prefix="gxassessms_render_"))
+        _failed = True
         try:
             payload_path = tmp / "payload.json"
             constants_path = tmp / "constants.json"
@@ -251,14 +252,12 @@ class NodeRenderer:
                     f"{output_path}. Check renderer implementation."
                 )
 
-        except Exception:
-            if self._keep_temp_on_failure:
+            _failed = False
+        finally:
+            if _failed and self._keep_temp_on_failure:
                 logger.warning("Render failed. Temp files preserved at: %s", tmp)
             else:
                 shutil.rmtree(tmp, ignore_errors=True)
-            raise
-        else:
-            shutil.rmtree(tmp, ignore_errors=True)
 
         logger.info("Render complete: %s -> %s", self.package_path.name, output_path)
         return output_path
