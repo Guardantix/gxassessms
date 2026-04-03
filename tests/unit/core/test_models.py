@@ -743,3 +743,132 @@ class TestCollectionOutput:
                 artifacts=[],
                 execution_metadata={},
             )
+
+
+class TestCollectionResult:
+    def test_success_requires_collection_output(self) -> None:
+        from gxassessms.core.domain.models import CollectionOutput, CollectionResult
+
+        co = CollectionOutput(
+            tool=ToolSource.SCUBAGEAR,
+            tool_slug="scubagear",
+            schema_version="1.7.1",
+            timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+            artifacts=[],
+            execution_metadata={},
+        )
+        cr = CollectionResult(
+            adapter_name="scubagear",
+            status=AdapterRunStatus.SUCCESS,
+            collection_output=co,
+            duration_seconds=5.0,
+        )
+        assert cr.collection_output is not None
+
+    def test_success_without_output_raises(self) -> None:
+        from gxassessms.core.domain.models import CollectionResult
+
+        with pytest.raises(ValidationError):
+            CollectionResult(
+                adapter_name="scubagear",
+                status=AdapterRunStatus.SUCCESS,
+                collection_output=None,
+                duration_seconds=5.0,
+            )
+
+    def test_success_with_error_raises(self) -> None:
+        from gxassessms.core.domain.models import CollectionOutput, CollectionResult
+
+        co = CollectionOutput(
+            tool=ToolSource.SCUBAGEAR,
+            tool_slug="scubagear",
+            schema_version="1.7.1",
+            timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+            artifacts=[],
+            execution_metadata={},
+        )
+        with pytest.raises(ValidationError):
+            CollectionResult(
+                adapter_name="scubagear",
+                status=AdapterRunStatus.SUCCESS,
+                collection_output=co,
+                error="oops",
+                duration_seconds=5.0,
+            )
+
+    def test_failed_requires_error(self) -> None:
+        from gxassessms.core.domain.models import CollectionResult
+
+        with pytest.raises(ValidationError):
+            CollectionResult(
+                adapter_name="scubagear",
+                status=AdapterRunStatus.FAILED,
+                duration_seconds=5.0,
+            )
+
+    def test_failed_with_error(self) -> None:
+        from gxassessms.core.domain.models import CollectionResult
+
+        cr = CollectionResult(
+            adapter_name="scubagear",
+            status=AdapterRunStatus.FAILED,
+            error="PowerShell timed out",
+            duration_seconds=5.0,
+        )
+        assert cr.error == "PowerShell timed out"
+        assert cr.collection_output is None
+
+    def test_skipped_must_not_carry_output(self) -> None:
+        from gxassessms.core.domain.models import CollectionOutput, CollectionResult
+
+        co = CollectionOutput(
+            tool=ToolSource.SCUBAGEAR,
+            tool_slug="scubagear",
+            schema_version="1.7.1",
+            timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+            artifacts=[],
+            execution_metadata={},
+        )
+        with pytest.raises(ValidationError):
+            CollectionResult(
+                adapter_name="scubagear",
+                status=AdapterRunStatus.SKIPPED,
+                collection_output=co,
+                duration_seconds=0.0,
+            )
+
+
+class TestResolvedManifest:
+    def test_create_valid(self) -> None:
+        from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
+
+        rm = ResolvedManifest(
+            tool=ToolSource.SCUBAGEAR,
+            tool_slug="scubagear",
+            schema_version="1.7.1",
+            manifest_version="1.0.0",
+            timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+            file_manifest={
+                "/engagement/raw-output/artifacts/scubagear/ScubaResults.json": ArtifactRecord(
+                    encoding="utf-8", sha256="e" * 64
+                ),
+            },
+            execution_metadata={},
+        )
+        assert rm.tool_slug == "scubagear"
+        assert len(rm.file_manifest) == 1
+
+    def test_rejects_extra_fields(self) -> None:
+        from gxassessms.core.domain.models import ResolvedManifest
+
+        with pytest.raises(ValidationError):
+            ResolvedManifest(
+                tool=ToolSource.SCUBAGEAR,
+                tool_slug="scubagear",
+                schema_version="1.7.1",
+                manifest_version="1.0.0",
+                timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+                file_manifest={},
+                execution_metadata={},
+                bonus="bad",
+            )

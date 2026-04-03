@@ -173,6 +173,52 @@ class CollectionOutput(BaseModel):
         return ensure_utc(v)
 
 
+class CollectionResult(BaseModel):
+    """Wraps CollectionOutput from the collect stage."""
+
+    adapter_name: str
+    status: AdapterRunStatus
+    collection_output: CollectionOutput | None = None
+    error: str | None = None
+    duration_seconds: float = Field(ge=0)
+
+    @model_validator(mode="after")
+    def status_payload_consistent(self) -> CollectionResult:
+        """Enforce that status matches presence of collection_output/error."""
+        if self.status == AdapterRunStatus.SUCCESS:
+            if self.collection_output is None:
+                raise ValueError("SUCCESS status requires collection_output")
+            if self.error is not None:
+                raise ValueError("SUCCESS status must not carry an error")
+        elif self.status in (AdapterRunStatus.FAILED, AdapterRunStatus.TIMEOUT):
+            if not self.error:
+                raise ValueError(f"{self.status} status requires error message")
+        elif self.status == AdapterRunStatus.SKIPPED:
+            if self.collection_output is not None:
+                raise ValueError("SKIPPED status must not carry collection_output")
+        return self
+
+
+class ResolvedManifest(BaseModel):
+    """Runtime-resolved manifest. Absolute engagement-controlled paths."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tool: ToolSource
+    tool_slug: str
+    schema_version: str
+    manifest_version: str
+    timestamp: datetime
+    file_manifest: dict[str, ArtifactRecord]  # resolved absolute paths
+    execution_metadata: dict[str, Any]
+    # No path format validators -- paths are trusted output of confine_and_resolve()
+
+    @field_validator("timestamp")
+    @classmethod
+    def timestamp_must_be_utc(cls, v: datetime) -> datetime:
+        return ensure_utc(v)
+
+
 class RawToolOutput(BaseModel):
     """Serializable container for raw tool output (enables replay)."""
 
