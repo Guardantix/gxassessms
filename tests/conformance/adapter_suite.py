@@ -19,7 +19,7 @@ from typing import Any
 import pytest
 
 from gxassessms.core.domain.enums import Category, FindingStatus, Severity
-from gxassessms.core.domain.models import CoverageRecord, Finding, RawToolOutput, ToolObservation
+from gxassessms.core.domain.models import CoverageRecord, Finding, ResolvedManifest, ToolObservation
 
 
 class AdapterConformanceSuite:
@@ -34,8 +34,8 @@ class AdapterConformanceSuite:
         raise NotImplementedError("Subclass must provide adapter fixture")
 
     @pytest.fixture
-    def raw_tool_output(self, adapter: Any) -> RawToolOutput:
-        raise NotImplementedError("Subclass must provide raw_tool_output fixture")
+    def resolved_manifest(self, adapter: Any) -> ResolvedManifest:
+        raise NotImplementedError("Subclass must provide resolved_manifest fixture")
 
     @pytest.fixture
     def normalization_rules(self) -> dict:
@@ -46,9 +46,11 @@ class AdapterConformanceSuite:
     # ------------------------------------------------------------------
 
     @pytest.fixture
-    def observations(self, adapter: Any, raw_tool_output: RawToolOutput) -> list[ToolObservation]:
-        """Parse raw tool output into ToolObservations."""
-        return adapter.parse(raw_tool_output)
+    def observations(
+        self, adapter: Any, resolved_manifest: ResolvedManifest
+    ) -> list[ToolObservation]:
+        """Parse resolved manifest into ToolObservations."""
+        return adapter.parse(resolved_manifest)
 
     @pytest.fixture
     def normalized_findings(
@@ -88,11 +90,11 @@ class AdapterConformanceSuite:
 
     @pytest.fixture
     def coverage_records(
-        self, adapter: Any, raw_tool_output: RawToolOutput
+        self, adapter: Any, resolved_manifest: ResolvedManifest
     ) -> list[CoverageRecord] | None:
         """Call adapter.coverage() if coverage_export capability is present, else None."""
         if "coverage_export" in getattr(adapter, "capabilities", frozenset()):
-            return adapter.coverage(raw_tool_output)
+            return adapter.coverage(resolved_manifest)
         return None
 
     # ------------------------------------------------------------------
