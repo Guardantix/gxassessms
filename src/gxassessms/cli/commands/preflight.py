@@ -281,17 +281,13 @@ def preflight_cmd(config_path: str) -> None:
 
     all_results: list[dict[str, str]] = []
 
-    # Step 1: Config validation
     all_results.extend(_check_config(config))
 
-    # Step 2: Prerequisite checks
     adapters = _helpers.discover_cli_adapters()
     all_results.extend(_check_prerequisites(config, adapters))
 
-    # Step 3: Auth validation
     all_results.extend(_check_auth(config))
 
-    # Step 4: Renderer dependency chain
     all_results.extend(_check_renderers())
 
     print_preflight_result(all_results)

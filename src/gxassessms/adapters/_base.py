@@ -19,6 +19,11 @@ from subprocess import CompletedProcess
 from typing import Any
 
 from gxassessms.core.contracts.errors import CollectionError, RawOutputValidationError
+from gxassessms.core.contracts.verification import (
+    ModulePolicy,
+    ModulePolicyOverride,
+    ModuleVerificationResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -229,16 +234,16 @@ def load_json_file(
 
 def run_verified_powershell(
     *,
-    policy: Any,  # ModulePolicy
+    policy: ModulePolicy,
     allowed_commands: frozenset[str],
     command_name: str,
     named_args: dict[str, Any],
     switches: dict[str, bool] | None = None,
-    override: Any = None,  # ModulePolicyOverride | None
+    override: ModulePolicyOverride | None = None,
     timeout_seconds: int = 1800,
     adapter_name: str = "",
     engagement_id: str = "",
-) -> Any:
+) -> ModuleVerificationResult:
     """Verify module provenance and invoke a tool command in one shot.
 
     Returns ModuleVerificationResult on success.

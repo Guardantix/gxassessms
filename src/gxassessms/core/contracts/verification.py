@@ -11,6 +11,7 @@ policy cannot exist at runtime.
 from __future__ import annotations
 
 import json
+import operator as _op
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,8 +42,6 @@ def version_satisfies_range(version: str, version_range: str) -> bool:
     Supports: >=X.Y.Z, <=X.Y.Z, >X.Y.Z, <X.Y.Z, ==X.Y.Z
     Multiple constraints separated by commas (all must pass).
     """
-    import operator as _op
-
     ops = {">=": _op.ge, "<=": _op.le, ">": _op.gt, "<": _op.lt, "==": _op.eq}
     ver = parse_semver(version)
 
@@ -224,92 +223,56 @@ def apply_approval_logic(
     """
     candidates_tuple = tuple(candidates)
 
-    if not candidates_tuple:
+    def _result(
+        *,
+        provenance_approved: bool = False,
+        execution_supported: bool = False,
+        evidence_path: Literal["signature_and_hash", "hash_only"] | None = None,
+        rejection_reasons: tuple[str, ...] = (),
+        approved_candidate: CandidateOutcome | None = None,
+    ) -> ModuleVerificationResult:
         return ModuleVerificationResult(
             module_name=policy.module_name,
-            provenance_approved=False,
-            execution_supported=False,
-            evidence_path=None,
-            rejection_reasons=("no_candidates",),
-            approved_candidate=None,
+            provenance_approved=provenance_approved,
+            execution_supported=execution_supported,
+            evidence_path=evidence_path,
+            rejection_reasons=rejection_reasons,
+            approved_candidate=approved_candidate,
             candidates=candidates_tuple,
             required_modules_logged=required_modules_logged,
             powershell_executable=powershell_executable,
         )
+
+    if not candidates_tuple:
+        return _result(rejection_reasons=("no_candidates",))
 
     can_execute = [c for c in candidates_tuple if c.provenance_approved and c.execution_supported]
-    provenance_approved = [c for c in candidates_tuple if c.provenance_approved]
+    provenance_only = [c for c in candidates_tuple if c.provenance_approved]
 
-    # Exactly one can_execute -> approved
     if len(can_execute) == 1:
         winner = can_execute[0]
-        return ModuleVerificationResult(
-            module_name=policy.module_name,
+        return _result(
             provenance_approved=True,
             execution_supported=True,
             evidence_path=winner.evidence_path,
-            rejection_reasons=(),
             approved_candidate=winner,
-            candidates=candidates_tuple,
-            required_modules_logged=required_modules_logged,
-            powershell_executable=powershell_executable,
         )
 
-    # Multiple can_execute -> ambiguity
     if len(can_execute) > 1:
-        return ModuleVerificationResult(
-            module_name=policy.module_name,
-            provenance_approved=False,
-            execution_supported=True,
-            evidence_path=None,
-            rejection_reasons=("ambiguity",),
-            approved_candidate=None,
-            candidates=candidates_tuple,
-            required_modules_logged=required_modules_logged,
-            powershell_executable=powershell_executable,
-        )
+        return _result(execution_supported=True, rejection_reasons=("ambiguity",))
 
-    # Zero can_execute, exactly one provenance_approved -> approved but not executable
-    if len(provenance_approved) == 1:
-        winner = provenance_approved[0]
-        return ModuleVerificationResult(
-            module_name=policy.module_name,
+    if len(provenance_only) == 1:
+        winner = provenance_only[0]
+        return _result(
             provenance_approved=True,
-            execution_supported=False,
             evidence_path=winner.evidence_path,
-            rejection_reasons=(),
             approved_candidate=winner,
-            candidates=candidates_tuple,
-            required_modules_logged=required_modules_logged,
-            powershell_executable=powershell_executable,
         )
 
-    # Multiple provenance_approved, none executable -> provenance ambiguity
-    if len(provenance_approved) > 1:
-        return ModuleVerificationResult(
-            module_name=policy.module_name,
-            provenance_approved=False,
-            execution_supported=False,
-            evidence_path=None,
-            rejection_reasons=("ambiguity",),
-            approved_candidate=None,
-            candidates=candidates_tuple,
-            required_modules_logged=required_modules_logged,
-            powershell_executable=powershell_executable,
-        )
+    if len(provenance_only) > 1:
+        return _result(rejection_reasons=("ambiguity",))
 
-    # Zero provenance_approved
-    return ModuleVerificationResult(
-        module_name=policy.module_name,
-        provenance_approved=False,
-        execution_supported=False,
-        evidence_path=None,
-        rejection_reasons=("provenance_rejected",),
-        approved_candidate=None,
-        candidates=candidates_tuple,
-        required_modules_logged=required_modules_logged,
-        powershell_executable=powershell_executable,
-    )
+    return _result(rejection_reasons=("provenance_rejected",))
 
 
 # ---------------------------------------------------------------------------
@@ -324,13 +287,19 @@ def parse_verification_report(report_path: Path) -> ModuleVerificationResult:
     """
     from gxassessms.core.contracts.errors import VerificationInfrastructureError
 
-    if not report_path.exists():
+    try:
+        text = report_path.read_text(encoding="utf-8")
+    except FileNotFoundError:
         raise VerificationInfrastructureError(
             f"Missing verification report: {report_path}",
             report_path=str(report_path),
-        )
+        ) from None
+    except OSError as exc:
+        raise VerificationInfrastructureError(
+            f"Cannot read verification report: {exc}",
+            report_path=str(report_path),
+        ) from exc
 
-    text = report_path.read_text(encoding="utf-8")
     if not text.strip():
         raise VerificationInfrastructureError(
             f"Empty verification report: {report_path}",

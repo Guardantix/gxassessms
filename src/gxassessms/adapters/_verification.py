@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -29,14 +30,17 @@ from gxassessms.core.contracts.errors import (
     ModuleAmbiguityError,
     ModuleExecutionUnsupportedError,
     ModuleProvenanceError,
+    ModuleVerificationError,
     VerificationInfrastructureError,
 )
+from gxassessms.core.contracts.types import PrerequisiteResult
 from gxassessms.core.contracts.verification import (
     ModulePolicy,
     ModulePolicyOverride,
     ModuleVerificationResult,
     parse_verification_report,
 )
+from gxassessms.core.domain.constants import VerificationMode
 
 logger = logging.getLogger(__name__)
 
@@ -57,18 +61,45 @@ def validate_command_allowlist(command_name: str, allowed_commands: frozenset[st
         )
 
 
+def check_module_prerequisites(
+    *,
+    policy: ModulePolicy,
+    tool_name: str,
+    timeout_seconds: int = 60,
+) -> PrerequisiteResult:
+    """Shared preflight check for PowerShell adapters with MODULE_POLICY.
+
+    Calls verify_module(mode="preflight") and returns a PrerequisiteResult.
+    """
+    try:
+        result = verify_module(
+            policy=policy,
+            mode="preflight",
+            adapter_name=tool_name,
+            timeout_seconds=timeout_seconds,
+        )
+        version = result.approved_candidate.version if result.approved_candidate else "?"
+        return PrerequisiteResult(
+            satisfied=True,
+            message=f"{tool_name} {version} verified ({result.evidence_path})",
+        )
+    except ModuleVerificationError as exc:
+        return PrerequisiteResult(satisfied=False, message=str(exc))
+    except OSError as exc:
+        return PrerequisiteResult(satisfied=False, message=str(exc))
+
+
 def build_input_blob(
     *,
     policy: ModulePolicy,
     override: ModulePolicyOverride | None,
-    mode: str,
+    mode: VerificationMode,
     post_import_invocation: dict[str, Any] | None,
 ) -> str:
     """Build the JSON input blob for the PowerShell verification template.
 
     Returns JSON string. Does not write to disk.
     """
-    # Compute effective policy
     effective_version_range = policy.version_range
     effective_hashes = sorted(policy.approved_package_hashes)
 
@@ -100,7 +131,7 @@ def verify_module(
     *,
     policy: ModulePolicy,
     override: ModulePolicyOverride | None = None,
-    mode: str = "preflight",
+    mode: VerificationMode = "preflight",
     post_import_invocation: dict[str, Any] | None = None,
     adapter_name: str = "",
     engagement_id: str = "",
@@ -203,10 +234,8 @@ def verify_module(
                 report_path=str(report_path),
             ) from exc
 
-        # Log provenance
         _log_provenance(result, adapter_name)
 
-        # Gate on result
         if not result.provenance_approved:
             if "ambiguity" in result.rejection_reasons:
                 raise ModuleAmbiguityError(
@@ -232,8 +261,6 @@ def verify_module(
                 verification_result=result,
             )
 
-        # Provenance approved + execution supported, but non-zero exit
-        # means the tool itself failed (Phase 9 in collection mode)
         if exit_code != 0 and mode == "collection":
             raise CollectionError(
                 f"Module verified but tool exited with code {exit_code}: {stderr}",
@@ -244,8 +271,6 @@ def verify_module(
         return result
 
     finally:
-        import shutil
-
         shutil.rmtree(
             tmp_dir,
             onexc=lambda _f, p, e: logger.warning("Failed to clean up temp dir: %s (%s)", p, e),

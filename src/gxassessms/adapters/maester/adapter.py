@@ -58,26 +58,10 @@ class MaesterAdapter:
 
     def check_prerequisites(self) -> PrerequisiteResult:
         """Check Maester module provenance against baseline policy."""
-        from gxassessms.adapters._verification import verify_module
+        from gxassessms.adapters._verification import check_module_prerequisites
         from gxassessms.adapters.maester.policy import MODULE_POLICY
-        from gxassessms.core.contracts.errors import ModuleVerificationError
 
-        try:
-            result = verify_module(
-                policy=MODULE_POLICY,
-                mode="preflight",
-                adapter_name=self.tool_name,
-                timeout_seconds=60,
-            )
-            version = result.approved_candidate.version if result.approved_candidate else "?"
-            return PrerequisiteResult(
-                satisfied=True,
-                message=f"Maester {version} verified ({result.evidence_path})",
-            )
-        except ModuleVerificationError as exc:
-            return PrerequisiteResult(satisfied=False, message=str(exc))
-        except OSError as exc:
-            return PrerequisiteResult(satisfied=False, message=str(exc))
+        return check_module_prerequisites(policy=MODULE_POLICY, tool_name=self.tool_name)
 
     def authenticate(
         self,
