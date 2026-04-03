@@ -10,8 +10,10 @@ policy cannot exist at runtime.
 
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 # ---------------------------------------------------------------------------
@@ -307,4 +309,91 @@ def apply_approval_logic(
         candidates=candidates_tuple,
         required_modules_logged=required_modules_logged,
         powershell_executable=powershell_executable,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Verification report JSON parsing
+# ---------------------------------------------------------------------------
+
+
+def parse_verification_report(report_path: Path) -> ModuleVerificationResult:
+    """Parse a PowerShell verification report JSON into a ModuleVerificationResult.
+
+    Raises VerificationInfrastructureError on missing/empty/malformed reports.
+    """
+    from gxassessms.core.contracts.errors import VerificationInfrastructureError
+
+    if not report_path.exists():
+        raise VerificationInfrastructureError(
+            f"Missing verification report: {report_path}",
+            report_path=str(report_path),
+        )
+
+    text = report_path.read_text(encoding="utf-8")
+    if not text.strip():
+        raise VerificationInfrastructureError(
+            f"Empty verification report: {report_path}",
+            report_path=str(report_path),
+        )
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise VerificationInfrastructureError(
+            f"Malformed JSON in verification report: {exc}",
+            report_path=str(report_path),
+        ) from exc
+
+    try:
+        return _parse_result(data)
+    except (KeyError, TypeError) as exc:
+        raise VerificationInfrastructureError(
+            f"Missing required field in verification report: {exc}",
+            report_path=str(report_path),
+        ) from exc
+
+
+def _parse_candidate(data: dict[str, Any]) -> CandidateOutcome:
+    """Convert a raw candidate dict into a CandidateOutcome."""
+    return CandidateOutcome(
+        version=data["version"],
+        live_manifest_path=data["live_manifest_path"],
+        live_module_root=data["live_module_root"],
+        staged_manifest_path=data.get("staged_manifest_path"),
+        staged_module_root=data.get("staged_module_root"),
+        provenance_approved=data["provenance_approved"],
+        execution_supported=data["execution_supported"],
+        rejection_reasons=tuple(data.get("rejection_reasons", ())),
+        confinement_violation=data.get("confinement_violation"),
+        package_hash=data.get("package_hash"),
+        hash_approved=data.get("hash_approved", False),
+        live_signature_status=data.get("live_signature_status"),
+        live_signer_subject=data.get("live_signer_subject"),
+        live_signer_issuer=data.get("live_signer_issuer"),
+        live_signer_thumbprint=data.get("live_signer_thumbprint"),
+        staged_signature_status=data.get("staged_signature_status"),
+        staged_signer_subject=data.get("staged_signer_subject"),
+        staged_signer_issuer=data.get("staged_signer_issuer"),
+        staged_signer_thumbprint=data.get("staged_signer_thumbprint"),
+        staged_signer_approved=data.get("staged_signer_approved"),
+        evidence_path=data.get("evidence_path"),
+    )
+
+
+def _parse_result(data: dict[str, Any]) -> ModuleVerificationResult:
+    """Convert a raw report dict into a ModuleVerificationResult."""
+    approved = data.get("approved_candidate")
+    candidates_raw = data.get("candidates", [])
+
+    return ModuleVerificationResult(
+        module_name=data["module_name"],
+        provenance_approved=data["provenance_approved"],
+        execution_supported=data["execution_supported"],
+        evidence_path=data.get("evidence_path"),
+        rejection_reasons=tuple(data.get("rejection_reasons", ())),
+        approved_candidate=_parse_candidate(approved) if approved else None,
+        candidates=tuple(_parse_candidate(c) for c in candidates_raw),
+        required_modules_logged=tuple(data.get("required_modules_logged", ())),
+        powershell_executable=data.get("powershell_executable", ""),
     )
