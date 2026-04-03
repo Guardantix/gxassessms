@@ -888,6 +888,7 @@ New or extend `tests/unit/cli/test_adapters_check.py`:
 src/gxassessms/
   adapters/
     _verification.py                  # verify_module(), script builder, report parser
+    _tree_hash.py                     # sha256tree:v1 Python implementation
     _verification_scripts/
       verify_module.ps1               # Static PowerShell template (Phases 1-9)
     scubagear/
@@ -899,15 +900,12 @@ src/gxassessms/
     contracts/
       verification.py                 # DTOs: ModulePolicy, SignerIdentity,
                                       #   ModuleVerificationResult, CandidateOutcome,
-                                      #   ModulePolicyOverride
+                                      #   ModulePolicyOverride, semver utilities
 
   cli/
     preflight_types.py                # PreflightCheckResult (presentation layer DTO)
     commands/
       compute_hash.py                 # mseco compute-module-hash --manifest-path
-
-  reporting/
-    _semver.py                        # Extracted semver utilities (shared)
 
 tests/
   unit/adapters/
@@ -943,9 +941,6 @@ src/gxassessms/
     commands/preflight.py             # Call verifier directly, use PreflightCheckResult
     commands/adapters.py              # Update to use PreflightCheckResult, update help text
     output.py                         # PreflightCheckResult rendering, provenance display
-
-  reporting/
-    renderer_registry.py              # Delegate to _semver.py
 ```
 
 ### 14.3 Size Targets

@@ -106,7 +106,8 @@ def build_input_blob(
 
     if override is not None:
         if override.version_range is not None:
-            # Spec: override version pin must satisfy the code-owned range
+            # Config can narrow ("pin to ==X.Y.Z") but never widen the code-owned
+            # range.  The pin must satisfy the range the adapter approved in code.
             pin = override.version_range[2:]  # strip "==" prefix (validated by __post_init__)
             if not version_satisfies_range(pin, policy.version_range):
                 raise ValueError(
@@ -115,7 +116,9 @@ def build_input_blob(
                 )
             effective_version_range = override.version_range
         if override.pinned_package_hashes is not None:
-            # Spec: pinned hashes must be a subset of code-owned approved hashes
+            # Config can restrict the accepted hash set but never introduce hashes
+            # the adapter code didn't approve.  This prevents config from widening
+            # the trust boundary.
             extra = override.pinned_package_hashes - policy.approved_package_hashes
             if extra:
                 raise ValueError(
@@ -300,7 +303,11 @@ def _log_provenance(result: ModuleVerificationResult, adapter_name: str) -> None
         ev = result.evidence_path or "unknown"
         ac = result.approved_candidate
         level = logging.INFO
-        # Degraded signature -> WARNING
+        # Promote to WARNING when the evidence path fell back to hash_only
+        # even though signature verification *should* have worked on this
+        # platform.  None (no sig attempted) and "platform_unsupported"
+        # (Linux/macOS) are expected -- anything else means the signature
+        # was attempted but failed, which operators should investigate.
         if (
             ev == "hash_only"
             and ac

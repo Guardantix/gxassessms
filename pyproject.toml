@@ -59,7 +59,7 @@ basic_docx = "gxassessms.reporting.basic_renderer:BasicDocxRenderer"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gxassessms"]
-artifacts = ["src/gxassessms/**/*.yaml"]
+artifacts = ["src/gxassessms/**/*.yaml", "src/gxassessms/**/*.ps1"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
