@@ -111,6 +111,15 @@ The `check_prerequisites()` protocol method takes no config (backward compatibil
 with non-PowerShell adapters). `adapters check` is honestly a subset and documents
 this in its help text.
 
+Implementation must update user-facing contracts to reflect this split:
+
+- `ToolAdapter.check_prerequisites()` docstring in `core/contracts/types.py`: clarify
+  that for PowerShell adapters this validates code-owned baseline policy, not config
+  overrides
+- `mseco adapters check` help text in `cli/commands/adapters.py`: state explicitly
+  that this validates baseline policy only, and that `mseco preflight` is the
+  policy-complete gate
+
 ### 3.7 Transitive Dependencies
 
 `RequiredModules` entries (e.g., `Microsoft.Graph.Authentication`, `Pester`) are logged
@@ -153,21 +162,39 @@ Construction invariants (enforced at policy creation):
 
 ### 4.2 Approval Logic
 
-A candidate is approved when ALL of:
+Provenance and execution support are evaluated independently per candidate.
+
+**Provenance approval** (sets `provenance_approved`):
 
 1. Module name matches exactly
 2. Version is valid X.Y.Z and satisfies `version_range`
-3. Platform compatibility satisfied (`CompatiblePSEditions`, `PowerShellVersion`)
-4. Manifest confinement check passed (all referenced files under `ModuleBase`)
-5. No reparse points (symlinks, junctions) in module tree
-6. Tree hash of staged copy matches an entry in `approved_package_hashes`
-7. **Either**:
+3. Manifest confinement check passed (all referenced files under `ModuleBase`)
+4. No reparse points (symlinks, junctions) in module tree
+5. Tree hash of staged copy matches an entry in `approved_package_hashes`
+6. **Either**:
    - (a) Valid Authenticode signature on the staged `.psd1`, AND signer (subject +
      issuer) matches an entry in `allowed_signers` -> evidence path: `signature_and_hash`
    - **OR**
    - (b) `allow_package_hash_fallback` is True -> evidence path: `hash_only`
-8. Exactly one candidate passes all checks (ambiguity = always reject, hardcoded
-   invariant)
+
+   Note: `signature_status = "platform_unsupported"` (Linux/macOS) is treated as a
+   signature failure. It falls through to path (b). If `allow_package_hash_fallback`
+   is False, provenance is rejected -- the platform does not override the policy.
+
+**Execution support** (sets `execution_supported`, independent of provenance):
+
+7. `CompatiblePSEditions` includes the current PowerShell edition
+8. `PowerShellVersion` is satisfied by the current PowerShell version
+
+**Overall candidate approval**:
+
+9. `can_execute = provenance_approved AND execution_supported`
+10. Exactly one candidate has `can_execute=True` (ambiguity = always reject, hardcoded
+    invariant)
+
+A candidate can be `provenance_approved=True, execution_supported=False` (e.g.,
+ScubaGear on Linux). Preflight reports both axes. All provenance phases run for every
+candidate that passes version matching, regardless of platform compatibility.
 
 ### 4.3 Config Override
 
@@ -301,11 +328,14 @@ verified.
 
 `Get-AuthenticodeSignature` on the staged `.psd1`. This is the **authoritative** check
 that determines the evidence path label. If status is `Valid` and signer matches the
-allowlist -> `signature_and_hash`. Otherwise -> `hash_only` (if hash fallback is allowed
-by policy).
+allowlist -> `signature_and_hash`. Otherwise, signature evidence fails.
 
-On Linux/macOS: `signature_status = "platform_unsupported"`, evidence path defaults to
-`hash_only`.
+When signature evidence fails (any reason: `NotSigned`, `HashMismatch`,
+`platform_unsupported`, signer mismatch, etc.), the candidate falls through to the hash
+fallback path. If `allow_package_hash_fallback` is True and the tree hash is approved ->
+`hash_only`. If `allow_package_hash_fallback` is False -> provenance rejected. The
+platform does not override the policy: `platform_unsupported` is not a special case that
+bypasses the fallback flag.
 
 ### 5.10 Tree Hash (Phase 7)
 
@@ -423,14 +453,10 @@ class CandidateOutcome:
 
     provenance_approved: bool
     execution_supported: bool
-    rejection_category: Literal[
-        "platform_incompatible",
-        "version_mismatch",
-        "confinement_violation",
-        "hash_rejected",
-        "signature_rejected",
-        None,
-    ]
+    rejection_reasons: tuple[str, ...]    # Zero or more: "platform_incompatible",
+                                          # "version_mismatch", "confinement_violation",
+                                          # "hash_rejected", "signature_rejected"
+                                          # A candidate can fail on multiple axes.
 
     confinement_violation: str | None
     package_hash: str | None              # "sha256tree:v1:<hex>"
@@ -478,6 +504,8 @@ class ModuleVerificationResult:
 ```
 
 ### 7.3 Preflight Display Type
+
+Lives in `cli/preflight_types.py` (presentation layer, not core contracts):
 
 ```python
 @dataclass
@@ -699,7 +727,9 @@ Additional cases:
 - Non-X.Y.Z version -> candidate skipped
 - Confinement violation (RootModule escapes ModuleBase) -> rejected
 - Confinement violation (bare module name in NestedModules) -> rejected
-- Both axes fail -> `ModuleProvenanceError` raised
+- Both axes fail -> `ModuleProvenanceError` raised, `rejection_reasons` contains both
+- Platform incompatible + hash rejected -> `rejection_reasons` contains both categories
+- `platform_unsupported` signature + `allow_package_hash_fallback=False` -> provenance rejected
 
 ### 13.4 Unit: Tree Hash
 
@@ -785,9 +815,10 @@ src/gxassessms/
     contracts/
       verification.py                 # DTOs: ModulePolicy, SignerIdentity,
                                       #   ModuleVerificationResult, CandidateOutcome,
-                                      #   ModulePolicyOverride, PreflightCheckResult
+                                      #   ModulePolicyOverride
 
   cli/
+    preflight_types.py                # PreflightCheckResult (presentation layer DTO)
     commands/
       compute_hash.py                 # mseco compute-module-hash --manifest-path
 
@@ -820,11 +851,13 @@ src/gxassessms/
 
   core/
     contracts/errors.py               # Add ModuleVerificationError subtree
+    contracts/types.py                # Update check_prerequisites() docstring
     config/config.py                  # Add ModulePolicyOverride to ToolConfig
     domain/constants.py               # Add verification Literal types
 
   cli/
     commands/preflight.py             # Call verifier directly, use PreflightCheckResult
+    commands/adapters.py              # Update to use PreflightCheckResult, update help text
     output.py                         # PreflightCheckResult rendering, provenance display
 
   reporting/
