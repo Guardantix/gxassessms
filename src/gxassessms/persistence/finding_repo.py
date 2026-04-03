@@ -147,6 +147,7 @@ class FindingRepo:
         both roll back. Callers must not use save_parsed() for new code --
         that method accumulates rows.
         """
+        now = format_utc(utc_now())
         records = [
             (
                 str(uuid.uuid4()),
@@ -163,7 +164,7 @@ class FindingRepo:
                 json.dumps(f.dedup_keys),
                 json.dumps(f.benchmark_refs),
                 json.dumps(f.raw_data),
-                format_utc(utc_now()),
+                now,
             )
             for f in findings
         ]
@@ -189,8 +190,8 @@ class FindingRepo:
         Preserves finding_instance_id for existing finding_keys so that
         override records and event log entries remain linked.
         """
+        now = format_utc(utc_now())
         with self._db.connect() as conn:
-            # Build map of existing finding_key -> finding_instance_id
             existing_rows = conn.execute(
                 "SELECT finding_key, finding_instance_id FROM consolidated_findings "
                 "WHERE engagement_id = ?",
@@ -219,7 +220,7 @@ class FindingRepo:
                     f.root_cause,
                     f.remediation,
                     f.narrative,
-                    format_utc(utc_now()),
+                    now,
                 )
                 for f in findings
             ]
@@ -295,7 +296,7 @@ class FindingRepo:
         """Override the severity of a consolidated finding and record it."""
         now = format_utc(utc_now())
         with self._db.connect() as conn:
-            # Get current severity -- scoped to engagement to prevent cross-engagement mutation
+            # Scoped to engagement to prevent cross-engagement mutation
             row = conn.execute(
                 "SELECT severity FROM consolidated_findings "
                 "WHERE finding_instance_id = ? AND engagement_id = ?",
@@ -305,14 +306,12 @@ class FindingRepo:
                 raise PersistenceError(f"Consolidated finding not found: {finding_id}")
             old_severity = row["severity"]
 
-            # Update the finding -- scoped to engagement
             conn.execute(
                 "UPDATE consolidated_findings SET severity = ?, updated_at = ? "
                 "WHERE finding_instance_id = ? AND engagement_id = ?",
                 (new_severity.value, now, finding_id, engagement_id),
             )
 
-            # Record the override
             override_id = str(uuid.uuid4())
             conn.execute(
                 "INSERT INTO overrides "
@@ -359,7 +358,7 @@ class FindingRepo:
                     engagement_id,
                     finding.get("observation_id", f"manual:{finding_id}"),
                     finding.get("finding_key", f"manual:{finding_id}"),
-                    "Manual",
+                    ToolSource.MANUAL.value,
                     finding["title"],
                     finding["severity"],
                     finding.get("status", FindingStatus.FAIL),
