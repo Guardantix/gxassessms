@@ -149,7 +149,17 @@ ENCODING_BY_EXTENSION: dict[str, FileEncoding] = {
 # Keys not in the allowlist are silently dropped during persistence.
 EXECUTION_METADATA_ALLOWLIST: dict[str, dict[str, frozenset[str]]] = {
     "1.0.0": {
-        "scubagear": frozenset({"modules"}),
-        "maester": frozenset(),
+        "scubagear": frozenset({"modules", "module_provenance"}),
+        "maester": frozenset({"module_provenance"}),
     },
 }
+
+# ---------------------------------------------------------------------------
+# Module Verification
+# ---------------------------------------------------------------------------
+
+EvidencePath = Literal["signature_and_hash", "hash_only"]
+
+EVIDENCE_PATHS: frozenset[str] = frozenset({"signature_and_hash", "hash_only"})
+
+VerificationMode = Literal["preflight", "collection"]
