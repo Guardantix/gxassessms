@@ -59,11 +59,7 @@ def _parse_constraint(constraint: str) -> tuple[str, tuple[int, int, int]]:
     """Parse a single version constraint like '>=1.0.0' or '<2.0.0'."""
     for op in (">=", "<=", ">", "<", "=="):
         if constraint.startswith(op):
-            version_str = constraint[len(op) :]
-            if not _SEMVER_RE.match(version_str):
-                raise PayloadVersionError(f"Invalid version in constraint: '{constraint}'")
-            parts = version_str.split(".")
-            return op, (int(parts[0]), int(parts[1]), int(parts[2]))
+            return op, _parse_version(constraint[len(op) :])
     raise PayloadVersionError(f"Invalid version constraint: '{constraint}'")
 
 
@@ -160,10 +156,10 @@ class NodeRenderer:
         self._keep_temp_on_failure = keep_temp_on_failure
 
         # Fail at discovery time, not render time (spec Section 7)
-        self._render_js = self.package_path / "render.js"
-        if not self._render_js.exists():
+        render_js = self.package_path / "render.js"
+        if not render_js.exists():
             raise RendererDependencyError(
-                f"render.js not found at {self._render_js}. "
+                f"render.js not found at {render_js}. "
                 f"Renderer package may not be installed correctly."
             )
         node_exe = check_node_available()
@@ -207,7 +203,7 @@ class NodeRenderer:
 
             cmd = [
                 self._node_exe,
-                str(self._render_js),
+                str(self.package_path / "render.js"),
                 "--payload",
                 str(payload_path),
                 "--output",
@@ -250,11 +246,19 @@ class NodeRenderer:
                 )
 
             # Validate output (fail-closed: no silent empty files)
-            if not output_path.exists() or output_path.stat().st_size == 0:
+            try:
+                stat = output_path.stat()
+            except FileNotFoundError as exc:
                 raise ReportError(
                     f"Renderer '{self.package_path.name}' (format={self.format}) "
                     f"exited successfully but did not produce output at "
                     f"{output_path}. Check renderer implementation."
+                ) from exc
+            if stat.st_size == 0:
+                raise ReportError(
+                    f"Renderer '{self.package_path.name}' (format={self.format}) "
+                    f"exited successfully but did not produce output at "
+                    f"{output_path} (file is empty). Check renderer implementation."
                 )
 
             _failed = False
@@ -262,7 +266,12 @@ class NodeRenderer:
             if _failed and self._keep_temp_on_failure:
                 logger.warning("Render failed. Temp files preserved at: %s", tmp)
             else:
-                shutil.rmtree(tmp, ignore_errors=True)
+                shutil.rmtree(
+                    tmp,
+                    onexc=lambda _f, p, e: logger.warning(
+                        "Failed to remove temp path during cleanup: %s (%s)", p, e
+                    ),
+                )
 
         logger.info("Render complete: %s -> %s", self.package_path.name, output_path)
         return output_path
@@ -277,7 +286,12 @@ class RendererRegistry:
 
     def __init__(self) -> None:
         self._renderers: dict[str, ReportRenderer] = {}
-        self.discovery_errors: list[DiscoveryError] = []
+        self._discovery_errors: list[DiscoveryError] = []
+
+    @property
+    def discovery_errors(self) -> tuple[DiscoveryError, ...]:
+        """Diagnostic errors from the most recent discovery pass (read-only)."""
+        return tuple(self._discovery_errors)
 
     def register(self, name: str, renderer: ReportRenderer) -> None:
         """Register a renderer by name."""
@@ -305,7 +319,7 @@ class RendererRegistry:
         registry = cls()
         discovery = discover_entry_points(RENDERER_GROUP)
 
-        registry.discovery_errors.extend(discovery.errors)
+        registry._discovery_errors.extend(discovery.errors)
 
         for name, renderer_cls in discovery.plugins.items():
             try:
@@ -317,12 +331,12 @@ class RendererRegistry:
                     error_type=type(exc).__name__,
                     message=f"Failed to instantiate renderer '{name}': {exc}",
                 )
-                registry.discovery_errors.append(error)
+                registry._discovery_errors.append(error)
                 logger.warning("Renderer '%s' failed instantiation: %s", name, exc)
 
         logger.info(
             "Renderer discovery: %d registered, %d errors",
             len(registry._renderers),
-            len(registry.discovery_errors),
+            len(registry._discovery_errors),
         )
         return registry
