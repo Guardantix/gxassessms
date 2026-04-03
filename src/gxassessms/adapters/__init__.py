@@ -29,6 +29,8 @@ ADAPTER_GROUP = "gxassessms.adapters"
 _REQUIRED_ATTRIBUTES: frozenset[str] = frozenset(
     {
         "tool_name",
+        "storage_slug",
+        "tool_source",
         "capabilities",
         "check_prerequisites",
         "authenticate",

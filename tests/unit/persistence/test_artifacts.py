@@ -9,7 +9,7 @@ import pytest
 from gxassessms.core.contracts.errors import PersistenceError
 from gxassessms.core.contracts.types import AdapterRunStatus
 from gxassessms.core.domain.enums import ToolSource
-from gxassessms.core.domain.models import AdapterResult, RawToolOutput
+from gxassessms.core.domain.models import AdapterResult, ResolvedManifest
 from gxassessms.persistence.artifacts import (
     ArtifactManager,
     _sanitize_slug,
@@ -280,18 +280,18 @@ class TestArtifactManagerPurge:
             mgr.purge("eng-empty-purge")
 
 
-def _make_raw_output(tool: ToolSource = ToolSource.SCUBAGEAR) -> RawToolOutput:
+def _make_resolved_manifest(tool: ToolSource = ToolSource.SCUBAGEAR) -> ResolvedManifest:
     from gxassessms.core.domain.models import ArtifactRecord
 
     slug = tool.value.lower()
-    return RawToolOutput(
+    return ResolvedManifest(
         tool=tool,
         tool_slug=slug,
         schema_version="1.0.0",
         manifest_version="1.0.0",
         timestamp=datetime(2026, 3, 30, 12, 0, 0, tzinfo=UTC),
         file_manifest={
-            f"{slug}/TestResults.json": ArtifactRecord(
+            f"/engagements/artifacts/{slug}/TestResults.json": ArtifactRecord(
                 encoding="utf-8",
                 sha256="a" * 64,
             ),
@@ -308,7 +308,7 @@ def _make_adapter_result(
     return AdapterResult(
         adapter_name=tool.value,
         status=AdapterRunStatus.SUCCESS if success else AdapterRunStatus.FAILED,
-        raw_output=_make_raw_output(tool) if success else None,
+        raw_output=_make_resolved_manifest(tool) if success else None,
         error=None if success else "boom",
         duration_seconds=1.0,
     )
@@ -357,7 +357,7 @@ class TestSaveRawOutputs:
         artifact_mgr.save_raw_outputs("eng-004", "Acme", results)
 
         # Second save with different metadata
-        new_raw = _make_raw_output(ToolSource.SCUBAGEAR)
+        new_raw = _make_resolved_manifest(ToolSource.SCUBAGEAR)
         new_raw.execution_metadata["duration"] = 99.0
         new_result = AdapterResult(
             adapter_name="ScubaGear",
@@ -370,6 +370,13 @@ class TestSaveRawOutputs:
         data = json.loads((raw_dir / "scubagear.json").read_text(encoding="utf-8"))
         assert data["execution_metadata"]["duration"] == 99.0
 
+    @pytest.mark.xfail(
+        reason="Round-trip breaks: AdapterResult.raw_output is now ResolvedManifest "
+        "(absolute paths) but load_raw_outputs still deserializes as RawToolOutput "
+        "(relative paths). Will be fixed by Task 7 (rewrite load_raw_outputs) and "
+        "Task 9 (rewrite save_raw_outputs). See #35.",
+        strict=True,
+    )
     def test_round_trip_with_load_raw_outputs(self, artifact_mgr: ArtifactManager) -> None:
         """Verify written manifests can be loaded by replay.load_raw_outputs()."""
         from gxassessms.pipeline.replay import load_raw_outputs

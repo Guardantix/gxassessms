@@ -26,7 +26,7 @@ from gxassessms.core.contracts.errors import (
     MissingRawOutputError,
 )
 from gxassessms.core.contracts.types import AdapterRunStatus
-from gxassessms.core.domain.models import AdapterResult, RawToolOutput
+from gxassessms.core.domain.models import AdapterResult, RawToolOutput, ResolvedManifest
 from gxassessms.pipeline.stages import Stage
 
 logger = logging.getLogger(__name__)
@@ -171,15 +171,15 @@ class ReplayEngine:
                 "use PARSE or later."
             )
 
-    def build_adapter_results(self, raw_outputs: list[RawToolOutput]) -> list[AdapterResult]:
-        """Build synthetic AdapterResults from raw outputs.
+    def build_adapter_results(self, raw_outputs: list[ResolvedManifest]) -> list[AdapterResult]:
+        """Build synthetic AdapterResults from resolved manifests.
 
         Creates AdapterResult wrappers with SUCCESS status for each
-        raw output, simulating a successful collect stage. This allows
+        resolved manifest, simulating a successful collect stage. This allows
         the parse stage to process them normally.
 
         Args:
-            raw_outputs: Loaded and validated RawToolOutput objects.
+            raw_outputs: Loaded and validated ResolvedManifest objects.
 
         Returns:
             List of AdapterResult objects ready for the parse stage.

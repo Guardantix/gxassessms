@@ -265,7 +265,7 @@ class AdapterResult(BaseModel):
 
     adapter_name: str
     status: AdapterRunStatus
-    raw_output: RawToolOutput | None = None
+    raw_output: ResolvedManifest | None = None
     error: str | None = None
     duration_seconds: float = Field(ge=0)
 

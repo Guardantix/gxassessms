@@ -12,6 +12,8 @@ from unittest.mock import patch
 
 import pytest
 
+from gxassessms.core.domain.enums import ToolSource
+
 # ---------------------------------------------------------------------------
 # Mock adapter classes
 # ---------------------------------------------------------------------------
@@ -21,6 +23,8 @@ class _ValidAdapter:
     """Minimal valid adapter class for testing."""
 
     tool_name: str = "TestTool"
+    storage_slug: str = "testtool"
+    tool_source: ToolSource = ToolSource.SCUBAGEAR
     capabilities: frozenset[str] = frozenset({"collect", "parse"})
 
     def check_prerequisites(self) -> Any:
@@ -46,6 +50,8 @@ class _MissingParseAdapter:
     """Adapter missing the 'parse' method."""
 
     tool_name: str = "Broken"
+    storage_slug: str = "broken"
+    tool_source: ToolSource = ToolSource.SCUBAGEAR
     capabilities: frozenset[str] = frozenset()
 
     def check_prerequisites(self) -> Any:
@@ -76,6 +82,8 @@ class _TypeErrorOnInit:
     """Adapter whose __init__ requires arguments."""
 
     tool_name: str = "Broken"
+    storage_slug: str = "broken"
+    tool_source: ToolSource = ToolSource.SCUBAGEAR
     capabilities: frozenset[str] = frozenset()
     check_prerequisites = authenticate = collect = validate_raw = parse = coverage = None
 

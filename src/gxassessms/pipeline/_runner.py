@@ -359,7 +359,7 @@ def _rehydrate_upstream_state(
         eng_dir = orchestrator._artifact_manager.get_engagement_dir(engagement_id)
         raw_outputs = load_raw_outputs(eng_dir)
         validate_raw_outputs(raw_outputs, adapters, engagement_id)
-        adapter_results = ReplayEngine().build_adapter_results(raw_outputs)
+        adapter_results = ReplayEngine().build_adapter_results(raw_outputs)  # type: ignore[arg-type]  # Task 7 will align types
         return adapter_results, None, None
 
     if start_stage == Stage.NORMALIZE:

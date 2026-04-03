@@ -1,5 +1,7 @@
 """Tests for Pydantic domain models."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
@@ -24,6 +26,7 @@ from gxassessms.core.domain.models import (
     RemediationPhase,
     ReportKeyStats,
     ReportPayload,
+    ResolvedManifest,
     SourceEvidence,
     ToolObservation,
     ToolRunResult,
@@ -390,27 +393,30 @@ class TestRawToolOutput:
 
 
 class TestAdapterResult:
-    def _make_rto(self) -> RawToolOutput:
+    def _make_resolved_manifest(self) -> ResolvedManifest:
         from gxassessms.core.domain.models import ArtifactRecord
 
-        return RawToolOutput(
+        return ResolvedManifest(
             tool=ToolSource.SCUBAGEAR,
             tool_slug="scubagear",
             schema_version="1.0.0",
             manifest_version="1.0.0",
             timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
             file_manifest={
-                "scubagear/TestResults.json": ArtifactRecord(encoding="utf-8", sha256="a" * 64),
+                "/engagements/artifacts/scubagear/TestResults.json": ArtifactRecord(
+                    encoding="utf-8",
+                    sha256="a" * 64,
+                ),
             },
             execution_metadata={},
         )
 
     def test_success_result_has_raw_output(self) -> None:
-        rto = self._make_rto()
+        rm = self._make_resolved_manifest()
         ar = AdapterResult(
             adapter_name="scubagear",
             status=AdapterRunStatus.SUCCESS,
-            raw_output=rto,
+            raw_output=rm,
             error=None,
             duration_seconds=120.5,
         )
@@ -472,22 +478,22 @@ class TestAdapterResult:
             )
 
     def test_success_with_error_raises(self) -> None:
-        rto = self._make_rto()
+        rm = self._make_resolved_manifest()
         with pytest.raises(ValidationError, match="must not carry an error"):
             AdapterResult(
                 adapter_name="scubagear",
                 status=AdapterRunStatus.SUCCESS,
-                raw_output=rto,
+                raw_output=rm,
                 error="unexpected",
                 duration_seconds=120.5,
             )
 
     def test_failed_preserves_raw_output_for_replay(self) -> None:
-        rto = self._make_rto()
+        rm = self._make_resolved_manifest()
         ar = AdapterResult(
             adapter_name="scubagear",
             status=AdapterRunStatus.FAILED,
-            raw_output=rto,
+            raw_output=rm,
             error="ParseError: invalid JSON in TestResults.json",
             duration_seconds=5.0,
         )
@@ -495,12 +501,12 @@ class TestAdapterResult:
         assert ar.error is not None
 
     def test_skipped_with_raw_output_raises(self) -> None:
-        rto = self._make_rto()
+        rm = self._make_resolved_manifest()
         with pytest.raises(ValidationError, match="must not carry raw_output"):
             AdapterResult(
                 adapter_name="scubagear",
                 status=AdapterRunStatus.SKIPPED,
-                raw_output=rto,
+                raw_output=rm,
                 duration_seconds=0.0,
             )
 

@@ -32,8 +32,8 @@ from gxassessms.core.domain.models import (
     ConfidenceScore,
     ConsolidatedFinding,
     Finding,
-    RawToolOutput,
     ReportPayload,
+    ResolvedManifest,
     SourceEvidence,
     ToolObservation,
 )
@@ -69,18 +69,18 @@ def _make_config(**overrides: Any) -> EngagementConfig:
     return EngagementConfig(**defaults)
 
 
-def _make_raw_output(tool: ToolSource = ToolSource.SCUBAGEAR) -> RawToolOutput:
+def _make_resolved_manifest(tool: ToolSource = ToolSource.SCUBAGEAR) -> ResolvedManifest:
     from gxassessms.core.domain.models import ArtifactRecord
 
     slug = tool.value.lower()
-    return RawToolOutput(
+    return ResolvedManifest(
         tool=tool,
         tool_slug=slug,
         schema_version="1.0.0",
         manifest_version="1.0.0",
         timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
         file_manifest={
-            f"{slug}/TestResults.json": ArtifactRecord(
+            f"/engagements/artifacts/{slug}/TestResults.json": ArtifactRecord(
                 encoding="utf-8",
                 sha256="a" * 64,
             ),
@@ -92,12 +92,12 @@ def _make_raw_output(tool: ToolSource = ToolSource.SCUBAGEAR) -> RawToolOutput:
 def _make_adapter_result(
     name: str = "ScubaGear",
     status: str = "SUCCESS",
-    raw_output: RawToolOutput | None = None,
+    raw_output: ResolvedManifest | None = None,
 ) -> AdapterResult:
     return AdapterResult(
         adapter_name=name,
         status=status,
-        raw_output=raw_output or _make_raw_output(),
+        raw_output=raw_output or _make_resolved_manifest(),
         error=None,
         duration_seconds=120.5,
     )
@@ -174,7 +174,7 @@ def _make_mock_adapter(
     adapter = MagicMock()
     adapter.tool_name = name
     adapter.capabilities = frozenset({"collect", "parse"})
-    adapter.collect.return_value = _make_raw_output(tool_source)
+    adapter.collect.return_value = _make_resolved_manifest(tool_source)
     adapter.validate_raw.return_value = None
     adapter.parse.return_value = [_make_observation()]
     adapter.coverage.return_value = []

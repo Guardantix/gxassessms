@@ -19,7 +19,7 @@ from gxassessms.core.contracts.errors import (
 )
 from gxassessms.core.contracts.types import AdapterRunStatus
 from gxassessms.core.domain.enums import ToolSource
-from gxassessms.core.domain.models import RawToolOutput
+from gxassessms.core.domain.models import RawToolOutput, ResolvedManifest
 from gxassessms.pipeline.replay import (
     ReplayEngine,
     load_raw_outputs,
@@ -44,6 +44,26 @@ def _make_raw_output(tool: ToolSource = ToolSource.SCUBAGEAR) -> RawToolOutput:
         timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
         file_manifest={
             f"{slug}/TestResults.json": ArtifactRecord(
+                encoding="utf-8",
+                sha256="a" * 64,
+            ),
+        },
+        execution_metadata={},
+    )
+
+
+def _make_resolved_manifest(tool: ToolSource = ToolSource.SCUBAGEAR) -> ResolvedManifest:
+    from gxassessms.core.domain.models import ArtifactRecord
+
+    slug = tool.value.lower()
+    return ResolvedManifest(
+        tool=tool,
+        tool_slug=slug,
+        schema_version="1.0.0",
+        manifest_version="1.0.0",
+        timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+        file_manifest={
+            f"/engagements/artifacts/{slug}/TestResults.json": ArtifactRecord(
                 encoding="utf-8",
                 sha256="a" * 64,
             ),
@@ -132,21 +152,21 @@ class TestReplayEngine:
         assert engine.default_start_stage == Stage.PARSE
 
     def test_build_adapter_results_from_raw(self) -> None:
-        raw_outputs = [_make_raw_output(ToolSource.SCUBAGEAR)]
+        resolved = [_make_resolved_manifest(ToolSource.SCUBAGEAR)]
         engine = ReplayEngine()
-        results = engine.build_adapter_results(raw_outputs)
+        results = engine.build_adapter_results(resolved)
         assert len(results) == 1
         assert results[0].status == AdapterRunStatus.SUCCESS.value
         assert results[0].adapter_name == ToolSource.SCUBAGEAR.value
         assert results[0].raw_output is not None
 
     def test_build_adapter_results_multiple_tools(self) -> None:
-        raw_outputs = [
-            _make_raw_output(ToolSource.SCUBAGEAR),
-            _make_raw_output(ToolSource.MAESTER),
+        resolved = [
+            _make_resolved_manifest(ToolSource.SCUBAGEAR),
+            _make_resolved_manifest(ToolSource.MAESTER),
         ]
         engine = ReplayEngine()
-        results = engine.build_adapter_results(raw_outputs)
+        results = engine.build_adapter_results(resolved)
         assert len(results) == 2
         names = {r.adapter_name for r in results}
         assert names == {"ScubaGear", "Maester"}

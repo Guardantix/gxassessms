@@ -11,17 +11,22 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, TypedDict, runtime_checkable
 
-from gxassessms.core.domain.enums import AdapterRunStatus, Severity  # noqa: F401 (re-exported)
+from gxassessms.core.domain.enums import (  # noqa: F401 (re-exported)
+    AdapterRunStatus,
+    Severity,
+    ToolSource,
+)
 
 if TYPE_CHECKING:
     from gxassessms.core.config.config import EngagementConfig
     from gxassessms.core.domain.models import (
         AuthContext,
+        CollectionOutput,
         ConsolidatedFinding,
         CoverageRecord,
         Finding,
-        RawToolOutput,
         ReportPayload,
+        ResolvedManifest,
         ToolObservation,
     )
 
@@ -58,6 +63,8 @@ class Narratives(TypedDict):
 @runtime_checkable
 class ToolAdapter(Protocol):
     tool_name: str = ""
+    storage_slug: str = ""  # stable, unique, [a-z0-9][a-z0-9-]*
+    tool_source: ToolSource  # identity, not presentation
     capabilities: frozenset[str] = frozenset()
 
     def check_prerequisites(self) -> PrerequisiteResult:
@@ -68,19 +75,19 @@ class ToolAdapter(Protocol):
         """Acquire credentials for the tool. Returns None if no auth needed."""
         ...
 
-    def collect(self, config: EngagementConfig, auth: AuthContext | None) -> RawToolOutput:
+    def collect(self, config: EngagementConfig, auth: AuthContext | None) -> CollectionOutput:
         """Execute the tool and capture raw output. Called after authenticate()."""
         ...
 
-    def validate_raw(self, raw: RawToolOutput) -> None:
+    def validate_raw(self, raw: ResolvedManifest) -> None:
         """Validate raw output structure. Raises RawOutputValidationError on failure."""
         ...
 
-    def parse(self, raw: RawToolOutput) -> list[ToolObservation]:
+    def parse(self, raw: ResolvedManifest) -> list[ToolObservation]:
         """Parse raw output into tool-native observations. Called after validate_raw()."""
         ...
 
-    def coverage(self, raw: RawToolOutput) -> list[CoverageRecord]:
+    def coverage(self, raw: ResolvedManifest) -> list[CoverageRecord]:
         """Extract per-control coverage records from raw output."""
         ...
 

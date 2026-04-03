@@ -492,16 +492,16 @@ class TestDomainErrorTransitionsToFailed:
         from datetime import UTC, datetime
 
         from gxassessms.core.contracts.types import AdapterRunStatus
-        from gxassessms.core.domain.models import AdapterResult, ArtifactRecord, RawToolOutput
+        from gxassessms.core.domain.models import AdapterResult, ArtifactRecord, ResolvedManifest
 
-        raw = RawToolOutput(
+        raw = ResolvedManifest(
             tool=ToolSource.SCUBAGEAR,
             tool_slug="scubagear",
             schema_version="1.0",
             manifest_version="1.0.0",
             timestamp=datetime.now(UTC),
             file_manifest={
-                "scubagear/results.json": ArtifactRecord(
+                "/engagements/artifacts/scubagear/results.json": ArtifactRecord(
                     encoding="utf-8",
                     sha256="a" * 64,
                 ),
