@@ -155,3 +155,48 @@ class TestModulePolicyOverride:
         override = self.ModulePolicyOverride()
         assert override.version_range is None
         assert override.pinned_package_hashes is None
+
+
+class TestModuleVerificationErrors:
+    @pytest.fixture(autouse=True)
+    def _import(self) -> None:
+        from gxassessms.core.contracts.errors import (
+            ModuleAmbiguityError,
+            ModuleExecutionUnsupportedError,
+            ModuleProvenanceError,
+            ModuleVerificationError,
+            PrerequisiteError,
+            VerificationInfrastructureError,
+        )
+
+        self.ModuleVerificationError = ModuleVerificationError
+        self.ModuleProvenanceError = ModuleProvenanceError
+        self.ModuleAmbiguityError = ModuleAmbiguityError
+        self.ModuleExecutionUnsupportedError = ModuleExecutionUnsupportedError
+        self.VerificationInfrastructureError = VerificationInfrastructureError
+        self.PrerequisiteError = PrerequisiteError
+
+    def test_hierarchy(self) -> None:
+        assert issubclass(self.ModuleVerificationError, self.PrerequisiteError)
+        assert issubclass(self.ModuleProvenanceError, self.ModuleVerificationError)
+        assert issubclass(self.ModuleAmbiguityError, self.ModuleVerificationError)
+        assert issubclass(self.ModuleExecutionUnsupportedError, self.ModuleVerificationError)
+        assert issubclass(self.VerificationInfrastructureError, self.ModuleVerificationError)
+
+    def test_verification_error_carries_result(self) -> None:
+        err = self.ModuleVerificationError(
+            "test", adapter_name="ScubaGear", verification_result=None
+        )
+        assert err.verification_result is None
+        assert err.adapter_name == "ScubaGear"
+
+    def test_infrastructure_error_carries_exit_code(self) -> None:
+        err = self.VerificationInfrastructureError(
+            "pwsh crashed",
+            exit_code=1,
+            stderr_snippet="error text",
+            report_path="/var/data/report.json",
+        )
+        assert err.exit_code == 1
+        assert err.stderr_snippet == "error text"
+        assert err.report_path == "/var/data/report.json"

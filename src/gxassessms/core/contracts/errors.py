@@ -6,6 +6,8 @@ GxAssessMS problem, `except AdapterError` for any adapter problem, or
 `except CollectionError` for tool execution specifically.
 """
 
+from typing import Any
+
 
 class GxAssessError(Exception):
     """Base exception for all GxAssessMS errors."""
@@ -81,6 +83,56 @@ class ParseError(AdapterError):
 
 class RawOutputValidationError(AdapterError):
     """Raw output payload fails structural validation at the tool boundary."""
+
+
+# ---------------------------------------------------------------------------
+# Module verification errors
+# ---------------------------------------------------------------------------
+
+
+class ModuleVerificationError(PrerequisiteError):
+    """Module provenance verification failed."""
+
+    def __init__(
+        self,
+        message: str,
+        adapter_name: str = "",
+        engagement_id: str = "",
+        verification_result: Any = None,
+    ) -> None:
+        self.verification_result = verification_result
+        super().__init__(message, adapter_name, engagement_id)
+
+
+class ModuleProvenanceError(ModuleVerificationError):
+    """Candidate found but rejected by provenance policy."""
+
+
+class ModuleAmbiguityError(ModuleVerificationError):
+    """Multiple candidates satisfy policy -- fail closed."""
+
+
+class ModuleExecutionUnsupportedError(ModuleVerificationError):
+    """Module cannot execute on this platform."""
+
+
+class VerificationInfrastructureError(ModuleVerificationError):
+    """Verification machinery itself failed."""
+
+    def __init__(
+        self,
+        message: str,
+        adapter_name: str = "",
+        engagement_id: str = "",
+        verification_result: Any = None,
+        exit_code: int | None = None,
+        stderr_snippet: str | None = None,
+        report_path: str | None = None,
+    ) -> None:
+        self.exit_code = exit_code
+        self.stderr_snippet = stderr_snippet
+        self.report_path = report_path
+        super().__init__(message, adapter_name, engagement_id, verification_result)
 
 
 # ---------------------------------------------------------------------------
