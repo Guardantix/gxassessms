@@ -646,3 +646,100 @@ class TestAuthContext:
         assert ctx.expires_at is not None
         assert ctx.expires_at.tzinfo == UTC
         assert ctx.expires_at == datetime(2026, 3, 25, 12, 0, 0, tzinfo=UTC)
+
+
+class TestArtifactRecord:
+    def test_create_valid(self) -> None:
+        from gxassessms.core.domain.models import ArtifactRecord
+
+        rec = ArtifactRecord(
+            encoding="utf-8",
+            sha256="a" * 64,
+        )
+        assert rec.encoding == "utf-8"
+        assert rec.sha256 == "a" * 64
+
+    def test_rejects_short_sha256(self) -> None:
+        from gxassessms.core.domain.models import ArtifactRecord
+
+        with pytest.raises(ValidationError):
+            ArtifactRecord(encoding="utf-8", sha256="abc123")
+
+    def test_rejects_uppercase_sha256(self) -> None:
+        from gxassessms.core.domain.models import ArtifactRecord
+
+        with pytest.raises(ValidationError):
+            ArtifactRecord(encoding="utf-8", sha256="A" * 64)
+
+    def test_rejects_extra_fields(self) -> None:
+        from gxassessms.core.domain.models import ArtifactRecord
+
+        with pytest.raises(ValidationError):
+            ArtifactRecord(encoding="utf-8", sha256="a" * 64, extra="bad")
+
+    def test_binary_encoding(self) -> None:
+        from gxassessms.core.domain.models import ArtifactRecord
+
+        rec = ArtifactRecord(encoding="binary", sha256="b" * 64)
+        assert rec.encoding == "binary"
+
+
+class TestCollectedArtifact:
+    def test_create_valid(self) -> None:
+        from gxassessms.core.domain.models import CollectedArtifact
+
+        ca = CollectedArtifact(
+            source_path="C:\\Users\\output\\ScubaResults.json",
+            target_relpath="scubagear/ScubaResults.json",
+            encoding="utf-8",
+            sha256="c" * 64,
+        )
+        assert ca.source_path == "C:\\Users\\output\\ScubaResults.json"
+        assert ca.target_relpath == "scubagear/ScubaResults.json"
+
+    def test_rejects_bad_sha256(self) -> None:
+        from gxassessms.core.domain.models import CollectedArtifact
+
+        with pytest.raises(ValidationError):
+            CollectedArtifact(
+                source_path="/home/user/results.json",
+                target_relpath="scubagear/results.json",
+                encoding="utf-8",
+                sha256="too-short",
+            )
+
+
+class TestCollectionOutput:
+    def test_create_valid(self) -> None:
+        from gxassessms.core.domain.models import CollectedArtifact, CollectionOutput
+
+        co = CollectionOutput(
+            tool=ToolSource.SCUBAGEAR,
+            tool_slug="scubagear",
+            schema_version="1.7.1",
+            timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+            artifacts=[
+                CollectedArtifact(
+                    source_path="C:\\output\\ScubaResults.json",
+                    target_relpath="scubagear/ScubaResults.json",
+                    encoding="utf-8",
+                    sha256="d" * 64,
+                )
+            ],
+            execution_metadata={"modules": ["AAD"]},
+        )
+        assert co.tool_slug == "scubagear"
+        assert len(co.artifacts) == 1
+
+    def test_timestamp_must_be_utc(self) -> None:
+        from gxassessms.core.domain.models import CollectionOutput
+
+        with pytest.raises(ValidationError):
+            CollectionOutput(
+                tool=ToolSource.SCUBAGEAR,
+                tool_slug="scubagear",
+                schema_version="1.7.1",
+                timestamp=datetime(2026, 4, 1, 10, 0, 0),  # naive
+                artifacts=[],
+                execution_metadata={},
+            )

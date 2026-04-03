@@ -139,6 +139,40 @@ class CoverageRecord(BaseModel):
     reason: str | None = None
 
 
+class ArtifactRecord(BaseModel):
+    """Per-artifact integrity binding."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    encoding: FileEncoding
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class CollectedArtifact(BaseModel):
+    """Single artifact from adapter collection."""
+
+    source_path: str  # absolute, platform-native
+    target_relpath: str  # canonical POSIX relative
+    encoding: FileEncoding
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class CollectionOutput(BaseModel):
+    """Adapter collection result. Platform-native absolute paths."""
+
+    tool: ToolSource
+    tool_slug: str  # stable storage namespace
+    schema_version: str  # tool output format
+    timestamp: datetime
+    artifacts: list[CollectedArtifact]  # sorted by target_relpath
+    execution_metadata: dict[str, Any]
+
+    @field_validator("timestamp")
+    @classmethod
+    def timestamp_must_be_utc(cls, v: datetime) -> datetime:
+        return ensure_utc(v)
+
+
 class RawToolOutput(BaseModel):
     """Serializable container for raw tool output (enables replay)."""
 
