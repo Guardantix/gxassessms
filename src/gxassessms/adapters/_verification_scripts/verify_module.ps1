@@ -470,9 +470,16 @@ foreach ($candidate in $allCandidates) {
         # Check PowerShellVersion minimum
         $requiredPSVersion = $manifestData['PowerShellVersion']
         if ($null -ne $requiredPSVersion -and $requiredPSVersion -ne '') {
+            # Normalize 2-part versions ("5.1" -> "5.1.0") for Parse-Semver
+            if ($requiredPSVersion -match '^\d+\.\d+$') {
+                $requiredPSVersion = "$requiredPSVersion.0"
+            }
             $requiredParsed = Parse-Semver -Version $requiredPSVersion
             if ($null -ne $requiredParsed) {
-                $currentVer = "$($PSVersionTable.PSVersion.Major).$($PSVersionTable.PSVersion.Minor).$($PSVersionTable.PSVersion.Patch)"
+                # PSVersion.Patch exists on PS 7+ (SemanticVersion); PS 5.1 uses Build (System.Version)
+                $pv = $PSVersionTable.PSVersion
+                $patchOrBuild = if ($null -ne $pv.Patch) { $pv.Patch } else { $pv.Build }
+                $currentVer = "$($pv.Major).$($pv.Minor).$patchOrBuild"
                 $currentParsed = Parse-Semver -Version $currentVer
                 if ($null -ne $currentParsed) {
                     $cmp = Compare-Semver -Left $currentParsed -Right $requiredParsed

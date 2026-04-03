@@ -70,6 +70,29 @@ def validate_extra_args(extra_args: list[str]) -> list[str]:
     return extra_args
 
 
+def parse_extra_args(
+    extra_args: list[str],
+) -> tuple[dict[str, str], dict[str, bool]]:
+    """Parse validated extra args into named_args and switches.
+
+    Each entry must have already passed ``validate_extra_args``, so it
+    matches ``-Name`` (switch) or ``-Name:value`` (named parameter).
+
+    Returns:
+        ``(named_args, switches)`` tuple.
+    """
+    named_args: dict[str, str] = {}
+    switches: dict[str, bool] = {}
+    for arg in extra_args:
+        bare = arg[1:]  # strip leading dash
+        if ":" in bare:
+            name, value = bare.split(":", 1)
+            named_args[name] = value
+        else:
+            switches[bare] = True
+    return named_args, switches
+
+
 def run_powershell(
     script: str,
     arguments: list[str] | None,

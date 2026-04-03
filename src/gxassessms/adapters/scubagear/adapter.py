@@ -14,6 +14,8 @@ from typing import Any, cast
 from gxassessms.adapters._base import (
     find_latest_output_dir,
     load_json_file,
+    parse_extra_args,
+    validate_extra_args,
 )
 from gxassessms.adapters.scubagear.mappings import (
     CATEGORY_MAP,
@@ -98,6 +100,12 @@ class ScubaGearAdapter:
         timeout_seconds = tc.timeout if tc.timeout is not None else _DEFAULT_TIMEOUT_SECONDS
 
         named_args: dict[str, Any] = {"OutPath": str(output_dir)}
+        switches: dict[str, bool] = {}
+        if tc.extra_args:
+            validated = validate_extra_args(tc.extra_args)
+            extra_named, switches = parse_extra_args(validated)
+            named_args.update(extra_named)
+
         if modules:
             canonical_modules: list[str] = []
             invalid: list[str] = []
@@ -127,6 +135,7 @@ class ScubaGearAdapter:
             allowed_commands=ALLOWED_COMMANDS,
             command_name="Invoke-SCuBA",
             named_args=named_args,
+            switches=switches or None,
             override=override,
             timeout_seconds=timeout_seconds,
             adapter_name=self.tool_name,

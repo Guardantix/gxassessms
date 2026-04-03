@@ -16,6 +16,8 @@ from typing import Any
 
 from gxassessms.adapters._base import (
     load_json_file,
+    parse_extra_args,
+    validate_extra_args,
 )
 from gxassessms.adapters.maester.mappings import (
     CATEGORY_MAP,
@@ -108,6 +110,11 @@ class MaesterAdapter:
         run_dir.mkdir()
 
         named_args: dict[str, Any] = {"OutputFolder": str(run_dir)}
+        switches: dict[str, bool] = {}
+        if tc.extra_args:
+            validated = validate_extra_args(tc.extra_args)
+            extra_named, switches = parse_extra_args(validated)
+            named_args.update(extra_named)
 
         override = getattr(tc, "module_policy_override", None)
 
@@ -116,6 +123,7 @@ class MaesterAdapter:
             allowed_commands=ALLOWED_COMMANDS,
             command_name="Invoke-Maester",
             named_args=named_args,
+            switches=switches or None,
             override=override,
             timeout_seconds=timeout,
             adapter_name=self.tool_name.lower(),
