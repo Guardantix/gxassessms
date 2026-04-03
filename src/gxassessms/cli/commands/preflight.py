@@ -68,7 +68,11 @@ def _check_prerequisites(
     config: Any,
     adapters: list[Any],
 ) -> list[dict[str, str]]:
-    """Check tool prerequisites via adapter.check_prerequisites()."""
+    """Check tool prerequisites via adapter.check_prerequisites().
+
+    For PowerShell adapters with MODULE_POLICY, calls verify_module()
+    directly with effective policy (including config overrides).
+    """
     results: list[dict[str, str]] = []
 
     enabled_tools = {name.lower() for name, tc in config.tools.items() if tc.enabled}
@@ -89,6 +93,13 @@ def _check_prerequisites(
             )
             continue
 
+        # Try PowerShell adapter path (with config override support)
+        ps_result = _try_ps_adapter_preflight(adapter, config)
+        if ps_result is not None:
+            results.append(ps_result)
+            continue
+
+        # Fallback: standard check_prerequisites()
         try:
             prereq = adapter.check_prerequisites()
             if prereq.get("satisfied", False):
@@ -132,6 +143,62 @@ def _check_prerequisites(
             )
 
     return results
+
+
+def _try_ps_adapter_preflight(adapter: Any, config: Any) -> dict[str, str] | None:
+    """Try to run provenance verification for a PowerShell adapter.
+
+    Returns a preflight result dict if the adapter has MODULE_POLICY,
+    or None to fall back to standard check_prerequisites().
+    """
+    tool_name = adapter.tool_name
+
+    try:
+        # Try to import the adapter's policy module
+        import importlib
+
+        policy_mod = importlib.import_module(f"gxassessms.adapters.{tool_name.lower()}.policy")
+        module_policy = getattr(policy_mod, "MODULE_POLICY", None)
+        if module_policy is None:
+            return None
+    except ImportError:
+        return None
+    except AttributeError:
+        return None
+
+    # Get config override if present
+    tc = config.tools.get(tool_name.lower())
+    override = getattr(tc, "module_policy_override", None) if tc else None
+
+    from gxassessms.adapters._verification import verify_module
+    from gxassessms.core.contracts.errors import ModuleVerificationError
+
+    try:
+        result = verify_module(
+            policy=module_policy,
+            override=override,
+            mode="preflight",
+            adapter_name=tool_name,
+            timeout_seconds=60,
+        )
+        version = result.approved_candidate.version if result.approved_candidate else "?"
+        return {
+            "check": f"{tool_name} prerequisites",
+            "status": "PASS",
+            "message": f"{tool_name} {version} verified ({result.evidence_path})",
+        }
+    except ModuleVerificationError as exc:
+        return {
+            "check": f"{tool_name} prerequisites",
+            "status": "FAIL",
+            "message": str(exc),
+        }
+    except OSError as exc:
+        return {
+            "check": f"{tool_name} prerequisites",
+            "status": "FAIL",
+            "message": str(exc),
+        }
 
 
 def _check_auth(config: Any) -> list[dict[str, str]]:

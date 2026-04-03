@@ -52,7 +52,9 @@ def check_cmd() -> None:
     """Run prerequisite checks for all discovered adapters.
 
     Calls check_prerequisites() on each adapter that declares the
-    'prerequisites' capability. Reports pass/warn/fail for each.
+    'prerequisites' capability. For PowerShell adapters, validates
+    baseline policy only (no config overrides). Use ``mseco preflight``
+    for policy-complete validation with config overrides.
     """
     adapters = discover_cli_adapters()
     results: list[dict[str, str]] = []

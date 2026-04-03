@@ -36,9 +36,10 @@ class TestPreflightCommand:
         result = runner.invoke(cli, ["preflight", "/nonexistent/config.yaml"])
         assert result.exit_code != 0
 
+    @patch("gxassessms.cli.commands.preflight._try_ps_adapter_preflight", return_value=None)
     @patch("gxassessms.cli._helpers.discover_cli_adapters")
     def test_mixed_case_tool_name_still_matches(
-        self, mock_discover: MagicMock, tmp_path: Path
+        self, mock_discover: MagicMock, mock_ps: MagicMock, tmp_path: Path
     ) -> None:
         """Adapter with lowercase tool_name matches mixed-case config key."""
         config_path = tmp_path / "config.yaml"
@@ -72,8 +73,11 @@ class TestPreflightCommand:
         assert "no adapter" not in result.output.lower()
         assert result.exit_code == 0
 
+    @patch("gxassessms.cli.commands.preflight._try_ps_adapter_preflight", return_value=None)
     @patch("gxassessms.cli._helpers.discover_cli_adapters")
-    def test_valid_config_shows_pass(self, mock_discover: MagicMock, tmp_path: Path) -> None:
+    def test_valid_config_shows_pass(
+        self, mock_discover: MagicMock, mock_ps: MagicMock, tmp_path: Path
+    ) -> None:
         config_path = tmp_path / "config.yaml"
         config_data = {
             "client": {
@@ -104,10 +108,11 @@ class TestPreflightCommand:
         )
         assert result.exit_code == 0
 
+    @patch("gxassessms.cli.commands.preflight._try_ps_adapter_preflight", return_value=None)
     @patch("gxassessms.cli.commands.preflight.validate_config")
     @patch("gxassessms.cli._helpers.discover_cli_adapters")
     def test_config_validation_errors_show_fail(
-        self, mock_discover: MagicMock, mock_validate: MagicMock, tmp_path: Path
+        self, mock_discover: MagicMock, mock_validate: MagicMock, mock_ps: MagicMock, tmp_path: Path
     ) -> None:
         """Config validation errors produce FAIL results and exit nonzero."""
         config_path = tmp_path / "config.yaml"
@@ -172,9 +177,10 @@ class TestPreflightCommand:
         assert "WARN" in result.output
         assert "No tools" in result.output or "no tools" in result.output.lower()
 
+    @patch("gxassessms.cli.commands.preflight._try_ps_adapter_preflight", return_value=None)
     @patch("gxassessms.cli._helpers.discover_cli_adapters")
     def test_adapter_not_in_enabled_tools_skipped(
-        self, mock_discover: MagicMock, tmp_path: Path
+        self, mock_discover: MagicMock, mock_ps: MagicMock, tmp_path: Path
     ) -> None:
         """Adapter whose tool_name doesn't match any enabled tool is skipped."""
         config_path = tmp_path / "config.yaml"
@@ -256,9 +262,10 @@ class TestPreflightCommand:
         assert "WARN" in result.output
         assert "does not declare prerequisites" in result.output.lower()
 
+    @patch("gxassessms.cli.commands.preflight._try_ps_adapter_preflight", return_value=None)
     @patch("gxassessms.cli._helpers.discover_cli_adapters")
     def test_adapter_prerequisites_not_satisfied_via_preflight(
-        self, mock_discover: MagicMock, tmp_path: Path
+        self, mock_discover: MagicMock, mock_ps: MagicMock, tmp_path: Path
     ) -> None:
         """Adapter with unsatisfied prerequisites shows FAIL in preflight."""
         config_path = tmp_path / "config.yaml"
@@ -325,8 +332,11 @@ class TestPreflightCommand:
         assert "no adapter" in result.output.lower()
         assert result.exit_code == 1
 
+    @patch("gxassessms.cli.commands.preflight._try_ps_adapter_preflight", return_value=None)
     @patch("gxassessms.cli._helpers.discover_cli_adapters")
-    def test_auth_env_var_not_set(self, mock_discover: MagicMock, tmp_path: Path) -> None:
+    def test_auth_env_var_not_set(
+        self, mock_discover: MagicMock, mock_ps: MagicMock, tmp_path: Path
+    ) -> None:
         """Missing auth env var shows FAIL and exit nonzero."""
         config_path = tmp_path / "config.yaml"
         config_data = {
@@ -369,10 +379,11 @@ class TestPreflightCommand:
         assert "config error" in result.output.lower() or "invalid yaml" in result.output.lower()
         assert result.exit_code == 1
 
+    @patch("gxassessms.cli.commands.preflight._try_ps_adapter_preflight", return_value=None)
     @patch("shutil.which", return_value=None)
     @patch("gxassessms.cli._helpers.discover_cli_adapters")
     def test_node_not_found_shows_warning(
-        self, mock_discover: MagicMock, mock_which: MagicMock, tmp_path: Path
+        self, mock_discover: MagicMock, mock_which: MagicMock, mock_ps: MagicMock, tmp_path: Path
     ) -> None:
         """Node.js not found produces WARN for renderer dependency."""
         config_path = tmp_path / "config.yaml"
