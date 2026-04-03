@@ -436,14 +436,15 @@ class TestStaleRecoveryRecomputesStages:
         # Mock adapter that will be used by parse stage
         mock_adapter = MagicMock()
         mock_adapter.tool_name = "scubagear"
+        mock_adapter.storage_slug = "scubagear"
         mock_adapter.parse.return_value = []
         mock_adapter.validate_raw.return_value = None
 
         config = _make_config()
 
-        # Pipeline will fail at PARSE because adapter_results is empty,
+        # Pipeline will fail at PARSE because loaded_manifests is empty,
         # but the key assertion is that it STARTS at PARSE, not COLLECT
-        with pytest.raises(PipelineError, match="requires adapter_results"):
+        with pytest.raises(PipelineError, match="requires loaded_manifests"):
             run_stages(
                 orchestrator=orchestrator,
                 engagement_id="eng-001",
@@ -487,12 +488,20 @@ class TestDomainErrorTransitionsToFailed:
 
         mock_adapter = MagicMock()
         mock_adapter.tool_name = "scubagear"
+        mock_adapter.storage_slug = "scubagear"
+        mock_adapter.tool_source = ToolSource.SCUBAGEAR
 
-        # Build a valid AdapterResult for collect to return
+        # Build a valid CollectionResult for collect to return
         from datetime import UTC, datetime
 
         from gxassessms.core.contracts.types import AdapterRunStatus
-        from gxassessms.core.domain.models import AdapterResult, ArtifactRecord, ResolvedManifest
+        from gxassessms.core.domain.models import (
+            ArtifactRecord,
+            CollectedArtifact,
+            CollectionOutput,
+            CollectionResult,
+            ResolvedManifest,
+        )
 
         raw = ResolvedManifest(
             tool=ToolSource.SCUBAGEAR,
@@ -508,16 +517,36 @@ class TestDomainErrorTransitionsToFailed:
             },
             execution_metadata={},
         )
-        mock_result = AdapterResult(
+        collection_output = CollectionOutput(
+            tool=ToolSource.SCUBAGEAR,
+            tool_slug="scubagear",
+            schema_version="1.0",
+            timestamp=datetime.now(UTC),
+            artifacts=[
+                CollectedArtifact(
+                    source_path="/data/results.json",
+                    target_relpath="scubagear/results.json",
+                    encoding="utf-8",
+                    sha256="a" * 64,
+                ),
+            ],
+            execution_metadata={},
+        )
+        mock_collection_result = CollectionResult(
             adapter_name="scubagear",
             status=AdapterRunStatus.SUCCESS,
-            raw_output=raw,
+            collection_output=collection_output,
             error=None,
             duration_seconds=1.0,
         )
 
-        # Patch collect to return a result so we reach parse
-        with patch("gxassessms.pipeline._runner.collect", return_value=[mock_result]):
+        # Patch collect to return a result so we reach parse.
+        # save_raw_outputs returns loaded manifests (auto-mocked).
+        # confine_and_resolve returns the ResolvedManifest so parse() calls validate_raw.
+        with (
+            patch("gxassessms.pipeline._runner.collect", return_value=[mock_collection_result]),
+            patch("gxassessms.pipeline.confinement.confine_and_resolve", return_value=[raw]),
+        ):
             mock_adapter.validate_raw.side_effect = ParseError(
                 message="Bad format",
                 adapter_name="scubagear",
@@ -918,8 +947,8 @@ class TestRehydrateUpstreamState:
     def test_collect_returns_all_none(self, orchestrator: Orchestrator) -> None:
         from gxassessms.pipeline._runner import _rehydrate_upstream_state
 
-        ra, f, cf = _rehydrate_upstream_state(Stage.COLLECT, ENG, [], orchestrator)
-        assert ra is None
+        lm, f, cf = _rehydrate_upstream_state(Stage.COLLECT, ENG, [], orchestrator)
+        assert lm is None
         assert f is None
         assert cf is None
 
@@ -935,12 +964,10 @@ class TestRehydrateUpstreamState:
             patch("gxassessms.pipeline.replay.ReplayEngine"),
         ):
             ml.return_value = []
-            ra, f, cf = _rehydrate_upstream_state(Stage.PARSE, ENG, [], orchestrator)
+            lm, f, cf = _rehydrate_upstream_state(Stage.PARSE, ENG, [], orchestrator)
             mock_artifact_manager.get_engagement_dir.assert_called_once_with(ENG)
             ml.assert_called_once()
-        # TODO(#35/Task-12): once runner integration is complete, ra will
-        # contain adapter results built from loaded manifests.
-        assert ra is not None
+        assert lm is not None  # loaded_manifests returned from load_raw_outputs
         assert f is None
         assert cf is None
 
@@ -962,9 +989,9 @@ class TestRehydrateUpstreamState:
             {"payload": '{"to": "NORMALIZED"}'},
         ]
         mock_finding_repo.get_parsed_as_findings.return_value = [_make_finding()]
-        ra, f, cf = _rehydrate_upstream_state(Stage.CONSOLIDATE, ENG, [], orchestrator)
+        lm, f, cf = _rehydrate_upstream_state(Stage.CONSOLIDATE, ENG, [], orchestrator)
         mock_finding_repo.get_parsed_as_findings.assert_called_once_with(ENG)
-        assert ra is None
+        assert lm is None
         assert f is not None
         assert cf is None
 
@@ -983,7 +1010,7 @@ class TestRehydrateUpstreamState:
             ]
         )
         mock_finding_repo.get_consolidated_as_findings.return_value = [_make_consolidated()]
-        _ra, _f, cf = _rehydrate_upstream_state(Stage.RENDER, ENG, [], orchestrator)
+        _lm, _f, cf = _rehydrate_upstream_state(Stage.RENDER, ENG, [], orchestrator)
         mock_finding_repo.get_consolidated_as_findings.assert_called_once_with(ENG)
         assert cf is not None
 
@@ -1003,7 +1030,7 @@ class TestRehydrateUpstreamState:
             ]
         )
         mock_finding_repo.get_consolidated_as_findings.return_value = [_make_consolidated()]
-        _ra, _f, cf = _rehydrate_upstream_state(Stage.RENDER, ENG, [], orchestrator)
+        _lm, _f, cf = _rehydrate_upstream_state(Stage.RENDER, ENG, [], orchestrator)
         assert cf is not None
 
     def test_render_rejects_without_qa_approved_in_journal(

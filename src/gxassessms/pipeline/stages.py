@@ -25,6 +25,7 @@ from gxassessms.core.contracts.errors import GxAssessError
 from gxassessms.core.contracts.types import AdapterRunStatus
 from gxassessms.core.domain.models import (
     AdapterResult,
+    CollectionResult,
     ConsolidatedFinding,
     CoverageRecord,
     Finding,
@@ -63,11 +64,11 @@ STAGE_ORDER: list[Stage] = list(Stage)
 def collect(
     config: EngagementConfig,
     adapters: list[Any],  # list[ToolAdapter] -- Any to avoid circular import
-) -> list[AdapterResult]:
+) -> list[CollectionResult]:
     """Run adapters in parallel, return results including failures.
 
     Each adapter is executed in a ThreadPoolExecutor thread. Failures and
-    timeouts are captured as AdapterResult with appropriate status -- they
+    timeouts are captured as CollectionResult with appropriate status -- they
     do NOT abort the pipeline. Downstream stages operate on whatever
     findings were successfully collected.
 
@@ -76,13 +77,13 @@ def collect(
         adapters: List of ToolAdapter implementations.
 
     Returns:
-        List of AdapterResult, one per adapter (order not guaranteed).
+        List of CollectionResult, one per adapter (order not guaranteed).
     """
     if not adapters:
         return []
 
     max_workers = config.max_parallel or len(adapters)
-    results: list[AdapterResult] = []
+    results: list[CollectionResult] = []
 
     with ThreadPoolExecutor(max_workers=max_workers) as pool:
         futures = {pool.submit(_run_adapter, adapter, config): adapter for adapter in adapters}
@@ -100,31 +101,30 @@ def collect(
     return results
 
 
-def _run_adapter(adapter: Any, config: EngagementConfig) -> AdapterResult:
+def _run_adapter(adapter: Any, config: EngagementConfig) -> CollectionResult:
     """Execute a single adapter's authenticate + collect sequence with timing."""
     start = time.monotonic()
     auth = adapter.authenticate(config)
-    raw = adapter.collect(config, auth)
+    collection_output = adapter.collect(config, auth)
     duration = time.monotonic() - start
-    return AdapterResult(
-        adapter_name=adapter.tool_name,
+    return CollectionResult(
+        adapter_name=adapter.storage_slug,
         status=AdapterRunStatus.SUCCESS,
-        raw_output=raw,
+        collection_output=collection_output,
         error=None,
         duration_seconds=round(duration, 2),
     )
 
 
-def _resolve_future(future: Any, adapter: Any) -> AdapterResult:
-    """Resolve a completed future into an AdapterResult."""
+def _resolve_future(future: Any, adapter: Any) -> CollectionResult:
+    """Resolve a completed future into a CollectionResult."""
     try:
         return future.result()
     except TimeoutError as e:
         logger.warning("Adapter %s timed out: %s", adapter.tool_name, e)
-        return AdapterResult(
-            adapter_name=adapter.tool_name,
+        return CollectionResult(
+            adapter_name=adapter.storage_slug,
             status=AdapterRunStatus.TIMEOUT,
-            raw_output=None,
             error=str(e),
             duration_seconds=0.0,
         )
@@ -138,10 +138,9 @@ def _resolve_future(future: Any, adapter: Any) -> AdapterResult:
         GxAssessError,
     ) as e:
         logger.warning("Adapter %s failed: %s", adapter.tool_name, e)
-        return AdapterResult(
-            adapter_name=adapter.tool_name,
+        return CollectionResult(
+            adapter_name=adapter.storage_slug,
             status=AdapterRunStatus.FAILED,
-            raw_output=None,
             error=str(e),
             duration_seconds=0.0,
         )
@@ -163,7 +162,7 @@ def parse(
     Returns:
         Concatenated list of ToolObservations from all successful adapters.
     """
-    adapter_map = {a.tool_name: a for a in adapters}
+    adapter_map = {a.storage_slug: a for a in adapters}
     observations: list[ToolObservation] = []
 
     for result in results:
@@ -211,7 +210,7 @@ def collect_coverage(
     Returns:
         Concatenated list of CoverageRecords from all capable adapters.
     """
-    adapter_map = {a.tool_name: a for a in adapters}
+    adapter_map = {a.storage_slug: a for a in adapters}
     records: list[CoverageRecord] = []
 
     for result in results:

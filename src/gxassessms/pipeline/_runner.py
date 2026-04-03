@@ -12,8 +12,10 @@ from typing import TYPE_CHECKING, Any
 from gxassessms.core.config.config import EngagementConfig
 from gxassessms.core.config.datetime_utils import format_utc, utc_now
 from gxassessms.core.contracts.errors import GxAssessError, PipelineError
+from gxassessms.core.contracts.types import AdapterRunStatus
 from gxassessms.core.domain.models import (
     AdapterResult,
+    CollectionResult,
     ConsolidatedFinding,
     Finding,
     ReportPayload,
@@ -101,15 +103,17 @@ def run_stages(
             stages = get_stages_from(recovery_stage)
 
         # None = "upstream never ran"; [] = "upstream ran, produced zero results".
+        collection_results: list[CollectionResult] | None = None
+        loaded_manifests: list[Any] | None = None
         adapter_results: list[AdapterResult] | None = None
         observations: list[ToolObservation] | None = None
         findings: list[Finding] | None = None
         consolidated_findings: list[ConsolidatedFinding] | None = None
         qa_results: list[Any] | None = None
 
-        _ra, _f, _cf = _rehydrate_upstream_state(start_stage, engagement_id, adapters, orchestrator)
-        if _ra is not None:
-            adapter_results = _ra
+        _lm, _f, _cf = _rehydrate_upstream_state(start_stage, engagement_id, adapters, orchestrator)
+        if _lm is not None:
+            loaded_manifests = _lm
         if _f is not None:
             findings = _f
         if _cf is not None:
@@ -122,16 +126,29 @@ def run_stages(
                 orchestrator._transition_state(engagement_id, current_state, running_state)
 
                 if stage == Stage.COLLECT:
-                    adapter_results = collect(config, adapters)
+                    collection_results = collect(config, adapters)
                     # Persist raw outputs so replay/consolidate --reparse can
                     # load them later via load_raw_outputs().
-                    orchestrator._artifact_manager.save_raw_outputs(
-                        engagement_id, config.client_name, adapter_results
+                    loaded_manifests = orchestrator._artifact_manager.save_raw_outputs(
+                        engagement_id, config.client_name, collection_results
                     )
 
                 elif stage == Stage.PARSE:
-                    _require_in_memory("adapter_results", adapter_results, stage)
-                    assert adapter_results is not None  # noqa: S101 -- narrowing for type checker
+                    _require_in_memory("loaded_manifests", loaded_manifests, stage)
+                    assert loaded_manifests is not None  # noqa: S101 -- narrowing for type checker
+                    from gxassessms.pipeline.confinement import confine_and_resolve
+
+                    eng_dir = orchestrator._artifact_manager.get_engagement_dir(engagement_id)
+                    resolved = confine_and_resolve(loaded_manifests, eng_dir, adapters)
+                    adapter_results = [
+                        AdapterResult(
+                            adapter_name=r.tool_slug,
+                            status=AdapterRunStatus.SUCCESS,
+                            raw_output=r,
+                            duration_seconds=0.0,
+                        )
+                        for r in resolved
+                    ]
                     observations = parse(adapter_results, adapters)
                     # Collect coverage from adapters that declare coverage_export.
                     # Delete-then-insert matches the finding repo pattern and
@@ -197,6 +214,7 @@ def run_stages(
 
                 stage_data = _get_stage_output(
                     stage,
+                    collection_results=collection_results,
                     adapter_results=adapter_results,
                     observations=observations,
                     findings=findings,
@@ -333,13 +351,13 @@ def _rehydrate_upstream_state(
     adapters: list[Any],
     orchestrator: Any,
 ) -> tuple[
-    list[AdapterResult] | None,
+    list[Any] | None,  # loaded_manifests (list[LoadedManifest])
     list[Finding] | None,
     list[ConsolidatedFinding] | None,
 ]:
     """Load persisted upstream data when resuming the pipeline mid-stage.
 
-    Returns a 3-tuple of (adapter_results, findings, consolidated_findings).
+    Returns a 3-tuple of (loaded_manifests, findings, consolidated_findings).
     Each element is None if not relevant to start_stage.
 
     Raises:
@@ -350,17 +368,11 @@ def _rehydrate_upstream_state(
         return None, None, None
 
     if start_stage == Stage.PARSE:
-        from gxassessms.pipeline.replay import (
-            load_raw_outputs,
-        )
+        from gxassessms.pipeline.replay import load_raw_outputs
 
         eng_dir = orchestrator._artifact_manager.get_engagement_dir(engagement_id)
         loaded_manifests = load_raw_outputs(eng_dir)
-        # TODO(#35/Task-12): pass loaded_manifests through confine_and_resolve()
-        # and build adapter_results for downstream stages.
-        _ = loaded_manifests  # suppress unused-variable until Task 12
-        adapter_results: list[Any] = []  # placeholder until Task 12 integrates
-        return adapter_results, None, None
+        return loaded_manifests, None, None
 
     if start_stage == Stage.NORMALIZE:
         raise PipelineError(
@@ -492,6 +504,7 @@ def _build_report_payload(
 def _get_stage_output(
     stage: Stage,
     *,
+    collection_results: list[CollectionResult] | None,
     adapter_results: list[AdapterResult] | None,
     observations: list[ToolObservation] | None,
     findings: list[Finding] | None,
@@ -500,7 +513,7 @@ def _get_stage_output(
 ) -> list[Any]:
     """Return the serializable output list for a given stage."""
     if stage == Stage.COLLECT:
-        return [r.model_dump() for r in (adapter_results or [])]
+        return [r.model_dump() for r in (collection_results or [])]
     if stage == Stage.PARSE:
         return [o.model_dump() for o in (observations or [])]
     if stage == Stage.NORMALIZE:
