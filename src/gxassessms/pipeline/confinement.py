@@ -118,6 +118,23 @@ def confine_and_resolve(
         seen_resolved: set[str] = set()
         tool_subtree = (artifacts_root / slug).resolve()
 
+        # Defense-in-depth: reject symlinked per-tool subtrees.
+        # The artifacts_root check above covers raw-output/artifacts/ itself,
+        # but a symlink at raw-output/artifacts/<slug>/ would let both
+        # tool_subtree and resolved paths escape together, passing the
+        # is_relative_to check while reading files outside the engagement.
+        if not tool_subtree.is_relative_to(resolved_engagement):
+            raise ManifestConfinementError(
+                message=(
+                    f"Tool subtree for {slug!r} resolves outside engagement directory (symlink?)"
+                ),
+                engagement_id=eng_id,
+                stage="confine",
+                tool_slug=slug,
+                check_name="tool_subtree_confinement",
+                detail=f"tool_subtree={tool_subtree}, engagement={resolved_engagement}",
+            )
+
         for relpath, record in raw.file_manifest.items():
             # 3. Canonical format (defense-in-depth)
             try:

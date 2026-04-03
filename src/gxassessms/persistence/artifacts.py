@@ -124,7 +124,8 @@ class ArtifactManager:
         eng_dir = self.get_engagement_dir(engagement_id)
         raw_dir = eng_dir / RAW_OUTPUT_DIR
 
-        if not raw_dir.exists() or not any(raw_dir.iterdir()):
+        has_files = raw_dir.exists() and any(f for f in raw_dir.rglob("*") if f.is_file())
+        if not has_files:
             raise PersistenceError(f"No raw output to archive for engagement {engagement_id}")
 
         archive_path = eng_dir / _ARCHIVE_NAME

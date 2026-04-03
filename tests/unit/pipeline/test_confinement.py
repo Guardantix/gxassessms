@@ -288,6 +288,42 @@ class TestConfineAndResolveRejections:
         with pytest.raises(ManifestConfinementError, match="subtree"):
             confine_and_resolve(loaded, eng_dir, [_make_adapter()])
 
+    def test_rejects_symlinked_tool_subtree(self, tmp_path: Path) -> None:
+        """Per-slug subtree symlink pointing outside engagement must be rejected.
+
+        Even though artifacts_root itself is real and passes its confinement
+        check, a symlink at artifacts/<slug>/ redirects both tool_subtree and
+        resolved paths outside the engagement together, making the
+        is_relative_to check pass. The per-slug confinement check catches this.
+        """
+        eng_dir = tmp_path / "eng"
+        artifacts_dir = eng_dir / "raw-output" / "artifacts"
+        artifacts_dir.mkdir(parents=True)
+
+        # Create real artifacts outside the engagement
+        outside = tmp_path / "outside" / "scubagear"
+        outside.mkdir(parents=True)
+        content = b'{"Results": {}}'
+        (outside / "results.json").write_bytes(content)
+        sha = _sha256(content)
+
+        # Symlink only the slug subdirectory, not artifacts_root
+        (artifacts_dir / "scubagear").symlink_to(outside)
+
+        raw = _make_raw_output(
+            file_manifest={
+                "scubagear/results.json": ArtifactRecord(encoding="utf-8", sha256=sha),
+            },
+        )
+        loaded = [
+            LoadedManifest(
+                source_path=eng_dir / "raw-output" / "manifests" / "scubagear.json",
+                raw_output=raw,
+            )
+        ]
+        with pytest.raises(ManifestConfinementError, match=r"Tool subtree.*resolves outside"):
+            confine_and_resolve(loaded, eng_dir, [_make_adapter()])
+
     def test_rejects_symlinked_artifacts_root(self, tmp_path: Path) -> None:
         """Artifacts root that is a symlink pointing outside engagement must be rejected."""
         eng_dir = tmp_path / "eng"

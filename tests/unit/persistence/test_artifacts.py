@@ -170,6 +170,16 @@ class TestArtifactManagerArchive:
         with pytest.raises(PersistenceError, match="No raw output"):
             mgr.archive("eng-empty")
 
+    def test_archive_on_scaffolding_only_raises(self, tmp_path: Path) -> None:
+        """Scaffolding subdirs (manifests/, artifacts/) without files should not be archiveable."""
+        engagements_root = tmp_path / "engagements"
+        engagements_root.mkdir()
+        mgr = ArtifactManager(engagements_root=engagements_root)
+        # create_engagement_dir creates manifests/ and artifacts/ subdirs
+        mgr.create_engagement_dir("eng-scaffold", "Test")
+        with pytest.raises(PersistenceError, match="No raw output"):
+            mgr.archive("eng-scaffold")
+
     def test_restore_nonexistent_archive_raises(
         self, populated_artifact_mgr: ArtifactManager
     ) -> None:
