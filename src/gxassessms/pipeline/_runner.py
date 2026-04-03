@@ -140,6 +140,8 @@ def run_stages(
 
                     eng_dir = orchestrator._artifact_manager.get_engagement_dir(engagement_id)
                     resolved = confine_and_resolve(loaded_manifests, eng_dir, adapters)
+                    # duration_seconds=0.0 is synthetic: confinement is a
+                    # batch operation, not timed per-manifest.
                     adapter_results = [
                         AdapterResult(
                             adapter_name=r.tool_slug,

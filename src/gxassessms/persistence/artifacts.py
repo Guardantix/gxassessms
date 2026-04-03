@@ -64,9 +64,14 @@ class ArtifactManager:
         <engagements_root>/<slug>-<engagement_id>/
             config.yaml (created by pipeline initialization)
             raw-output/
-                scubagear/
-                maester/
-                ...
+                manifests/          # one RawToolOutput JSON per tool
+                    scubagear.json
+                    maester.json
+                artifacts/          # actual tool output files
+                    scubagear/
+                        ScubaResults_<guid>.json
+                    maester/
+                        TestResults-<timestamp>.json
             reports/
                 *.docx, *.pptx
     """
