@@ -9,6 +9,7 @@ credentials/
 output/
 results/
 reports/
+docs/issue-review-*.md
 
 # Python
 __pycache__/
