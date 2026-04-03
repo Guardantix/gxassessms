@@ -7,11 +7,12 @@ once and frozen.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
+from gxassessms.core.config.datetime_utils import ensure_utc
 from gxassessms.core.domain.constants import (
     ConfidenceProvenance,
     FileEncoding,
@@ -25,6 +26,12 @@ from gxassessms.core.domain.enums import (
     Severity,
     ToolSource,
 )
+
+
+def _reject_bool(v: Any) -> Any:
+    if isinstance(v, bool):
+        raise ValueError("numeric fields must not be booleans")
+    return v
 
 
 class SourceEvidence(BaseModel):
@@ -95,9 +102,7 @@ class ConfidenceScore(BaseModel):
     )
     @classmethod
     def reject_bool_numerics(cls, v: Any) -> Any:
-        if isinstance(v, bool):
-            raise ValueError("numeric fields must not be booleans")
-        return v
+        return _reject_bool(v)
 
 
 class ConsolidatedFinding(BaseModel):
@@ -146,10 +151,7 @@ class RawToolOutput(BaseModel):
     @field_validator("timestamp")
     @classmethod
     def timestamp_must_be_utc(cls, v: datetime) -> datetime:
-        """Reject naive datetimes; normalize non-UTC to UTC."""
-        if v.tzinfo is None:
-            raise ValueError("timestamp must be timezone-aware (use UTC)")
-        return v.astimezone(UTC)
+        return ensure_utc(v)
 
 
 class AdapterResult(BaseModel):
@@ -191,28 +193,17 @@ class ToolRunResult(BaseModel):
     @field_validator("finding_count", mode="before")
     @classmethod
     def reject_bool_finding_count(cls, v: Any) -> Any:
-        if isinstance(v, bool):
-            raise ValueError("finding_count must be an integer, not a boolean")
-        return v
+        return _reject_bool(v)
 
     @field_validator("started_at", "completed_at")
     @classmethod
     def timestamps_must_be_utc(cls, v: datetime) -> datetime:
-        """Reject naive datetimes; normalize non-UTC to UTC."""
-        if v.tzinfo is None:
-            raise ValueError("timestamp must be timezone-aware (use UTC)")
-        return v.astimezone(UTC)
+        return ensure_utc(v)
 
     @model_validator(mode="after")
-    def completed_not_before_started(self) -> ToolRunResult:
-        """Reject impossible run records where completed_at < started_at."""
+    def validate_run_invariants(self) -> ToolRunResult:
         if self.completed_at < self.started_at:
             raise ValueError("completed_at must be >= started_at")
-        return self
-
-    @model_validator(mode="after")
-    def status_requires_context(self) -> ToolRunResult:
-        """Enforce status-dependent invariants on error field."""
         if self.status in (AdapterRunStatus.FAILED, AdapterRunStatus.TIMEOUT) and not self.error:
             raise ValueError(f"{self.status} status requires error message")
         if self.status == AdapterRunStatus.SUCCESS and self.error is not None:
@@ -247,9 +238,7 @@ class ReportKeyStats(BaseModel):
     @field_validator("*", mode="before")
     @classmethod
     def reject_bool_counters(cls, v: Any) -> Any:
-        if isinstance(v, bool):
-            raise ValueError("counter fields must be integers, not booleans")
-        return v
+        return _reject_bool(v)
 
 
 class ReportPayload(BaseModel):
@@ -283,9 +272,6 @@ class AuthContext(BaseModel):
     @field_validator("expires_at")
     @classmethod
     def expires_at_must_be_utc(cls, v: datetime | None) -> datetime | None:
-        """Reject naive datetimes; normalize non-UTC to UTC."""
         if v is None:
             return v
-        if v.tzinfo is None:
-            raise ValueError("expires_at must be timezone-aware (use UTC)")
-        return v.astimezone(UTC)
+        return ensure_utc(v)
