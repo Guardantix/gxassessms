@@ -40,6 +40,21 @@ def confine_and_resolve(
     """
     artifacts_root = engagement_dir / "raw-output" / "artifacts"
 
+    # Defense-in-depth: reject symlinked artifacts root before resolving
+    # manifest paths. Without this, a symlink at raw-output/artifacts could
+    # redirect the entire confinement check to an attacker-controlled tree.
+    resolved_root = artifacts_root.resolve()
+    resolved_engagement = engagement_dir.resolve()
+    if not resolved_root.is_relative_to(resolved_engagement):
+        raise ManifestConfinementError(
+            message="Artifacts root resolves outside engagement directory (symlink?)",
+            engagement_id=engagement_dir.name,
+            stage="confine",
+            tool_slug="*",
+            check_name="artifacts_root_confinement",
+            detail=f"artifacts_root={resolved_root}, engagement={resolved_engagement}",
+        )
+
     adapter_by_slug: dict[str, Any] = {a.storage_slug: a for a in adapters}
 
     resolved_manifests: list[ResolvedManifest] = []

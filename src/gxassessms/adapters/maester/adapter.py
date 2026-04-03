@@ -29,7 +29,6 @@ from gxassessms.core.contracts.errors import (
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
-from gxassessms.core.domain.constants import FileEncoding
 from gxassessms.core.domain.enums import CoverageStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
@@ -136,19 +135,26 @@ class MaesterAdapter:
             engagement_id=getattr(config, "engagement_id", ""),
         )
 
+        # Spec: collect only TestResults*.json -- exclude .html and .md
+        json_results = sorted(output_dir.glob("TestResults*.json"))
+
+        if not json_results:
+            raise CollectionError(
+                "Maester produced no TestResults*.json files",
+                adapter_name=self.tool_name,
+            )
+
         artifacts: list[CollectedArtifact] = []
-        for path in output_dir.glob("TestResults*"):
-            if path.suffix in {".json", ".html", ".md"}:
-                encoding: FileEncoding = "binary" if path.suffix == ".html" else "utf-8"
-                sha = sha256_file(path)
-                artifacts.append(
-                    CollectedArtifact(
-                        source_path=str(path),
-                        target_relpath=f"{self.storage_slug}/{path.name}",
-                        encoding=encoding,
-                        sha256=sha,
-                    )
+        for path in json_results:
+            sha = sha256_file(path)
+            artifacts.append(
+                CollectedArtifact(
+                    source_path=str(path),
+                    target_relpath=f"{self.storage_slug}/{path.name}",
+                    encoding="utf-8",
+                    sha256=sha,
                 )
+            )
 
         return CollectionOutput(
             tool=ToolSource.MAESTER,

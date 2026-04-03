@@ -288,6 +288,37 @@ class TestConfineAndResolveRejections:
         with pytest.raises(ManifestConfinementError, match="subtree"):
             confine_and_resolve(loaded, eng_dir, [_make_adapter()])
 
+    def test_rejects_symlinked_artifacts_root(self, tmp_path: Path) -> None:
+        """Artifacts root that is a symlink pointing outside engagement must be rejected."""
+        eng_dir = tmp_path / "eng"
+        raw_output_dir = eng_dir / "raw-output"
+        raw_output_dir.mkdir(parents=True)
+
+        # Create real artifacts outside the engagement
+        outside = tmp_path / "outside" / "artifacts"
+        scuba_dir = outside / "scubagear"
+        scuba_dir.mkdir(parents=True)
+        content = b'{"Results": {}}'
+        (scuba_dir / "results.json").write_bytes(content)
+        sha = _sha256(content)
+
+        # Symlink artifacts root to outside location
+        (raw_output_dir / "artifacts").symlink_to(outside)
+
+        raw = _make_raw_output(
+            file_manifest={
+                "scubagear/results.json": ArtifactRecord(encoding="utf-8", sha256=sha),
+            },
+        )
+        loaded = [
+            LoadedManifest(
+                source_path=eng_dir / "raw-output" / "manifests" / "scubagear.json",
+                raw_output=raw,
+            )
+        ]
+        with pytest.raises(ManifestConfinementError, match="outside engagement"):
+            confine_and_resolve(loaded, eng_dir, [_make_adapter()])
+
     def test_rejects_directory_as_artifact(self, tmp_path: Path) -> None:
         eng_dir = tmp_path / "eng"
         artifacts_dir = eng_dir / "raw-output" / "artifacts"

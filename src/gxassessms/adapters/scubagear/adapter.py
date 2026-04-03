@@ -28,7 +28,6 @@ from gxassessms.core.contracts.errors import (
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
-from gxassessms.core.domain.constants import FileEncoding
 from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
@@ -161,26 +160,27 @@ class ScubaGearAdapter:
                 adapter_name=self.tool_name,
             )
 
-        artifacts: list[CollectedArtifact] = []
-        for f in run_dir.iterdir():
-            if f.suffix in (".json", ".html"):
-                encoding: FileEncoding = "utf-8"
-                sha = sha256_file(f)
-                artifacts.append(
-                    CollectedArtifact(
-                        source_path=str(f),
-                        target_relpath=f"{self.storage_slug}/{f.name}",
-                        encoding=encoding,
-                        sha256=sha,
-                    )
-                )
+        # Spec: collect only the single ScubaResults*.json file
+        json_files = [f for f in run_dir.iterdir() if f.suffix == ".json"]
+        results_file = self._find_scuba_results_file([str(f) for f in json_files])
 
-        if not artifacts:
+        if results_file is None:
             raise CollectionError(
                 f"ScubaGear created output directory {run_dir.name} but "
-                f"no JSON/HTML files were found",
+                f"no ScubaResults JSON file was found",
                 adapter_name=self.tool_name,
             )
+
+        results_path = Path(results_file)
+        sha = sha256_file(results_path)
+        artifacts: list[CollectedArtifact] = [
+            CollectedArtifact(
+                source_path=str(results_path),
+                target_relpath=f"{self.storage_slug}/{results_path.name}",
+                encoding="utf-8",
+                sha256=sha,
+            )
+        ]
 
         logger.info(
             "ScubaGear collection complete. Output dir: %s, %d artifacts",
