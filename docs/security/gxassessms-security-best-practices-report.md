@@ -108,8 +108,6 @@ CIS Controls v8.1 emphasizes software inventory, authorized software, library al
 - Filter renderers by configured format/theme before any renderer is instantiated or executed.
 - Consider isolating renderer execution in a dedicated low-privilege account or container.
 
-## Medium Severity Findings
-
 ### SBP-003: Sensitive artifacts depend on ambient filesystem permissions and default report output lands in the working directory
 
 **Impact:** On shared hosts, permissive workspaces, or weak backup policies, customer-sensitive findings, reports, archives, and config snapshots can be exposed to other local users or processes.
@@ -141,6 +139,8 @@ OWASP cryptographic storage guidance stresses layered protection for data at res
 - Apply restrictive directory permissions at creation time and verify them during preflight.
 - Default report output to an engagement-specific directory under the main data root rather than `./output`.
 - Add a preflight warning when data roots or output paths resolve to shared mounts, workspace directories, or weakly permissioned locations.
+
+## Medium Severity Findings
 
 ### SBP-004: Replay and rendering do not enforce artifact or payload size limits
 
@@ -188,6 +188,7 @@ OWASP input-validation and file-handling guidance recommends explicit size limit
 ## Priority Order
 
 1. Fix replay path confinement and hash binding first.
-2. Add plugin and renderer allowlisting plus config-based renderer filtering.
-3. Harden artifact/report directory permissions and move default report output under the protected data root.
-4. Add artifact and payload size ceilings plus preflight checks.
+2. Pin approved PowerShell module versions and verify publisher or signature before collection runs.
+3. Add plugin and renderer allowlisting plus config-based renderer filtering.
+4. Harden artifact/report directory permissions and move default report output under the protected data root.
+5. Add artifact and payload size ceilings plus preflight checks.
