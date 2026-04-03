@@ -50,3 +50,10 @@ def utc_to_local(dt: datetime) -> datetime:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=UTC)
     return dt.astimezone()
+
+
+def ensure_utc(v: datetime) -> datetime:
+    """For use in Pydantic validators: reject naive datetimes and normalize to UTC."""
+    if v.tzinfo is None:
+        raise ValueError("timestamp must be timezone-aware (use UTC)")
+    return v.astimezone(UTC)
