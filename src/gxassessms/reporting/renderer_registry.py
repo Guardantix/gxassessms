@@ -13,18 +13,19 @@ capture diagnostics on failure, and never produce silent empty output.
 from __future__ import annotations
 
 import logging
+import operator as _op
 import re
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any
 
 from gxassessms.core.contracts.errors import (
     PayloadVersionError,
     RendererDependencyError,
     ReportError,
 )
+from gxassessms.core.contracts.types import ReportRenderer
 from gxassessms.core.domain.models import ReportPayload
 from gxassessms.registry import DiscoveryError, discover_entry_points
 from gxassessms.reporting.constants_bridge import write_constants_file
@@ -36,6 +37,14 @@ RENDERER_GROUP = "gxassessms.renderers"
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 
 _DEFAULT_TIMEOUT_SECONDS = 120
+
+_CONSTRAINT_OPS = {
+    ">=": _op.ge,
+    "<=": _op.le,
+    ">": _op.gt,
+    "<": _op.lt,
+    "==": _op.eq,
+}
 
 
 def _parse_version(version: str) -> tuple[int, int, int]:
@@ -64,14 +73,10 @@ def _check_constraint(
     target: tuple[int, int, int],
 ) -> bool:
     """Check if version satisfies the constraint."""
-    ops = {
-        ">=": version >= target,
-        "<=": version <= target,
-        ">": version > target,
-        "<": version < target,
-        "==": version == target,
-    }
-    return ops.get(operator, False)
+    fn = _CONSTRAINT_OPS.get(operator)
+    if fn is None:
+        raise PayloadVersionError(f"Unknown version operator: '{operator}'")
+    return fn(version, target)
 
 
 def validate_version_compatibility(payload_version: str, supported_range: str) -> None:
@@ -114,7 +119,7 @@ def check_node_available() -> str | None:
             timeout=10,
         )
         return node_exe if result.returncode == 0 else None
-    except FileNotFoundError, subprocess.TimeoutExpired:
+    except OSError, subprocess.TimeoutExpired:
         return None
 
 
@@ -122,13 +127,14 @@ class NodeRenderer:
     """Wraps a Node.js renderer package for invocation from Python.
 
     Each renderer is a directory containing a render.js entry point
-    and a package.json with dependencies. The render cycle:
+    and a package.json with dependencies. Dependency checks (render.js
+    existence, Node.js availability) run at construction time, not render
+    time. The render cycle:
     1. Validate payload version against renderer's supported range
-    2. Check Node.js availability
-    3. Write payload JSON and constants.json to temp directory
-    4. Invoke: node render.js --payload <path> --output <path> --constants <path>
-    5. Validate output file was created and is non-zero bytes
-    6. Capture stderr on failure, wrap in ReportError
+    2. Write payload JSON and constants.json to temp directory
+    3. Invoke: node render.js --payload <path> --output <path> --constants <path>
+    4. Validate output file was created and is non-zero bytes
+    5. Capture stderr on failure, wrap in ReportError
 
     Output file naming: the renderer constructs the output filename as
     ``{engagement_id}_{name}.{format}`` within the output_dir passed to
@@ -154,12 +160,16 @@ class NodeRenderer:
         self._keep_temp_on_failure = keep_temp_on_failure
 
         # Fail at discovery time, not render time (spec Section 7)
-        render_js = self.package_path / "render.js"
-        if not render_js.exists():
+        self._render_js = self.package_path / "render.js"
+        if not self._render_js.exists():
             raise RendererDependencyError(
-                f"render.js not found at {render_js}. "
+                f"render.js not found at {self._render_js}. "
                 f"Renderer package may not be installed correctly."
             )
+        node_exe = check_node_available()
+        if node_exe is None:
+            raise RendererDependencyError("Node.js is not available on the system PATH")
+        self._node_exe = node_exe
 
     def render(self, payload: ReportPayload, output_dir: Path) -> Path:
         """Render the payload to a document in output_dir.
@@ -174,28 +184,19 @@ class NodeRenderer:
 
         Raises:
             PayloadVersionError: If the payload version is incompatible.
-            RendererDependencyError: If Node.js is missing.
             ReportError: If the Node.js process exits non-zero, or if the
                 output file is missing/empty after a successful exit.
         """
         validate_version_compatibility(payload.schema_version, self.supported_payload_versions)
 
-        node_exe = check_node_available()
-        if node_exe is None:
-            raise RendererDependencyError("Node.js is not available on the system PATH")
-
         output_dir = output_dir.resolve()
         output_dir.mkdir(parents=True, exist_ok=True)
         stem = f"{payload.engagement_id}_{self.name}" if self.name else payload.engagement_id
         output_path = output_dir / f"{stem}.{self.format}"
-        # Remove any stale output so the post-run existence check can't
-        # pass on a leftover file from a previous render.
-        if output_path.exists():
-            output_path.unlink()
-        render_js = self.package_path / "render.js"
+        output_path.unlink(missing_ok=True)
 
         tmp = Path(tempfile.mkdtemp(prefix="gxassessms_render_"))
-        failed = False
+        _failed = True
         try:
             payload_path = tmp / "payload.json"
             constants_path = tmp / "constants.json"
@@ -205,8 +206,8 @@ class NodeRenderer:
             write_constants_file(constants_path)
 
             cmd = [
-                node_exe,
-                str(render_js),
+                self._node_exe,
+                str(self._render_js),
                 "--payload",
                 str(payload_path),
                 "--output",
@@ -235,6 +236,11 @@ class NodeRenderer:
                     f"Renderer '{self.package_path.name}' (format={self.format}) "
                     f"timed out after {self._timeout_seconds}s"
                 ) from exc
+            except FileNotFoundError as exc:
+                raise RendererDependencyError(
+                    f"Node.js executable not found at render time: {self._node_exe}. "
+                    f"Was it removed after renderer initialization?"
+                ) from exc
 
             if result.returncode != 0:
                 raise ReportError(
@@ -251,13 +257,11 @@ class NodeRenderer:
                     f"{output_path}. Check renderer implementation."
                 )
 
-        except ReportError, PayloadVersionError, RendererDependencyError:
-            failed = True
-            if self._keep_temp_on_failure:
-                logger.warning("Render failed. Temp files preserved at: %s", tmp)
-            raise
+            _failed = False
         finally:
-            if not (failed and self._keep_temp_on_failure):
+            if _failed and self._keep_temp_on_failure:
+                logger.warning("Render failed. Temp files preserved at: %s", tmp)
+            else:
                 shutil.rmtree(tmp, ignore_errors=True)
 
         logger.info("Render complete: %s -> %s", self.package_path.name, output_path)
@@ -272,15 +276,15 @@ class RendererRegistry:
     """
 
     def __init__(self) -> None:
-        self._renderers: dict[str, Any] = {}
+        self._renderers: dict[str, ReportRenderer] = {}
         self.discovery_errors: list[DiscoveryError] = []
 
-    def register(self, name: str, renderer: Any) -> None:
+    def register(self, name: str, renderer: ReportRenderer) -> None:
         """Register a renderer by name."""
         self._renderers[name] = renderer
         logger.debug("Registered renderer '%s' (format=%s)", name, renderer.format)
 
-    def get(self, name: str) -> Any | None:
+    def get(self, name: str) -> ReportRenderer | None:
         """Get a renderer by name, or None if not found."""
         return self._renderers.get(name)
 
@@ -288,7 +292,7 @@ class RendererRegistry:
         """List names of all registered renderers."""
         return list(self._renderers.keys())
 
-    def get_by_format(self, format: str) -> list[Any]:
+    def get_by_format(self, format: str) -> list[ReportRenderer]:
         """Get all renderers that produce a given format."""
         return [r for r in self._renderers.values() if r.format == format]
 

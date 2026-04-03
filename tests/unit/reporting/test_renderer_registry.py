@@ -133,14 +133,12 @@ class TestNodeRenderer:
     ) -> None:
         (tmp_path / "render.js").write_text("// ok")
         mock_check.return_value = None
-        renderer = NodeRenderer(
-            package_path=tmp_path,
-            format="docx",
-            supported_payload_versions=">=1.0.0,<2.0.0",
-        )
-        payload = _make_payload()
         with pytest.raises(RendererDependencyError, match=r"Node\.js"):
-            renderer.render(payload, tmp_path / "out")
+            NodeRenderer(
+                package_path=tmp_path,
+                format="docx",
+                supported_payload_versions=">=1.0.0,<2.0.0",
+            )
 
     @patch("gxassessms.reporting.renderer_registry.subprocess.run")
     @patch("gxassessms.reporting.renderer_registry.check_node_available")
