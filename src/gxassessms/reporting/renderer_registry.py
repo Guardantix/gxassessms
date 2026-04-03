@@ -236,6 +236,11 @@ class NodeRenderer:
                     f"Renderer '{self.package_path.name}' (format={self.format}) "
                     f"timed out after {self._timeout_seconds}s"
                 ) from exc
+            except FileNotFoundError as exc:
+                raise RendererDependencyError(
+                    f"Node.js executable not found at render time: {self._node_exe}. "
+                    f"Was it removed after renderer initialization?"
+                ) from exc
 
             if result.returncode != 0:
                 raise ReportError(
