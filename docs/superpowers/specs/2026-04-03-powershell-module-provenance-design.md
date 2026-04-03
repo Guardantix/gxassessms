@@ -189,8 +189,29 @@ Provenance and execution support are evaluated independently per candidate.
 **Overall candidate approval**:
 
 9. `can_execute = provenance_approved AND execution_supported`
-10. Exactly one candidate has `can_execute=True` (ambiguity = always reject, hardcoded
-    invariant)
+
+**Ambiguity rules** (applied in order):
+
+- If exactly one candidate has `can_execute=True`: that candidate is the approved
+  candidate. No ambiguity.
+- If multiple candidates have `can_execute=True`: ambiguity rejection.
+  `provenance_approved=False` at the result level with reason "ambiguity."
+- If zero candidates have `can_execute=True` but exactly one has
+  `provenance_approved=True`: that candidate is the `approved_candidate` for
+  reporting purposes. The result is `provenance_approved=True`,
+  `execution_supported=False`. Preflight surfaces: "provenance verified, but cannot
+  execute on this platform."
+- If zero candidates have `can_execute=True` and multiple have
+  `provenance_approved=True`: provenance ambiguity. `provenance_approved=False` at
+  the result level. The operator has multiple verified module versions installed but
+  none can execute -- the ambiguity rule still applies because the result must
+  identify a single provenance-approved state.
+- If zero candidates have `provenance_approved=True`: provenance rejection. The
+  highest-version-matched candidate fills `approved_candidate=None` and all
+  candidates appear in the report with their per-candidate `rejection_reasons`.
+
+The result-level `evidence_path` comes from the single `approved_candidate` (if one
+exists). When no candidate is approved, `evidence_path=None`.
 
 A candidate can be `provenance_approved=True, execution_supported=False` (e.g.,
 ScubaGear on Linux). Preflight reports both axes. All provenance phases run for every
@@ -581,7 +602,21 @@ concern). The `verification_result` shows both axes failed.
 
 ## 9. Logging
 
-Every verification produces a structured log event before any import or execution.
+Provenance is logged at two points:
+
+**Inside the PowerShell template (before import/execution)**: After Phase 8 writes the
+verification report and before Phase 9 imports the module, the template emits a
+PowerShell `Write-Information` message with the approval decision, evidence path, hash,
+and staged path. This is the "log before execution" guarantee -- it fires inside the
+same process, before `Import-Module`.
+
+**Python-side (after subprocess exits)**: Python parses the verification report and
+emits a structured Python `logging` event with the full `ModuleVerificationResult`. This
+is the rich, structured log that integrates with the Python logging pipeline. It fires
+after the subprocess completes, so in collection mode, import and tool execution have
+already happened. This is the audit/observability log, not the pre-execution guarantee.
+
+Python-side log events:
 
 **Approval (signature_and_hash) -- INFO**:
 ```
@@ -795,6 +830,19 @@ Extend existing `tests/unit/cli/test_preflight.py`:
 - `ModuleProvenanceError` -> FAIL with rejection reason
 - Disabled tools not verified
 - New `PreflightCheckResult` type used throughout
+
+### 13.10 Adapters Check CLI Tests
+
+New or extend `tests/unit/cli/test_adapters_check.py`:
+
+- `mseco adapters check` calls `check_prerequisites()`, which uses code-owned policy
+  (no config overrides)
+- Output uses `PreflightCheckResult` rendering, not the old `dict[str, str]` path
+- Provenance-approved module displays version, evidence path, hash in output
+- Provenance-rejected module displays rejection reasons
+- Help text states baseline-policy-only scope
+- Does NOT apply `ModulePolicyOverride` from config (regression guard for the
+  baseline-vs-effective policy split)
 
 ## 14. File Layout
 
