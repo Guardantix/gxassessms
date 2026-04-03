@@ -354,7 +354,8 @@ function Test-ManifestConfinement {
             try {
                 $combined = Join-Path $ModuleBase $valueStr
                 $resolved = [IO.Path]::GetFullPath($combined)
-                if (-not $resolved.StartsWith($ModuleBase)) {
+                $boundary = $ModuleBase.TrimEnd([IO.Path]::DirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
+                if (-not $resolved.StartsWith($boundary) -and $resolved -ne $ModuleBase) {
                     return "Confinement violation in ${field}: path '$valueStr' escapes module base"
                 }
             }

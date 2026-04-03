@@ -187,7 +187,7 @@ def _try_ps_adapter_preflight(adapter: Any, config: Any) -> dict[str, str] | Non
             "status": "PASS",
             "message": f"{tool_name} {version} verified ({result.evidence_path})",
         }
-    except ModuleVerificationError as exc:
+    except (ModuleVerificationError, ValueError) as exc:
         return {
             "check": f"{tool_name} prerequisites",
             "status": "FAIL",
