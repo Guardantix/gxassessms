@@ -39,6 +39,7 @@ from gxassessms.pipeline.stages import (
 from gxassessms.pipeline.state import (
     EngagementLock,
     EngagementState,
+    EventType,
     PipelineEvent,
     _extract_payload,
 )
@@ -102,7 +103,7 @@ class Orchestrator:
     def _emit_event(
         self,
         engagement_id: str,
-        event_type: str,
+        event_type: EventType,
         actor: str,
         payload: dict[str, Any],
     ) -> None:
@@ -112,7 +113,7 @@ class Orchestrator:
                 event_id=str(uuid.uuid4()),
                 engagement_id=engagement_id,
                 timestamp=utc_now(),
-                event_type=event_type,  # type: ignore[arg-type]
+                event_type=event_type,
                 actor=actor,
                 payload=payload,
             )
