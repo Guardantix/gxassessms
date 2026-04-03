@@ -1,5 +1,6 @@
 """Tests for Pydantic domain models."""
 
+import json
 from datetime import UTC, datetime, timedelta, timezone
 
 import pytest
@@ -635,6 +636,83 @@ class TestAuthContext:
         assert isinstance(ctx.token, SecretStr)
         assert ctx.token.get_secret_value() == "my-secret-token"
         assert "my-secret-token" not in repr(ctx)
+
+    def test_accepts_valid_credential_refs(self) -> None:
+        credential_refs = {
+            "client_secret": "GX_CLIENT_SECRET",  # pragma: allowlist secret
+            "graph_secret": "env:GX_GRAPH_SECRET",  # pragma: allowlist secret
+            "legacy_secret": "_CLIENT_SECRET",  # pragma: allowlist secret
+            "legacy_graph_secret": "env:_GRAPH_SECRET",  # pragma: allowlist secret
+            "vault_secret": "key_vault:tenant/prod/client-secret",  # pragma: allowlist secret
+            "shared_secret": "encrypted_file:shared/graph-app",  # pragma: allowlist secret
+        }
+
+        ctx = AuthContext(credential_refs=credential_refs)
+
+        assert ctx.credential_refs == credential_refs
+
+    def test_rejects_invalid_credential_refs(self) -> None:
+        invalid_refs = (
+            "supersecret",
+            "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+            "",
+            " env:GX_CLIENT_SECRET",
+            "env:GX CLIENT SECRET",
+            "gx_client_secret",
+            "key_vault:tenant:prod/client-secret",
+        )
+
+        for invalid_ref in invalid_refs:
+            with pytest.raises(ValidationError, match="credential_refs"):
+                AuthContext(credential_refs={"client_secret": invalid_ref})
+
+    def test_rejects_mixed_valid_and_invalid_refs_without_partial_success(self) -> None:
+        with pytest.raises(ValidationError, match="credential_refs\\['api_key'\\]"):
+            AuthContext(
+                credential_refs={
+                    "client_secret": "GX_CLIENT_SECRET",  # pragma: allowlist secret
+                    "api_key": "supersecret",  # pragma: allowlist secret
+                }
+            )
+
+    def test_model_validate_rejects_invalid_credential_refs(self) -> None:
+        with pytest.raises(ValidationError, match="credential_refs\\['client_secret'\\]"):
+            AuthContext.model_validate(
+                {
+                    "credential_refs": {
+                        "client_secret": "supersecret",  # pragma: allowlist secret
+                    }
+                }
+            )
+
+    def test_valid_refs_serialize_as_refs_while_token_remains_masked(self) -> None:
+        ctx = AuthContext(
+            token="my-secret-token",
+            credential_refs={
+                "client_secret": "GX_CLIENT_SECRET",  # pragma: allowlist secret
+                "vault_secret": "key_vault:tenant/prod/client-secret",  # pragma: allowlist secret
+            },
+        )
+
+        payload = json.loads(ctx.model_dump_json())
+
+        assert payload["credential_refs"] == {
+            "client_secret": "GX_CLIENT_SECRET",  # pragma: allowlist secret
+            "vault_secret": "key_vault:tenant/prod/client-secret",  # pragma: allowlist secret
+        }
+        assert payload["token"] == "**********"
+        assert "my-secret-token" not in ctx.model_dump_json()
+
+    def test_validation_error_message_includes_ref_key_but_not_secret_value(self) -> None:
+        with pytest.raises(ValidationError) as excinfo:
+            AuthContext(
+                credential_refs={"client_secret": "supersecret"}  # pragma: allowlist secret
+            )
+
+        error_message = str(excinfo.value)
+
+        assert "client_secret" in error_message
+        assert "supersecret" not in error_message
 
     def test_rejects_naive_expires_at(self) -> None:
         with pytest.raises(ValidationError, match="timezone-aware"):

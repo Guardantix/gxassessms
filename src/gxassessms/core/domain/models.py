@@ -7,6 +7,7 @@ once and frozen.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any
 
@@ -27,11 +28,51 @@ from gxassessms.core.domain.enums import (
     ToolSource,
 )
 
+_ENV_CREDENTIAL_REF_RE: re.Pattern[str] = re.compile(r"^[_A-Z][_A-Z0-9]*$")
+_PROVIDER_NAME_RE: re.Pattern[str] = re.compile(r"^[a-z][a-z0-9_]*$")
+_PROVIDER_KEY_RE: re.Pattern[str] = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]*$")
+
 
 def _reject_bool(v: Any) -> Any:
     if isinstance(v, bool):
         raise ValueError("numeric fields must not be booleans")
     return v
+
+
+def _is_valid_credential_ref(value: str) -> bool:
+    if not value or any(char.isspace() for char in value):
+        return False
+
+    if _ENV_CREDENTIAL_REF_RE.fullmatch(value):
+        return True
+
+    provider, separator, key = value.partition(":")
+    if not separator:
+        return False
+
+    if provider == "env":
+        return bool(_ENV_CREDENTIAL_REF_RE.fullmatch(key))
+
+    if ":" in key:
+        return False
+
+    return bool(_PROVIDER_NAME_RE.fullmatch(provider) and _PROVIDER_KEY_RE.fullmatch(key))
+
+
+def _validate_credential_refs(refs: dict[str, str]) -> dict[str, str]:
+    if not refs:
+        return refs
+
+    for ref_name, ref_value in refs.items():
+        if _is_valid_credential_ref(ref_value):
+            continue
+        raise ValueError(
+            f"credential_refs[{ref_name!r}] must be a lookup reference like "
+            "'GX_CLIENT_SECRET', 'env:GX_CLIENT_SECRET', or "
+            "'key_vault:tenant/prod/client-secret'; raw secret values are not allowed"
+        )
+
+    return refs
 
 
 class SourceEvidence(BaseModel):
@@ -262,12 +303,31 @@ class ReportPayload(BaseModel):
 
 
 class AuthContext(BaseModel):
-    """Authentication state from adapter's authenticate() method."""
+    """Authentication state from adapter's authenticate() method.
+
+    ``token`` may hold secret material. ``credential_refs`` must contain only
+    provider lookup identifiers that are resolved later, never raw secrets.
+    """
+
+    # Hide raw values in default ValidationError string rendering. Structured
+    # errors still retain the original input in Pydantic.
+    model_config = ConfigDict(hide_input_in_errors=True)
 
     token: SecretStr | None = None
-    credential_refs: dict[str, str] = Field(default_factory=dict)
+    credential_refs: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "CredentialProvider lookup refs only, such as env var names or "
+            "provider-qualified aliases. Raw secret values are not allowed."
+        ),
+    )
     expires_at: datetime | None = None
     extra: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("credential_refs")
+    @classmethod
+    def credential_refs_must_be_lookup_refs(cls, v: dict[str, str]) -> dict[str, str]:
+        return _validate_credential_refs(v)
 
     @field_validator("expires_at")
     @classmethod
