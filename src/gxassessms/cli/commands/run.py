@@ -149,19 +149,15 @@ def run_cmd(
                 "[bright_red]Error:[/bright_red] No adapters discovered -- "
                 "install at least one adapter package (e.g., gxassessms-scubagear)."
             )
-            if newly_created:
-                console.print(
-                    f"[dim]Engagement {engagement_id} was created. "
-                    f"Use --engagement-id {engagement_id} to retry after installing adapters.[/dim]"
-                )
-            else:
-                console.print(
-                    f"[dim]Engagement ID: {engagement_id} -- "
-                    f"use --engagement-id {engagement_id} to retry after installing adapters.[/dim]"
-                )
+            created_note = " (just created)" if newly_created else ""
+            console.print(
+                f"[dim]Engagement {engagement_id}{created_note} -- "
+                f"use --engagement-id {engagement_id} to retry after installing adapters.[/dim]"
+            )
             raise SystemExit(1)
 
         from gxassessms.pipeline.stages import Stage
+        from gxassessms.pipeline.state import EngagementState
 
         run_kwargs = {
             "config": config,
@@ -190,9 +186,6 @@ def run_cmd(
             orchestrator.reset_for_rerun(engagement_id, stage)
             orchestrator.run_from(engagement_id=engagement_id, start_stage=stage, **run_kwargs)
         else:
-            from gxassessms.pipeline.stages import get_stage_entry_state
-            from gxassessms.pipeline.state import EngagementState
-
             resume_stage = orchestrator.determine_resume_stage(engagement_id)
             if resume_stage is None:
                 current_state = orchestrator._get_current_state(engagement_id)
@@ -209,21 +202,11 @@ def run_cmd(
                     )
                 return
 
-            # Reset state if needed (e.g. FAILED -> entry state for resume stage)
-            current_state = orchestrator._get_current_state(engagement_id)
-            entry_state = get_stage_entry_state(resume_stage)
-            if current_state != entry_state:
-                orchestrator.reset_for_rerun(engagement_id, resume_stage)
-
+            orchestrator.reset_for_rerun(engagement_id, resume_stage)
             console.print(f"[bold]Resuming from stage {resume_stage.value}...[/bold]")
-            if resume_stage == Stage.COLLECT:
-                orchestrator.run(engagement_id=engagement_id, **run_kwargs)
-            else:
-                orchestrator.run_from(
-                    engagement_id=engagement_id,
-                    start_stage=resume_stage,
-                    **run_kwargs,
-                )
+            orchestrator.run_from(
+                engagement_id=engagement_id, start_stage=resume_stage, **run_kwargs
+            )
 
         console.print("\n[bright_green]Pipeline complete.[/bright_green]")
         console.print(f"[dim]Engagement ID: {engagement_id}[/dim]")

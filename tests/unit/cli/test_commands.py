@@ -106,7 +106,7 @@ class TestRunCommand:
         mock_adapter.tool_name = "scubagear"
         mock_discover.return_value = [mock_adapter]
         mock_repo.return_value.create.return_value = "eng-test-001"
-        mock_build.return_value.run.return_value = None
+        mock_build.return_value.run_from.return_value = None
         mock_all_plugins.return_value = []
         mock_plugin.return_value = MagicMock()
         from gxassessms.pipeline.stages import Stage
@@ -117,7 +117,7 @@ class TestRunCommand:
         result = runner.invoke(cli, ["run", str(config_path)])
         assert result.exit_code == 0
         mock_repo.return_value.create.assert_called_once()
-        mock_build.return_value.run.assert_called_once()
+        mock_build.return_value.run_from.assert_called_once()
 
     @patch("gxassessms.cli._helpers.discover_cli_adapters", autospec=True)
     def test_dry_run_shows_config_valid_not_preflight_passed(
@@ -204,7 +204,7 @@ class TestRunCommand:
 
         mock_build.return_value.determine_resume_stage.return_value = Stage.COLLECT
         mock_build.return_value._get_current_state.return_value = EngagementState.CREATED
-        mock_build.return_value.run.side_effect = GxAssessError("network error")
+        mock_build.return_value.run_from.side_effect = GxAssessError("network error")
         mock_all_plugins.return_value = []
         mock_plugin.return_value = MagicMock()
         runner = CliRunner()
@@ -365,8 +365,9 @@ class TestRunCommand:
         result = runner.invoke(cli, ["run", str(config_path)])
         assert result.exit_code != 0
         assert "adapter" in result.output.lower()
-        assert "was created" in result.output  # newly_created = True path
+        assert "just created" in result.output  # newly_created = True path
         mock_build.return_value.run.assert_not_called()
+        mock_build.return_value.run_from.assert_not_called()
 
     @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
@@ -501,7 +502,7 @@ class TestRunCommand:
 
         mock_build.return_value.determine_resume_stage.return_value = Stage.COLLECT
         mock_build.return_value._get_current_state.return_value = EngagementState.CREATED
-        mock_build.return_value.run.side_effect = GxAssessError("network error")
+        mock_build.return_value.run_from.side_effect = GxAssessError("network error")
         mock_repo.return_value.create.return_value = "eng-err-001"
         runner = CliRunner()
         result = runner.invoke(cli, ["run", str(config_path)])
