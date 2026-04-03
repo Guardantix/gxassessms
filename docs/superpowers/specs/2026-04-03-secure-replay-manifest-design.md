@@ -383,6 +383,13 @@ Returns `list[LoadedManifest]` so the live path enters
 
 For each successful `CollectionResult`:
 
+0. `collection_output.tool_slug` must match the producing adapter's
+   `storage_slug` and `collection_output.tool` must match the adapter's
+   `tool_source`. This is enforced either in the `collect()` stage
+   wrapper (which knows which adapter produced the output) or as a
+   precondition at the top of `save_raw_outputs()`. A mismatched
+   `CollectionOutput` is rejected before any source validation or I/O,
+   preventing namespace pollution in the staged generation.
 1. Source paths are absolute, exist, are regular files, not
    symlinks/junctions/reparse points
 2. Source file content matches `CollectedArtifact.sha256` (reject if
@@ -437,7 +444,12 @@ replay state on a mid-commit failure:
 6. Remove staging directory (best-effort)
 
 Manifests written last. On failure:
-- If step 1-2 fail: old generation intact, staging orphaned (harmless).
+- If step 1 fails: old generation fully intact, staging orphaned
+  (harmless).
+- If step 2 fails: old artifacts already renamed aside, old manifests
+  still in place. Replay discovers old manifests but their artifacts
+  are missing -- fails closed in `confine_and_resolve()`. Replay is
+  unavailable until next successful run.
 - If step 3-4 fail: old generation preserved under `.old-*` names.
   Replay discovers nothing (no `manifests/`), which fails closed.
   The `.old-*` directories can be recovered manually or by a future
@@ -666,8 +678,12 @@ elif stage == Stage.PARSE:
 - Windows reserved device names (CON, NUL, COM1, etc.)
 - Trailing dots/spaces
 - Illegal characters
-- Case-insensitive collision detection
 - Round-trip normalization
+
+**Path-set validation (persistence-level, not single-path helper):**
+- Case-insensitive collision detection
+- Ancestor/descendant conflict detection
+- Duplicate target_relpath detection
 
 ### 7.2 Persistence Tests
 
