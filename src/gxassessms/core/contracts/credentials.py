@@ -2,6 +2,8 @@
 
 Credentials are never stored in config files or engagement directories.
 The CredentialProvider resolves key references to actual values at runtime.
+AuthContext.credential_refs must contain only lookup refs or provider aliases,
+never raw credential values.
 """
 
 import os
