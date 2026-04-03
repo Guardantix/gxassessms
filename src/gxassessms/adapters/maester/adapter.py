@@ -110,9 +110,8 @@ class MaesterAdapter:
 
         There is NO -OutputFormat parameter. -OutputFolder generates all three.
         """
-        import hashlib
-
         from gxassessms.core.config.datetime_utils import utc_now
+        from gxassessms.core.hashing import sha256_file
 
         tc = config.tools.get(self.tool_name.lower())
         if tc is None or not tc.output_dir:
@@ -141,7 +140,7 @@ class MaesterAdapter:
         for path in output_dir.glob("TestResults*"):
             if path.suffix in {".json", ".html", ".md"}:
                 encoding: FileEncoding = "binary" if path.suffix == ".html" else "utf-8"
-                sha = hashlib.sha256(path.read_bytes()).hexdigest()
+                sha = sha256_file(path)
                 artifacts.append(
                     CollectedArtifact(
                         source_path=str(path),

@@ -264,7 +264,6 @@ class ArtifactManager:
         Phase 3: Commit (artifacts first, manifests last)
         Phase 4: Return LoadedManifest list
         """
-        import hashlib
         import uuid as uuid_mod
 
         from gxassessms.core.contracts.types import AdapterRunStatus
@@ -274,6 +273,7 @@ class ArtifactManager:
         )
         from gxassessms.core.domain.models import ArtifactRecord, RawToolOutput
         from gxassessms.core.domain.path_validation import validate_canonical_posix_path
+        from gxassessms.core.hashing import sha256_file
         from gxassessms.pipeline.confinement import LoadedManifest
 
         try:
@@ -321,14 +321,11 @@ class ArtifactManager:
                     )
 
                 # Source hash verification
-                h = hashlib.sha256()
-                with open(source, "rb") as f:
-                    while chunk := f.read(65536):
-                        h.update(chunk)
-                if h.hexdigest() != artifact.sha256:
+                actual = sha256_file(source)
+                if actual != artifact.sha256:
                     raise PersistenceError(
                         f"Source hash mismatch for {artifact.source_path!r}: "
-                        f"expected {artifact.sha256}, got {h.hexdigest()}"
+                        f"expected {artifact.sha256}, got {actual}"
                     )
 
                 # Target relpath validation
@@ -383,14 +380,11 @@ class ArtifactManager:
                     shutil.copy2(str(source), str(dest))
 
                     # Verify copy
-                    h = hashlib.sha256()
-                    with open(dest, "rb") as f:
-                        while chunk := f.read(65536):
-                            h.update(chunk)
-                    if h.hexdigest() != artifact.sha256:
+                    copy_hash = sha256_file(dest)
+                    if copy_hash != artifact.sha256:
                         raise PersistenceError(
                             f"Copy corruption for {artifact.target_relpath!r}: "
-                            f"expected {artifact.sha256}, got {h.hexdigest()}"
+                            f"expected {artifact.sha256}, got {copy_hash}"
                         )
 
                     file_manifest[artifact.target_relpath] = ArtifactRecord(

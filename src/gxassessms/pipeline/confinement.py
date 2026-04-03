@@ -7,7 +7,6 @@ adapters." Both live and replay paths pass through it.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from pathlib import Path
 from typing import Any, NamedTuple
@@ -16,10 +15,9 @@ from gxassessms.core.contracts.errors import ManifestConfinementError
 from gxassessms.core.domain.constants import RECOGNIZED_MANIFEST_VERSIONS
 from gxassessms.core.domain.models import ArtifactRecord, RawToolOutput, ResolvedManifest
 from gxassessms.core.domain.path_validation import validate_canonical_posix_path
+from gxassessms.core.hashing import sha256_file
 
 logger = logging.getLogger(__name__)
-
-_HASH_BUFFER_SIZE = 65536  # 64 KiB read chunks
 
 
 class LoadedManifest(NamedTuple):
@@ -27,15 +25,6 @@ class LoadedManifest(NamedTuple):
 
     source_path: Path  # e.g., .../manifests/scubagear.json
     raw_output: RawToolOutput
-
-
-def _sha256_file(path: Path) -> str:
-    """Compute SHA-256 hex digest of a file."""
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        while chunk := f.read(_HASH_BUFFER_SIZE):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def confine_and_resolve(
@@ -112,6 +101,7 @@ def confine_and_resolve(
         # Per-path checks
         resolved_manifest: dict[str, ArtifactRecord] = {}
         seen_resolved: set[str] = set()
+        tool_subtree = (artifacts_root / slug).resolve()
 
         for relpath, record in raw.file_manifest.items():
             # 3. Canonical format (defense-in-depth)
@@ -152,8 +142,6 @@ def confine_and_resolve(
                     detail=str(e),
                 ) from e
 
-            # 6. Tool-subtree containment (after symlink resolution)
-            tool_subtree = (artifacts_root / slug).resolve()
             if not resolved.is_relative_to(tool_subtree):
                 raise ManifestConfinementError(
                     message=(
@@ -178,7 +166,7 @@ def confine_and_resolve(
                 )
 
             # 8. SHA-256 verify
-            actual_hash = _sha256_file(resolved)
+            actual_hash = sha256_file(resolved)
             if actual_hash != record.sha256:
                 raise ManifestConfinementError(
                     message=(

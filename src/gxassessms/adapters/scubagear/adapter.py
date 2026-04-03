@@ -99,9 +99,8 @@ class ScubaGearAdapter:
         Raises:
             CollectionError: On PowerShell failure, timeout, or missing output.
         """
-        import hashlib
-
         from gxassessms.core.config.datetime_utils import utc_now
+        from gxassessms.core.hashing import sha256_file
 
         tc = config.tools.get(self.tool_name.lower())
         if tc is None or not tc.output_dir:
@@ -166,7 +165,7 @@ class ScubaGearAdapter:
         for f in run_dir.iterdir():
             if f.suffix in (".json", ".html"):
                 encoding: FileEncoding = "utf-8"
-                sha = hashlib.sha256(f.read_bytes()).hexdigest()
+                sha = sha256_file(f)
                 artifacts.append(
                     CollectedArtifact(
                         source_path=str(f),
