@@ -75,7 +75,7 @@ def assemble_payload(
     raw_coverage = coverage_repo.get_for_engagement(engagement_id)
 
     findings = [_deserialize_json_fields(f) for f in raw_findings]
-    coverage = [dict(r) for r in raw_coverage]
+    coverage = raw_coverage
 
     merged_narratives: dict[str, str | None] = {
         "executive_summary": None,
@@ -90,7 +90,6 @@ def assemble_payload(
         metadata["config_snapshot"] = config_snapshot
 
     payload = ReportPayload(
-        schema_version="1.0.0",
         engagement_id=engagement_id,
         tenant_name=tenant_name,
         assessment_date=assessment_date,
