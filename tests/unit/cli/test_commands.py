@@ -367,6 +367,7 @@ class TestRunCommand:
         assert "adapter" in result.output.lower()
         assert "just created" in result.output  # newly_created = True path
         mock_build.return_value.run.assert_not_called()
+        mock_build.return_value.run_from.assert_not_called()
 
     @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
