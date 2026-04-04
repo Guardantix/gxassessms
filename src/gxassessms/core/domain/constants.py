@@ -104,7 +104,7 @@ AdapterCapability = Literal[
     "benchmark_mapping",
 ]
 
-ADAPTER_CAPABILITIES: frozenset[str] = frozenset(
+ADAPTER_CAPABILITIES: frozenset[AdapterCapability] = frozenset(
     {
         "collect",
         "parse",

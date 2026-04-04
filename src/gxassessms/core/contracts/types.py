@@ -11,6 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, TypedDict, runtime_checkable
 
+from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import (  # noqa: F401 (re-exported)
     AdapterRunStatus,
     Severity,
@@ -65,7 +66,7 @@ class ToolAdapter(Protocol):
     tool_name: str = ""
     storage_slug: str = ""  # stable, unique, [a-z0-9][a-z0-9-]*
     tool_source: ToolSource  # identity, not presentation
-    capabilities: frozenset[str] = frozenset()
+    capabilities: frozenset[AdapterCapability] = frozenset()
 
     def check_prerequisites(self) -> PrerequisiteResult:
         """Verify tool is installed and meets version requirements.
@@ -111,11 +112,17 @@ class QAStrategy(Protocol):
     """Extension point for QA strategies.
 
     Optional class attributes:
+        is_noop (bool): When True, the runner auto-advances
+            QA_REVIEW -> QA_APPROVED without human interaction.
+            Default is False. Checked via ``getattr`` at runtime since
+            Protocol defaults are not inherited by implementations.
         priority (int): Selection priority when multiple strategies are
             registered. Higher values win. Default is 0 (used when the
             attribute is absent). The ``--qa-strategy`` CLI flag overrides
             priority-based selection entirely.
     """
+
+    is_noop: bool = False
 
     def review_findings(self, findings: list[ConsolidatedFinding]) -> list[QAResult]: ...
     def generate_narratives(
@@ -135,3 +142,20 @@ class ConsolidationRule(Protocol):
     """
 
     def consolidate(self, findings: list[Finding]) -> list[ConsolidatedFinding]: ...
+
+
+@runtime_checkable
+class NormalizationPolicy(Protocol):
+    """Extension point for normalization policies.
+
+    Implementations transform raw ToolObservations into normalized Findings
+    using severity mapping, category mapping, and dedup key assignment.
+    """
+
+    def normalize(
+        self,
+        observations: list[ToolObservation],
+        adapter_severity_map: dict[tuple[str, str], str],
+        adapter_category_map: dict[str, str],
+        adapter_dedup_keys: dict[str, str],
+    ) -> list[Finding]: ...

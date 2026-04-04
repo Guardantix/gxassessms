@@ -37,6 +37,16 @@ from gxassessms.pipeline.stages import (
 from gxassessms.pipeline.state import EngagementState, _extract_payload
 
 if TYPE_CHECKING:
+    from gxassessms.core.contracts.types import (
+        ConsolidationRule,
+        NormalizationPolicy,
+        QAResult,
+        QAStrategy,
+        ReportRenderer,
+        ToolAdapter,
+    )
+    from gxassessms.persistence import CoverageRepo
+    from gxassessms.pipeline.confinement import LoadedManifest
     from gxassessms.pipeline.orchestrator import Orchestrator
 
 logger = logging.getLogger(__name__)
@@ -46,11 +56,11 @@ def run_stages(
     orchestrator: Orchestrator,
     engagement_id: str,
     config: EngagementConfig,
-    adapters: list[Any],
-    normalization_policy: Any,
-    consolidation_rule: Any,
-    qa_strategy: Any,
-    renderers: list[Any],
+    adapters: list[ToolAdapter],
+    normalization_policy: NormalizationPolicy,
+    consolidation_rule: ConsolidationRule,
+    qa_strategy: QAStrategy,
+    renderers: list[ReportRenderer],
     start_stage: Stage,
     output_dir: Path | None = None,
     stop_stage: Stage | None = None,
@@ -104,12 +114,12 @@ def run_stages(
 
         # None = "upstream never ran"; [] = "upstream ran, produced zero results".
         collection_results: list[CollectionResult] | None = None
-        loaded_manifests: list[Any] | None = None
+        loaded_manifests: list[LoadedManifest] | None = None
         adapter_results: list[AdapterResult] | None = None
         observations: list[ToolObservation] | None = None
         findings: list[Finding] | None = None
         consolidated_findings: list[ConsolidatedFinding] | None = None
-        qa_results: list[Any] | None = None
+        qa_results: list[QAResult] | None = None
 
         _lm, _f, _cf = _rehydrate_upstream_state(start_stage, engagement_id, adapters, orchestrator)
         if _lm is not None:
@@ -229,6 +239,8 @@ def run_stages(
                 # Real QA strategies leave the engagement at QA_REVIEW
                 # for human review; the pipeline stops here.
                 if stage == Stage.QA_REVIEW:
+                    # getattr required: Protocol defaults are not
+                    # inherited by implementations at runtime.
                     if getattr(qa_strategy, "is_noop", False) is True:
                         logger.info(
                             "No-op QA strategy -- auto-advancing QA_REVIEW -> QA_APPROVED for %s",
@@ -350,10 +362,10 @@ def _recover_stale_state(
 def _rehydrate_upstream_state(
     start_stage: Stage,
     engagement_id: str,
-    adapters: list[Any],
-    orchestrator: Any,
+    adapters: list[ToolAdapter],
+    orchestrator: Orchestrator,
 ) -> tuple[
-    list[Any] | None,  # loaded_manifests (list[LoadedManifest])
+    list[LoadedManifest] | None,
     list[Finding] | None,
     list[ConsolidatedFinding] | None,
 ]:
@@ -441,7 +453,7 @@ def _require_in_memory(name: str, data: list[Any] | None, stage: Stage) -> None:
 
 
 def _merge_adapter_map(
-    adapters: list[Any],
+    adapters: list[ToolAdapter],
     attr: str,
     *,
     resolve_enum: bool = True,
@@ -471,7 +483,7 @@ def _build_report_payload(
     engagement_id: str,
     config: EngagementConfig,
     consolidated: list[ConsolidatedFinding],
-    coverage_repo: Any,
+    coverage_repo: CoverageRepo,
 ) -> ReportPayload:
     """Build a ReportPayload from consolidated findings and config.
 
@@ -511,7 +523,7 @@ def _get_stage_output(
     observations: list[ToolObservation] | None,
     findings: list[Finding] | None,
     consolidated_findings: list[ConsolidatedFinding] | None,
-    qa_results: list[Any] | None,
+    qa_results: list[QAResult] | None,
 ) -> list[Any]:
     """Return the serializable output list for a given stage."""
     if stage == Stage.COLLECT:

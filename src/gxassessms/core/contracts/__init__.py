@@ -91,6 +91,9 @@ from gxassessms.core.contracts.types import (
     Narratives as Narratives,
 )
 from gxassessms.core.contracts.types import (
+    NormalizationPolicy as NormalizationPolicy,
+)
+from gxassessms.core.contracts.types import (
     PrerequisiteResult as PrerequisiteResult,
 )
 from gxassessms.core.contracts.types import (

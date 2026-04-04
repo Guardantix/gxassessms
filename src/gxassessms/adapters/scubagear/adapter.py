@@ -29,6 +29,7 @@ from gxassessms.core.contracts.errors import (
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
+from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
@@ -56,7 +57,7 @@ class ScubaGearAdapter:
     tool_name: str = "ScubaGear"
     storage_slug: str = "scubagear"
     tool_source: ToolSource = ToolSource.SCUBAGEAR
-    capabilities: frozenset[str] = frozenset(
+    capabilities: frozenset[AdapterCapability] = frozenset(
         {"collect", "parse", "prerequisites", "coverage_export", "benchmark_mapping"}
     )
 
