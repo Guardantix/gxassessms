@@ -106,8 +106,10 @@ class TestManifestConstants:
         from gxassessms.core.domain.constants import EXECUTION_METADATA_ALLOWLIST
 
         assert "1.0.0" in EXECUTION_METADATA_ALLOWLIST
-        assert EXECUTION_METADATA_ALLOWLIST["1.0.0"]["scubagear"] == frozenset({"modules"})
-        assert EXECUTION_METADATA_ALLOWLIST["1.0.0"]["maester"] == frozenset()
+        assert EXECUTION_METADATA_ALLOWLIST["1.0.0"]["scubagear"] == frozenset(
+            {"modules", "module_provenance"}
+        )
+        assert EXECUTION_METADATA_ALLOWLIST["1.0.0"]["maester"] == frozenset({"module_provenance"})
 
     def test_recognized_manifest_versions(self) -> None:
         from gxassessms.core.domain.constants import RECOGNIZED_MANIFEST_VERSIONS
