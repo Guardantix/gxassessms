@@ -294,7 +294,7 @@ class TestConfineAndResolveRejections:
         Even though artifacts_root itself is real and passes its confinement
         check, a symlink at artifacts/<slug>/ redirects both tool_subtree and
         resolved paths outside the engagement together, making the
-        is_relative_to check pass. The per-slug confinement check catches this.
+        is_relative_to check pass. The canonical-path check catches this.
         """
         eng_dir = tmp_path / "eng"
         artifacts_dir = eng_dir / "raw-output" / "artifacts"
@@ -321,7 +321,7 @@ class TestConfineAndResolveRejections:
                 raw_output=raw,
             )
         ]
-        with pytest.raises(ManifestConfinementError, match=r"Tool subtree.*resolves outside"):
+        with pytest.raises(ManifestConfinementError, match=r"non-canonical"):
             confine_and_resolve(loaded, eng_dir, [_make_adapter()])
 
     def test_rejects_symlinked_artifacts_root(self, tmp_path: Path) -> None:
@@ -353,6 +353,76 @@ class TestConfineAndResolveRejections:
             )
         ]
         with pytest.raises(ManifestConfinementError, match="outside engagement"):
+            confine_and_resolve(loaded, eng_dir, [_make_adapter()])
+
+    def test_rejects_artifacts_root_symlinked_within_engagement(self, tmp_path: Path) -> None:
+        """Artifacts root symlinked to another location inside the engagement.
+
+        Even though the resolved path is within the engagement, it's not the
+        canonical raw-output/artifacts path. This could let manifests reference
+        files from an unintended engagement subtree.
+        """
+        eng_dir = tmp_path / "eng"
+        raw_output_dir = eng_dir / "raw-output"
+        raw_output_dir.mkdir(parents=True)
+
+        # Create real artifacts in a non-canonical engagement subtree
+        alt_dir = eng_dir / "reports" / "artifacts"
+        scuba_dir = alt_dir / "scubagear"
+        scuba_dir.mkdir(parents=True)
+        content = b'{"Results": {}}'
+        (scuba_dir / "results.json").write_bytes(content)
+        sha = _sha256(content)
+
+        # Symlink artifacts root to the non-canonical in-engagement location
+        (raw_output_dir / "artifacts").symlink_to(alt_dir)
+
+        raw = _make_raw_output(
+            file_manifest={
+                "scubagear/results.json": ArtifactRecord(encoding="utf-8", sha256=sha),
+            },
+        )
+        loaded = [
+            LoadedManifest(
+                source_path=eng_dir / "raw-output" / "manifests" / "scubagear.json",
+                raw_output=raw,
+            )
+        ]
+        with pytest.raises(ManifestConfinementError, match="non-canonical"):
+            confine_and_resolve(loaded, eng_dir, [_make_adapter()])
+
+    def test_rejects_tool_subtree_symlinked_to_sibling(self, tmp_path: Path) -> None:
+        """Per-slug subtree symlinked to a sibling tool directory.
+
+        artifacts/scubagear/ -> artifacts/maester/ stays within the engagement
+        and within artifacts_root, but it's not the canonical location for
+        scubagear. This would let scubagear manifests process maester files.
+        """
+        eng_dir = tmp_path / "eng"
+        artifacts_dir = eng_dir / "raw-output" / "artifacts"
+
+        # Create real maester artifacts
+        maester_dir = artifacts_dir / "maester"
+        maester_dir.mkdir(parents=True)
+        content = b'{"MaesterResults": {}}'
+        (maester_dir / "results.json").write_bytes(content)
+        sha = _sha256(content)
+
+        # Symlink scubagear -> maester (sibling redirect)
+        (artifacts_dir / "scubagear").symlink_to(maester_dir)
+
+        raw = _make_raw_output(
+            file_manifest={
+                "scubagear/results.json": ArtifactRecord(encoding="utf-8", sha256=sha),
+            },
+        )
+        loaded = [
+            LoadedManifest(
+                source_path=eng_dir / "raw-output" / "manifests" / "scubagear.json",
+                raw_output=raw,
+            )
+        ]
+        with pytest.raises(ManifestConfinementError, match="non-canonical"):
             confine_and_resolve(loaded, eng_dir, [_make_adapter()])
 
     def test_rejects_directory_as_artifact(self, tmp_path: Path) -> None:

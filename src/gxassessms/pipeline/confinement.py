@@ -55,6 +55,21 @@ def confine_and_resolve(
             detail=f"artifacts_root={resolved_root}, engagement={resolved_engagement}",
         )
 
+    # Canonical-path check: even if resolved_root is inside the engagement,
+    # a symlink could redirect it to a different subtree (e.g.,
+    # raw-output/artifacts -> <engagement>/reports/artifacts), breaking
+    # the trust boundary while staying within the engagement directory.
+    expected_root = resolved_engagement / "raw-output" / "artifacts"
+    if resolved_root != expected_root:
+        raise ManifestConfinementError(
+            message="Artifacts root resolves to non-canonical location (symlink?)",
+            engagement_id=engagement_dir.name,
+            stage="confine",
+            tool_slug="*",
+            check_name="artifacts_root_canonical",
+            detail=f"resolved={resolved_root}, expected={expected_root}",
+        )
+
     adapter_by_slug: dict[str, Any] = {a.storage_slug: a for a in adapters}
 
     resolved_manifests: list[ResolvedManifest] = []
@@ -123,16 +138,19 @@ def confine_and_resolve(
         # but a symlink at raw-output/artifacts/<slug>/ would let both
         # tool_subtree and resolved paths escape together, passing the
         # is_relative_to check while reading files outside the engagement.
-        if not tool_subtree.is_relative_to(resolved_engagement):
+        # Canonical-path equality catches both out-of-engagement escapes AND
+        # in-engagement redirections (e.g., scubagear/ -> maester/).
+        expected_subtree = resolved_root / slug
+        if tool_subtree != expected_subtree:
             raise ManifestConfinementError(
                 message=(
-                    f"Tool subtree for {slug!r} resolves outside engagement directory (symlink?)"
+                    f"Tool subtree for {slug!r} resolves to non-canonical location (symlink?)"
                 ),
                 engagement_id=eng_id,
                 stage="confine",
                 tool_slug=slug,
-                check_name="tool_subtree_confinement",
-                detail=f"tool_subtree={tool_subtree}, engagement={resolved_engagement}",
+                check_name="tool_subtree_canonical",
+                detail=f"resolved={tool_subtree}, expected={expected_subtree}",
             )
 
         for relpath, record in raw.file_manifest.items():
