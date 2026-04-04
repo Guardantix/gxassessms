@@ -154,6 +154,12 @@ function Compute-TreeHash {
 function Test-ReparsePoints {
     param([string]$Directory)
 
+    # Check the root directory itself -- Get-ChildItem -Recurse excludes it
+    $dirItem = Get-Item -Path $Directory -Force
+    if ($dirItem.Attributes -band [IO.FileAttributes]::ReparsePoint) {
+        return $dirItem.FullName
+    }
+
     $items = @(Get-ChildItem -Path $Directory -Recurse -Force)
     foreach ($item in $items) {
         if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) {
