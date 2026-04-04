@@ -30,40 +30,31 @@ No critical internet-facing vulnerability was identified because this repo is a 
 
 ### SBP-001: Replay accepts attacker-controlled file paths from persisted manifests
 
-**Impact:** A local attacker who can modify persisted raw-output manifests can cause replay to read JSON files outside the engagement root, leading to report integrity loss and limited local file disclosure under the analyst account.
+**Status: REMEDIATED** (PR #47, branch `security/replay-manifest`, 2026-04-03)
+
+**Original impact:** A local attacker who can modify persisted raw-output manifests can cause replay to read JSON files outside the engagement root, leading to report integrity loss and limited local file disclosure under the analyst account.
 
 **Why this matters**
 
-OWASP secure code review guidance and CWE path-traversal guidance both call out unsafe file path construction and missing canonical path validation as a primary class of file handling vulnerability. This repo already applies canonical path checks in artifact storage, but replay does not re-apply them when reading persisted manifests.
+OWASP secure code review guidance and CWE path-traversal guidance both call out unsafe file path construction and missing canonical path validation as a primary class of file handling vulnerability.
 
-**Evidence**
+**Remediation implemented**
 
-- `RawToolOutput.file_manifest` accepts arbitrary string paths with no root confinement in `src/gxassessms/core/domain/models.py:137-145`.
-- Collection persists absolute filesystem paths into manifests:
-  - `src/gxassessms/adapters/scubagear/adapter.py:167-195`
-  - `src/gxassessms/adapters/maester/adapter.py:134-148`
-- Manifests are written back verbatim during persistence in `src/gxassessms/persistence/artifacts.py:295-307`.
-- Replay loads manifests but does not validate referenced file paths against the engagement directory in `src/gxassessms/pipeline/replay.py:69-90`.
-- The adapters later open whichever manifest path is selected:
-  - `src/gxassessms/adapters/scubagear/adapter.py:297-308`
-  - `src/gxassessms/adapters/maester/adapter.py:231-246`
-- By contrast, artifact storage does have canonical root checks in `src/gxassessms/persistence/artifacts.py:41-53`.
+All three recommended mitigations are now in place:
 
-**What is missing**
+1. **Relative paths only:** Manifests (`raw-output/manifests/<slug>.json`) store only canonical POSIX-relative paths. `RawToolOutput` field validators enforce this via `validate_canonical_posix_path()` in `src/gxassessms/core/domain/path_validation.py`. Absolute paths, backslashes, parent traversal, and Windows reserved names are all rejected.
 
-- A requirement that replayed file paths stay under the engagement's `raw-output/` tree.
-- Canonicalization plus rejection of absolute paths, parent traversal, and symlink escapes at replay time.
-- Integrity binding between the manifest and the referenced files, such as stored hashes.
+2. **Path confinement at replay:** `confine_and_resolve()` in `src/gxassessms/pipeline/confinement.py` performs 9 sequential security checks before any adapter method runs: manifest version gate, three-way slug match (filename/field/adapter), canonical path format, tool-slug path prefix, strict resolve, tool-subtree containment (rejects cross-tool symlink escape), file type check, SHA-256 verification, and duplicate resolution detection. The artifacts root itself is checked for symlink redirection before any per-path checks.
 
-**Test coverage note**
+3. **Content hash binding:** SHA-256 hashes are recorded at collection time in `ArtifactRecord.sha256`, verified at copy time during persistence, and re-verified at replay time by `confine_and_resolve()`. Shared hashing utility: `src/gxassessms/core/hashing.py::sha256_file`.
 
-`tests/unit/pipeline/test_replay.py:50-87` verifies missing and malformed manifests, but there is no regression test that rejects absolute or out-of-root file references during replay.
+**Residual risk:** An attacker with write access who replaces both the manifest and the referenced artifact with matching SHA-256 hashes will not be detected. Detecting this requires an external trust root (signatures, HMAC, or separate digest store) -- tracked as a remaining gap in TM-003.
 
-**Recommended remediation**
+**Test coverage**
 
-- Persist only relative paths under the engagement root.
-- On replay, resolve each referenced path and reject anything outside the engagement directory before adapter validation runs.
-- Record a content hash for each collected artifact and verify it during replay.
+- `tests/unit/pipeline/test_confinement.py`: 335 lines covering all 9 confinement checks including symlink escape, hash mismatch, and cross-tool containment.
+- `tests/unit/core/test_path_validation.py`: 151 lines covering canonical path validation including reserved names, illegal characters, and normalization.
+- `tests/integration/test_replay_equivalence.py`: End-to-end live/replay equivalence test.
 
 ### SBP-002: Plugin and renderer trust is too broad, and render execution ignores configured report intent
 
@@ -187,7 +178,7 @@ OWASP input-validation and file-handling guidance recommends explicit size limit
 
 ## Priority Order
 
-1. Fix replay path confinement and hash binding first.
+1. ~~Fix replay path confinement and hash binding first.~~ **DONE** (PR #47, SBP-001 remediated)
 2. Pin approved PowerShell module versions and verify publisher or signature before collection runs.
 3. Add plugin and renderer allowlisting plus config-based renderer filtering.
 4. Harden artifact/report directory permissions and move default report output under the protected data root.

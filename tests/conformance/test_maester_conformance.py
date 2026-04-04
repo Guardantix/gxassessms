@@ -6,6 +6,7 @@ All conformance assertions are inherited from the base class.
 
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,12 @@ import yaml
 
 from gxassessms.adapters.maester import MaesterAdapter
 from gxassessms.core.domain.enums import CoverageStatus, ToolSource
-from gxassessms.core.domain.models import CoverageRecord, RawToolOutput, ToolObservation
+from gxassessms.core.domain.models import (
+    ArtifactRecord,
+    CoverageRecord,
+    ResolvedManifest,
+    ToolObservation,
+)
 from tests.conformance.adapter_suite import AdapterConformanceSuite
 
 
@@ -38,15 +44,20 @@ class TestMaesterConformance(AdapterConformanceSuite):
         )
 
     @pytest.fixture
-    def raw_tool_output(self, adapter: MaesterAdapter, fixture_dir: Path) -> RawToolOutput:
-        """Build a RawToolOutput pointing at the Maester fixture files."""
+    def resolved_manifest(self, adapter: MaesterAdapter, fixture_dir: Path) -> ResolvedManifest:
+        """Build a ResolvedManifest pointing at the Maester fixture files."""
         results_path = fixture_dir / "MaesterTestResults.json"
-        return RawToolOutput(
+        sha = hashlib.sha256(results_path.read_bytes()).hexdigest()
+        return ResolvedManifest(
             tool=ToolSource.MAESTER,
+            tool_slug="maester",
             schema_version="1.0.0",
+            manifest_version="1.0.0",
             timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={str(results_path): "utf-8"},
-            execution_metadata={"output_dir": str(fixture_dir)},
+            file_manifest={
+                str(results_path): ArtifactRecord(encoding="utf-8", sha256=sha),
+            },
+            execution_metadata={},
         )
 
     @pytest.fixture

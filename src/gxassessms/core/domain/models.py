@@ -180,13 +180,32 @@ class CoverageRecord(BaseModel):
     reason: str | None = None
 
 
-class RawToolOutput(BaseModel):
-    """Serializable container for raw tool output (enables replay)."""
+class ArtifactRecord(BaseModel):
+    """Per-artifact integrity binding."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    encoding: FileEncoding
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class CollectedArtifact(BaseModel):
+    """Single artifact from adapter collection."""
+
+    source_path: str  # absolute, platform-native
+    target_relpath: str  # canonical POSIX relative
+    encoding: FileEncoding
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class CollectionOutput(BaseModel):
+    """Adapter collection result. Platform-native absolute paths."""
 
     tool: ToolSource
-    schema_version: str
+    tool_slug: str  # stable storage namespace
+    schema_version: str  # tool output format
     timestamp: datetime
-    file_manifest: dict[str, FileEncoding]
+    artifacts: list[CollectedArtifact]  # sorted by target_relpath
     execution_metadata: dict[str, Any]
 
     @field_validator("timestamp")
@@ -195,12 +214,97 @@ class RawToolOutput(BaseModel):
         return ensure_utc(v)
 
 
+class CollectionResult(BaseModel):
+    """Wraps CollectionOutput from the collect stage."""
+
+    adapter_name: str
+    status: AdapterRunStatus
+    collection_output: CollectionOutput | None = None
+    error: str | None = None
+    duration_seconds: float = Field(ge=0)
+
+    @model_validator(mode="after")
+    def status_payload_consistent(self) -> CollectionResult:
+        """Enforce that status matches presence of collection_output/error."""
+        if self.status == AdapterRunStatus.SUCCESS:
+            if self.collection_output is None:
+                raise ValueError("SUCCESS status requires collection_output")
+            if self.error is not None:
+                raise ValueError("SUCCESS status must not carry an error")
+        elif self.status in (AdapterRunStatus.FAILED, AdapterRunStatus.TIMEOUT):
+            if not self.error:
+                raise ValueError(f"{self.status} status requires error message")
+        elif self.status == AdapterRunStatus.SKIPPED:
+            if self.collection_output is not None:
+                raise ValueError("SKIPPED status must not carry collection_output")
+        return self
+
+
+class ResolvedManifest(BaseModel):
+    """Runtime-resolved manifest. Absolute engagement-controlled paths."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tool: ToolSource
+    tool_slug: str
+    schema_version: str
+    manifest_version: str
+    timestamp: datetime
+    file_manifest: dict[str, ArtifactRecord]  # resolved absolute paths
+    execution_metadata: dict[str, Any]
+    # No path format validators -- paths are trusted output of confine_and_resolve()
+
+    @field_validator("timestamp")
+    @classmethod
+    def timestamp_must_be_utc(cls, v: datetime) -> datetime:
+        return ensure_utc(v)
+
+
+class RawToolOutput(BaseModel):
+    """On-disk replay manifest. POSIX-relative canonical paths."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tool: ToolSource
+    tool_slug: str
+    schema_version: str
+    manifest_version: str  # replay security contract, required, no default
+    timestamp: datetime
+    file_manifest: dict[str, ArtifactRecord]  # POSIX-relative -> {encoding, sha256}
+    execution_metadata: dict[str, Any]
+
+    @field_validator("timestamp")
+    @classmethod
+    def timestamp_must_be_utc(cls, v: datetime) -> datetime:
+        return ensure_utc(v)
+
+    @field_validator("tool_slug")
+    @classmethod
+    def tool_slug_must_be_valid(cls, v: str) -> str:
+        from gxassessms.core.domain.constants import TOOL_SLUG_PATTERN
+
+        if not re.fullmatch(TOOL_SLUG_PATTERN, v):
+            raise ValueError(f"tool_slug must match {TOOL_SLUG_PATTERN!r}, got {v!r}")
+        return v
+
+    @field_validator("file_manifest")
+    @classmethod
+    def file_manifest_must_be_valid(cls, v: dict[str, ArtifactRecord]) -> dict[str, ArtifactRecord]:
+        if not v:
+            raise ValueError("file_manifest must not be empty")
+        from gxassessms.core.domain.path_validation import validate_canonical_posix_path
+
+        for key in v:
+            validate_canonical_posix_path(key)
+        return v
+
+
 class AdapterResult(BaseModel):
     """Wrapper returned by the adapter runner."""
 
     adapter_name: str
     status: AdapterRunStatus
-    raw_output: RawToolOutput | None = None
+    raw_output: ResolvedManifest | None = None
     error: str | None = None
     duration_seconds: float = Field(ge=0)
 

@@ -28,12 +28,13 @@ from gxassessms.core.contracts.errors import (
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
-from gxassessms.core.domain.constants import FileEncoding
 from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
+    CollectedArtifact,
+    CollectionOutput,
     CoverageRecord,
-    RawToolOutput,
+    ResolvedManifest,
     ToolObservation,
 )
 
@@ -52,6 +53,8 @@ class ScubaGearAdapter:
     """ToolAdapter implementation for ScubaGear (CISA SCuBA baseline assessor for M365)."""
 
     tool_name: str = "ScubaGear"
+    storage_slug: str = "scubagear"
+    tool_source: ToolSource = ToolSource.SCUBAGEAR
     capabilities: frozenset[str] = frozenset(
         {"collect", "parse", "prerequisites", "coverage_export", "benchmark_mapping"}
     )
@@ -86,7 +89,7 @@ class ScubaGearAdapter:
         """No-op: ScubaGear handles authentication internally via Connect-MgGraph."""
         return None
 
-    def collect(self, config: EngagementConfig, auth: AuthContext | None) -> RawToolOutput:
+    def collect(self, config: EngagementConfig, auth: AuthContext | None) -> CollectionOutput:
         """Invoke ScubaGear and capture its output directory.
 
         Reads from ``config.tools["scubagear"]``: ``output_dir`` (required),
@@ -96,6 +99,7 @@ class ScubaGearAdapter:
             CollectionError: On PowerShell failure, timeout, or missing output.
         """
         from gxassessms.core.config.datetime_utils import utc_now
+        from gxassessms.core.hashing import sha256_file
 
         tc = config.tools.get(self.tool_name.lower())
         if tc is None or not tc.output_dir:
@@ -156,37 +160,44 @@ class ScubaGearAdapter:
                 adapter_name=self.tool_name,
             )
 
-        file_manifest: dict[str, FileEncoding] = {}
-        for f in run_dir.iterdir():
-            if f.suffix in (".json", ".html"):
-                file_manifest[str(f)] = "utf-8"
+        # Spec: collect only the single ScubaResults*.json file
+        json_files = [f for f in run_dir.iterdir() if f.suffix == ".json"]
+        results_file = self._find_scuba_results_file([str(f) for f in json_files])
 
-        if not file_manifest:
+        if results_file is None:
             raise CollectionError(
                 f"ScubaGear created output directory {run_dir.name} but "
-                f"no JSON/HTML files were found",
+                f"no ScubaResults JSON file was found",
                 adapter_name=self.tool_name,
             )
 
+        results_path = Path(results_file)
+        sha = sha256_file(results_path)
+        artifacts: list[CollectedArtifact] = [
+            CollectedArtifact(
+                source_path=str(results_path),
+                target_relpath=f"{self.storage_slug}/{results_path.name}",
+                encoding="utf-8",
+                sha256=sha,
+            )
+        ]
+
         logger.info(
-            "ScubaGear collection complete. Output dir: %s, %d files in manifest",
+            "ScubaGear collection complete. Output dir: %s, %d artifacts",
             run_dir,
-            len(file_manifest),
+            len(artifacts),
         )
 
-        return RawToolOutput(
+        return CollectionOutput(
             tool=ToolSource.SCUBAGEAR,
+            tool_slug=self.storage_slug,
             schema_version=_SCHEMA_VERSION,
             timestamp=utc_now(),
-            file_manifest=file_manifest,
-            execution_metadata={
-                "output_dir": str(run_dir),
-                "modules": modules,
-                "extra_args": extra_args,
-            },
+            artifacts=artifacts,
+            execution_metadata={"modules": modules},
         )
 
-    def validate_raw(self, raw: RawToolOutput) -> None:
+    def validate_raw(self, raw: ResolvedManifest) -> None:
         """Validate ScubaGear raw output structure.
 
         Checks (in order): (1) manifest non-empty, (2) ScubaResults*.json present,
@@ -199,7 +210,7 @@ class ScubaGearAdapter:
         results_file, _ = self._validate_and_load_results(raw)
         logger.debug("ScubaGear raw output validated: %s", results_file)
 
-    def parse(self, raw: RawToolOutput) -> list[ToolObservation]:
+    def parse(self, raw: ResolvedManifest) -> list[ToolObservation]:
         """Parse ScubaGear raw output into ToolObservations (validates first)."""
         results_file, results = self._validate_and_load_results(raw)
         observations = parse_scuba_results(results)
@@ -211,7 +222,7 @@ class ScubaGearAdapter:
         )
         return observations
 
-    def coverage(self, raw: RawToolOutput) -> list[CoverageRecord]:
+    def coverage(self, raw: ResolvedManifest) -> list[CoverageRecord]:
         """Extract per-control coverage records.
 
         FindingStatus.NOT_APPLICABLE -> NOT_ASSESSED, all others -> ASSESSED.
@@ -261,7 +272,7 @@ class ScubaGearAdapter:
         return DEDUP_KEY_RULES
 
     def _validate_and_load_results(
-        self, raw: RawToolOutput
+        self, raw: ResolvedManifest
     ) -> tuple[str, dict[str, list[dict[str, Any]]]]:
         """Validate raw output and return ``(results_file_path, Results dict)``.
 

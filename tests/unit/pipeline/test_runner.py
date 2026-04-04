@@ -23,11 +23,15 @@ from gxassessms.core.domain.enums import (
 )
 from gxassessms.core.domain.models import (
     AdapterResult,
+    ArtifactRecord,
+    CollectedArtifact,
+    CollectionOutput,
+    CollectionResult,
     ConfidenceScore,
     ConsolidatedFinding,
     CoverageRecord,
     Finding,
-    RawToolOutput,
+    ResolvedManifest,
     SourceEvidence,
     ToolObservation,
 )
@@ -65,13 +69,47 @@ def _make_config(**overrides: object) -> EngagementConfig:
     return EngagementConfig(**defaults)
 
 
-def _make_raw_output(tool: ToolSource = ToolSource.SCUBAGEAR) -> RawToolOutput:
-    return RawToolOutput(
+def _make_raw_output(tool: ToolSource = ToolSource.SCUBAGEAR) -> ResolvedManifest:
+    slug = tool.value.lower()
+    return ResolvedManifest(
         tool=tool,
+        tool_slug=slug,
         schema_version="1.0.0",
+        manifest_version="1.0.0",
         timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-        file_manifest={"results.json": "utf-8"},
+        file_manifest={
+            f"{slug}/results.json": ArtifactRecord(encoding="utf-8", sha256="a" * 64),
+        },
         execution_metadata={"exit_code": 0},
+    )
+
+
+def _make_collection_result(
+    *,
+    adapter_name: str = "scubagear",
+    tool: ToolSource = ToolSource.SCUBAGEAR,
+) -> CollectionResult:
+    slug = tool.value.lower()
+    return CollectionResult(
+        adapter_name=adapter_name,
+        status=AdapterRunStatus.SUCCESS,
+        collection_output=CollectionOutput(
+            tool=tool,
+            tool_slug=slug,
+            schema_version="1.0.0",
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            artifacts=[
+                CollectedArtifact(
+                    source_path="/var/data/results.json",
+                    target_relpath=f"{slug}/results.json",
+                    encoding="utf-8",
+                    sha256="a" * 64,
+                ),
+            ],
+            execution_metadata={"exit_code": 0},
+        ),
+        error=None,
+        duration_seconds=1.25,
     )
 
 
@@ -234,7 +272,10 @@ class TestRunStagesResumePaths:
         self, harness: RunnerHarness
     ) -> None:
         _set_engagement_state(harness.engagement_repo, EngagementState.COLLECTED)
-        adapter_results = [_make_adapter_result()]
+        # Rehydration returns loaded manifests (opaque to this test).
+        loaded_manifests = [MagicMock()]
+        # confine_and_resolve produces ResolvedManifest objects.
+        resolved = [_make_raw_output()]
         observations = [_make_observation()]
         coverage_records = [_make_coverage_record()]
         expected_rows = [
@@ -249,7 +290,11 @@ class TestRunStagesResumePaths:
         with (
             patch(
                 "gxassessms.pipeline._runner._rehydrate_upstream_state",
-                return_value=(adapter_results, None, None),
+                return_value=(loaded_manifests, None, None),
+            ),
+            patch(
+                "gxassessms.pipeline.confinement.confine_and_resolve",
+                return_value=resolved,
             ),
             patch("gxassessms.pipeline._runner.parse", return_value=observations) as mock_parse,
             patch(
@@ -270,8 +315,12 @@ class TestRunStagesResumePaths:
                 stop_stage=Stage.PARSE,
             )
 
-        mock_parse.assert_called_once_with(adapter_results, [])
-        mock_collect_coverage.assert_called_once_with(adapter_results, [])
+        # The runner wraps resolved manifests in AdapterResult before passing
+        # to parse/collect_coverage.
+        actual_adapter_results = mock_parse.call_args.args[0]
+        assert len(actual_adapter_results) == 1
+        assert actual_adapter_results[0].raw_output == resolved[0]
+        mock_collect_coverage.assert_called_once()
         assert harness.coverage_repo.method_calls == [
             call.delete_for_engagement("eng-001"),
             call.save("eng-001", expected_rows),
@@ -479,6 +528,7 @@ class TestReportPayloadBridge:
 def _expected_stage_output(
     stage: Stage,
     *,
+    collection_result: CollectionResult,
     adapter_result: AdapterResult,
     observation: ToolObservation,
     finding: Finding,
@@ -486,7 +536,7 @@ def _expected_stage_output(
     qa_results: list[dict[str, object]],
 ) -> list[object]:
     if stage == Stage.COLLECT:
-        return [adapter_result.model_dump()]
+        return [collection_result.model_dump()]
     if stage == Stage.PARSE:
         return [observation.model_dump()]
     if stage == Stage.NORMALIZE:
@@ -511,6 +561,7 @@ class TestGetStageOutput:
         ],
     )
     def test_returns_serializable_output_for_each_stage(self, stage: Stage) -> None:
+        collection_result = _make_collection_result()
         adapter_result = _make_adapter_result()
         observation = _make_observation()
         finding = _make_finding()
@@ -519,6 +570,7 @@ class TestGetStageOutput:
 
         result = _get_stage_output(
             stage,
+            collection_results=[collection_result],
             adapter_results=[adapter_result],
             observations=[observation],
             findings=[finding],
@@ -528,6 +580,7 @@ class TestGetStageOutput:
 
         assert result == _expected_stage_output(
             stage,
+            collection_result=collection_result,
             adapter_result=adapter_result,
             observation=observation,
             finding=finding,
@@ -542,6 +595,7 @@ class TestGetStageOutput:
         with pytest.raises(ValueError, match="Unhandled stage for hashing: UNKNOWN_STAGE"):
             _get_stage_output(
                 invalid_stage,
+                collection_results=[],
                 adapter_results=[],
                 observations=[],
                 findings=[],
@@ -567,7 +621,7 @@ class TestFailureFallbacks:
                 side_effect=[None, RuntimeError("db unavailable")],
             ),
             patch("gxassessms.pipeline._runner.logger.error") as mock_log_error,
-            pytest.raises(PipelineError, match="requires adapter_results"),
+            pytest.raises(PipelineError, match="requires loaded_manifests"),
         ):
             run_stages(
                 orchestrator=harness.orchestrator,
@@ -589,12 +643,16 @@ class TestFailureFallbacks:
         self, harness: RunnerHarness
     ) -> None:
         _set_engagement_state(harness.engagement_repo, EngagementState.COLLECTED)
-        adapter_results = [_make_adapter_result()]
+        loaded_manifests = [MagicMock()]
 
         with (
             patch(
                 "gxassessms.pipeline._runner._rehydrate_upstream_state",
-                return_value=(adapter_results, None, None),
+                return_value=(loaded_manifests, None, None),
+            ),
+            patch(
+                "gxassessms.pipeline.confinement.confine_and_resolve",
+                return_value=[_make_raw_output()],
             ),
             patch("gxassessms.pipeline._runner.parse", side_effect=ValueError("bad parse")),
             patch.object(

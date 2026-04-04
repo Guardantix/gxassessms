@@ -63,3 +63,53 @@ class TestAdapterCapabilities:
         # Placeholders are ToolSource values, capabilities are capability strings
         # They should not overlap
         assert ADAPTER_PLACEHOLDERS.isdisjoint(ADAPTER_CAPABILITIES)
+
+
+class TestManifestConstants:
+    def test_manifest_version_current_is_string(self) -> None:
+        from gxassessms.core.domain.constants import MANIFEST_VERSION_CURRENT
+
+        assert isinstance(MANIFEST_VERSION_CURRENT, str)
+        assert MANIFEST_VERSION_CURRENT == "1.0.0"
+
+    def test_tool_slug_pattern_matches_valid(self) -> None:
+        import re
+
+        from gxassessms.core.domain.constants import TOOL_SLUG_PATTERN
+
+        assert re.fullmatch(TOOL_SLUG_PATTERN, "scubagear")
+        assert re.fullmatch(TOOL_SLUG_PATTERN, "scubagear-v2")
+        assert re.fullmatch(TOOL_SLUG_PATTERN, "a")
+
+    def test_tool_slug_pattern_rejects_invalid(self) -> None:
+        import re
+
+        from gxassessms.core.domain.constants import TOOL_SLUG_PATTERN
+
+        assert not re.fullmatch(TOOL_SLUG_PATTERN, "-scubagear")
+        assert not re.fullmatch(TOOL_SLUG_PATTERN, "ScubaGear")
+        assert not re.fullmatch(TOOL_SLUG_PATTERN, "scuba gear")
+        assert not re.fullmatch(TOOL_SLUG_PATTERN, "")
+
+    def test_encoding_by_extension_has_json(self) -> None:
+        from gxassessms.core.domain.constants import ENCODING_BY_EXTENSION
+
+        assert ENCODING_BY_EXTENSION[".json"] == "utf-8"
+
+    def test_encoding_by_extension_default_is_binary(self) -> None:
+        from gxassessms.core.domain.constants import ENCODING_BY_EXTENSION
+
+        # Unknown extensions aren't in the dict; callers default to "binary"
+        assert ".xyz" not in ENCODING_BY_EXTENSION
+
+    def test_execution_metadata_allowlist_keys(self) -> None:
+        from gxassessms.core.domain.constants import EXECUTION_METADATA_ALLOWLIST
+
+        assert "1.0.0" in EXECUTION_METADATA_ALLOWLIST
+        assert EXECUTION_METADATA_ALLOWLIST["1.0.0"]["scubagear"] == frozenset({"modules"})
+        assert EXECUTION_METADATA_ALLOWLIST["1.0.0"]["maester"] == frozenset()
+
+    def test_recognized_manifest_versions(self) -> None:
+        from gxassessms.core.domain.constants import RECOGNIZED_MANIFEST_VERSIONS
+
+        assert "1.0.0" in RECOGNIZED_MANIFEST_VERSIONS

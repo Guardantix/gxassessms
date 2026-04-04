@@ -32,8 +32,8 @@ from gxassessms.core.domain.models import (
     ConfidenceScore,
     ConsolidatedFinding,
     Finding,
-    RawToolOutput,
     ReportPayload,
+    ResolvedManifest,
     SourceEvidence,
     ToolObservation,
 )
@@ -69,25 +69,35 @@ def _make_config(**overrides: Any) -> EngagementConfig:
     return EngagementConfig(**defaults)
 
 
-def _make_raw_output(tool: ToolSource = ToolSource.SCUBAGEAR) -> RawToolOutput:
-    return RawToolOutput(
+def _make_resolved_manifest(tool: ToolSource = ToolSource.SCUBAGEAR) -> ResolvedManifest:
+    from gxassessms.core.domain.models import ArtifactRecord
+
+    slug = tool.value.lower()
+    return ResolvedManifest(
         tool=tool,
+        tool_slug=slug,
         schema_version="1.0.0",
+        manifest_version="1.0.0",
         timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-        file_manifest={"TestResults.json": "utf-8"},
-        execution_metadata={"exit_code": 0},
+        file_manifest={
+            f"/engagements/artifacts/{slug}/TestResults.json": ArtifactRecord(
+                encoding="utf-8",
+                sha256="a" * 64,
+            ),
+        },
+        execution_metadata={},
     )
 
 
 def _make_adapter_result(
-    name: str = "ScubaGear",
+    name: str = "scubagear",
     status: str = "SUCCESS",
-    raw_output: RawToolOutput | None = None,
+    raw_output: ResolvedManifest | None = None,
 ) -> AdapterResult:
     return AdapterResult(
         adapter_name=name,
         status=status,
-        raw_output=raw_output or _make_raw_output(),
+        raw_output=raw_output or _make_resolved_manifest(),
         error=None,
         duration_seconds=120.5,
     )
@@ -157,14 +167,40 @@ def _make_consolidated(
     )
 
 
+def _make_collection_output(
+    tool: ToolSource = ToolSource.SCUBAGEAR,
+) -> Any:
+    from gxassessms.core.domain.models import CollectedArtifact, CollectionOutput
+
+    slug = tool.value.lower()
+    return CollectionOutput(
+        tool=tool,
+        tool_slug=slug,
+        schema_version="1.0.0",
+        timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+        artifacts=[
+            CollectedArtifact(
+                source_path="/data/TestResults.json",
+                target_relpath=f"{slug}/TestResults.json",
+                encoding="utf-8",
+                sha256="a" * 64,
+            ),
+        ],
+        execution_metadata={},
+    )
+
+
 def _make_mock_adapter(
     name: str = "ScubaGear",
     tool_source: ToolSource = ToolSource.SCUBAGEAR,
+    storage_slug: str | None = None,
 ) -> MagicMock:
     adapter = MagicMock()
     adapter.tool_name = name
+    adapter.storage_slug = storage_slug or tool_source.value.lower()
+    adapter.tool_source = tool_source
     adapter.capabilities = frozenset({"collect", "parse"})
-    adapter.collect.return_value = _make_raw_output(tool_source)
+    adapter.collect.return_value = _make_collection_output(tool_source)
     adapter.validate_raw.return_value = None
     adapter.parse.return_value = [_make_observation()]
     adapter.coverage.return_value = []
@@ -217,8 +253,8 @@ class TestCollectStage:
         results = collect(config, [adapter])
         assert len(results) == 1
         assert results[0].status == AdapterRunStatus.SUCCESS.value
-        assert results[0].adapter_name == "ScubaGear"
-        assert results[0].raw_output is not None
+        assert results[0].adapter_name == "scubagear"
+        assert results[0].collection_output is not None
 
     def test_parallel_execution_multiple_adapters(self) -> None:
         config = _make_config(max_parallel=3)
@@ -229,7 +265,7 @@ class TestCollectStage:
         results = collect(config, adapters)
         assert len(results) == 2
         names = {r.adapter_name for r in results}
-        assert names == {"ScubaGear", "Maester"}
+        assert names == {"scubagear", "maester"}
 
     def test_adapter_failure_captured_not_raised(self) -> None:
         config = _make_config()
@@ -238,7 +274,7 @@ class TestCollectStage:
         results = collect(config, [adapter])
         assert len(results) == 1
         assert results[0].status == AdapterRunStatus.FAILED.value
-        assert results[0].raw_output is None
+        assert results[0].collection_output is None
         assert "PowerShell crashed" in results[0].error
 
     def test_adapter_timeout_captured(self) -> None:
@@ -256,14 +292,14 @@ class TestCollectStage:
 
     def test_mixed_success_and_failure(self) -> None:
         config = _make_config()
-        good_adapter = _make_mock_adapter("ScubaGear")
-        bad_adapter = _make_mock_adapter("Maester")
+        good_adapter = _make_mock_adapter("ScubaGear", ToolSource.SCUBAGEAR)
+        bad_adapter = _make_mock_adapter("Maester", ToolSource.MAESTER)
         bad_adapter.collect.side_effect = RuntimeError("Crash")
         results = collect(config, [good_adapter, bad_adapter])
         assert len(results) == 2
         statuses = {r.adapter_name: r.status for r in results}
-        assert statuses["ScubaGear"] == AdapterRunStatus.SUCCESS.value
-        assert statuses["Maester"] == AdapterRunStatus.FAILED.value
+        assert statuses["scubagear"] == AdapterRunStatus.SUCCESS.value
+        assert statuses["maester"] == AdapterRunStatus.FAILED.value
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +318,7 @@ class TestParseStage:
     def test_skips_failed_adapters(self) -> None:
         adapter = _make_mock_adapter()
         failed_result = AdapterResult(
-            adapter_name="ScubaGear",
+            adapter_name="scubagear",
             status=AdapterRunStatus.FAILED.value,
             raw_output=None,
             error="PowerShell crashed",
@@ -295,7 +331,7 @@ class TestParseStage:
     def test_skips_timed_out_adapters(self) -> None:
         adapter = _make_mock_adapter()
         timeout_result = AdapterResult(
-            adapter_name="ScubaGear",
+            adapter_name="scubagear",
             status=AdapterRunStatus.TIMEOUT.value,
             raw_output=None,
             error="Timeout",
@@ -311,15 +347,17 @@ class TestParseStage:
         adapter.validate_raw.assert_called_once_with(result.raw_output)
 
     def test_multiple_adapters_concatenated(self) -> None:
-        adapter1 = _make_mock_adapter("ScubaGear")
+        adapter1 = _make_mock_adapter("ScubaGear", ToolSource.SCUBAGEAR)
         adapter1.parse.return_value = [
             _make_observation("MS.AAD.3.1v1"),
             _make_observation("MS.AAD.3.2v1"),
         ]
-        adapter2 = _make_mock_adapter("Maester")
+        adapter2 = _make_mock_adapter("Maester", ToolSource.MAESTER)
         adapter2.parse.return_value = [_make_observation("MT.1001")]
-        result1 = _make_adapter_result("ScubaGear")
-        result2 = _make_adapter_result("Maester")
+        result1 = _make_adapter_result("scubagear")
+        result2 = _make_adapter_result(
+            "maester", raw_output=_make_resolved_manifest(ToolSource.MAESTER)
+        )
         observations = parse([result1, result2], [adapter1, adapter2])
         assert len(observations) == 3
 
