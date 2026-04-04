@@ -623,6 +623,21 @@ class TestLifecycleAudit:
         assert "audit_path" in manifest
         assert Path(manifest["audit_path"]).exists()
 
+    @pytest.mark.skipif(_sys.platform == "win32", reason="POSIX permissions only")
+    def test_write_lifecycle_audit_manifest_has_restrictive_permissions(
+        self, tmp_path: Path
+    ) -> None:
+        """Audit manifest files should be written with 0o600 permissions."""
+        engagements_root = tmp_path / "engagements"
+        engagements_root.mkdir()
+        audit_dir = tmp_path / "audit"
+        mgr = ArtifactManager(engagements_root=engagements_root, audit_dir=audit_dir)
+        _, manifest_path = mgr._write_lifecycle_audit(
+            "archive", "eng-perm-test", "test-operator", {}
+        )
+        mode = manifest_path.stat().st_mode & 0o777
+        assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+
     def test_write_lifecycle_audit_rejects_crafted_engagement_id(self, tmp_path: Path) -> None:
         """Crafted engagement_id with path separators should be blocked."""
         engagements_root = tmp_path / "engagements"

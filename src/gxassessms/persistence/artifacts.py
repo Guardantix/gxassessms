@@ -13,6 +13,7 @@ import json
 import logging
 import re
 import shutil
+import sys
 import tarfile
 from pathlib import Path
 from typing import Any, Literal
@@ -123,6 +124,8 @@ class ArtifactManager:
         _validate_path_within_root(manifest_path, self._audit_dir)
 
         manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        if sys.platform != "win32":
+            manifest_path.chmod(0o600)
         logger.info("Wrote %s audit manifest to %s", action, manifest_path)
         return manifest, manifest_path
 
