@@ -463,15 +463,6 @@ class ArtifactManager:
             if item.name.startswith(".staging-") and item.is_dir():
                 shutil.rmtree(item, ignore_errors=True)
 
-        # Best-effort source cleanup
-        for cr in successful:
-            for artifact in cr.collection_output.artifacts:
-                source = Path(artifact.source_path)
-                try:
-                    source.unlink(missing_ok=True)
-                except OSError:
-                    logger.debug("Failed to clean source file %s (non-fatal)", source)
-
         logger.info(
             "Persisted %d raw output manifests for engagement %s",
             len(persisted),

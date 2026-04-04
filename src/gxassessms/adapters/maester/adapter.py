@@ -4,8 +4,8 @@ Handles tool prerequisites, authentication (delegated to Maester/Connect-MgGraph
 collection via PowerShell, raw output validation, parsing, and coverage reporting.
 Maester is a Pester-based testing framework for M365/Azure security configuration.
 
-Maester output files are named TestResults-{timestamp}.json (not a fixed name).
-The adapter locates the most recent TestResults*.json in the output directory.
+Each collection run writes to an isolated ``output_dir/run-<uuid>/`` subdirectory
+so that prior run artifacts cannot contaminate the current collection.
 """
 
 from __future__ import annotations
@@ -102,13 +102,17 @@ class MaesterAdapter:
     ) -> CollectionOutput:
         """Execute Maester and return raw output.
 
-        Maester's Invoke-Maester -OutputFolder generates three files:
-        - TestResults-{timestamp}.json (primary data)
-        - TestResults-{timestamp}.html (visual report)
-        - TestResults-{timestamp}.md (markdown summary)
+        Each run is isolated in ``output_dir/run-<uuid>/`` so that prior
+        run artifacts cannot contaminate the current collection. Maester's
+        Invoke-Maester -OutputFolder generates three files per run:
+        - TestResults-{timestamp}.json (primary data -- collected)
+        - TestResults-{timestamp}.html (visual report -- excluded)
+        - TestResults-{timestamp}.md (markdown summary -- excluded)
 
-        There is NO -OutputFormat parameter. -OutputFolder generates all three.
+        Exactly one TestResults*.json must be present in the run directory.
         """
+        import uuid as uuid_mod
+
         from gxassessms.core.config.datetime_utils import utc_now
         from gxassessms.core.hashing import sha256_file
 
@@ -124,8 +128,11 @@ class MaesterAdapter:
         timeout = tc.timeout if tc.timeout is not None else 600
         extra_args = tc.extra_args
 
-        safe_output_dir = str(output_dir).replace("'", "''")
-        script = f"Import-Module Maester; Invoke-Maester -OutputFolder '{safe_output_dir}'"
+        run_dir = output_dir / f"run-{uuid_mod.uuid4()}"
+        run_dir.mkdir()
+
+        safe_run_dir = str(run_dir).replace("'", "''")
+        script = f"Import-Module Maester; Invoke-Maester -OutputFolder '{safe_run_dir}'"
 
         run_powershell(
             script=script,
@@ -135,33 +142,39 @@ class MaesterAdapter:
             engagement_id=getattr(config, "engagement_id", ""),
         )
 
-        # Spec: collect only TestResults*.json -- exclude .html and .md
-        json_results = sorted(output_dir.glob("TestResults*.json"))
+        # Spec: collect exactly one TestResults*.json -- exclude .html and .md
+        json_results = sorted(run_dir.glob("TestResults*.json"))
 
         if not json_results:
             raise CollectionError(
-                "Maester produced no TestResults*.json files",
+                f"Maester produced no TestResults*.json files in {run_dir.name}",
                 adapter_name=self.tool_name,
             )
 
-        artifacts: list[CollectedArtifact] = []
-        for path in json_results:
-            sha = sha256_file(path)
-            artifacts.append(
-                CollectedArtifact(
-                    source_path=str(path),
-                    target_relpath=f"{self.storage_slug}/{path.name}",
-                    encoding="utf-8",
-                    sha256=sha,
-                )
+        if len(json_results) > 1:
+            names = [f.name for f in json_results]
+            raise CollectionError(
+                f"Maester produced {len(json_results)} TestResults*.json files "
+                f"in {run_dir.name} (expected exactly 1): {names}",
+                adapter_name=self.tool_name,
             )
+
+        results_path = json_results[0]
+        sha = sha256_file(results_path)
 
         return CollectionOutput(
             tool=ToolSource.MAESTER,
             tool_slug=self.storage_slug,
             schema_version="1.0.0",
             timestamp=utc_now(),
-            artifacts=artifacts,
+            artifacts=[
+                CollectedArtifact(
+                    source_path=str(results_path),
+                    target_relpath=f"{self.storage_slug}/{results_path.name}",
+                    encoding="utf-8",
+                    sha256=sha,
+                )
+            ],
             execution_metadata={},
         )
 

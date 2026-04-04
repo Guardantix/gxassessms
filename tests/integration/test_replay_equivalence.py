@@ -61,8 +61,7 @@ class TestLiveReplayEquivalence:
         """Live path and replay path produce identical ResolvedManifest contents."""
         scuba_results_orig = fixture_dir / "ScubaResults.json"
 
-        # Copy fixture to tmp_path so save_raw_outputs source cleanup does not
-        # delete the fixture file from the repository.
+        # Copy fixture to tmp_path for test isolation.
         scuba_results = tmp_path / "ScubaResults.json"
         shutil.copy2(str(scuba_results_orig), str(scuba_results))
 

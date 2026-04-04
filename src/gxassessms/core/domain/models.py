@@ -281,8 +281,6 @@ class RawToolOutput(BaseModel):
     @field_validator("tool_slug")
     @classmethod
     def tool_slug_must_be_valid(cls, v: str) -> str:
-        import re
-
         from gxassessms.core.domain.constants import TOOL_SLUG_PATTERN
 
         if not re.fullmatch(TOOL_SLUG_PATTERN, v):
