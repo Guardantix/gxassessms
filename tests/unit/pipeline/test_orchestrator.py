@@ -852,6 +852,7 @@ class TestRunStagesStopStage:
             patch("gxassessms.pipeline._runner._get_stage_output", return_value=[]),
             patch("gxassessms.pipeline._runner._build_report_payload", return_value=MagicMock()),
             patch("gxassessms.pipeline._runner._require_in_memory", return_value=None),
+            patch("gxassessms.pipeline.confinement.confine_and_resolve", return_value=[]),
         ):
             run_stages(
                 orchestrator=orchestrator,

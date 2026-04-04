@@ -296,6 +296,13 @@ class ArtifactManager:
             if r.status == AdapterRunStatus.SUCCESS and r.collection_output is not None
         ]
 
+        if not successful:
+            logger.info(
+                "No successful collection results for engagement %s; preserving existing data",
+                engagement_id,
+            )
+            return []
+
         # Phase 1: Validate all inputs
         seen_slugs: set[str] = set()
         seen_relpaths: set[str] = set()
