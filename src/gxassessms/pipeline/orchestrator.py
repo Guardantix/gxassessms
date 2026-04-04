@@ -15,7 +15,7 @@ import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from gxassessms.core.config.config import EngagementConfig
 from gxassessms.core.config.datetime_utils import parse_utc, utc_now
@@ -43,6 +43,15 @@ from gxassessms.pipeline.state import (
     PipelineEvent,
     _extract_payload,
 )
+
+if TYPE_CHECKING:
+    from gxassessms.core.contracts.types import (
+        ConsolidationRule,
+        NormalizationPolicy,
+        QAStrategy,
+        ReportRenderer,
+        ToolAdapter,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -442,11 +451,11 @@ class Orchestrator:
         self,
         engagement_id: str,
         config: EngagementConfig,
-        adapters: list[Any],
-        normalization_policy: Any,
-        consolidation_rule: Any,
-        qa_strategy: Any,
-        renderers: list[Any],
+        adapters: list[ToolAdapter],
+        normalization_policy: NormalizationPolicy,
+        consolidation_rule: ConsolidationRule,
+        qa_strategy: QAStrategy,
+        renderers: list[ReportRenderer],
         output_dir: Path | None = None,
     ) -> None:
         """Run the full pipeline from COLLECT through RENDER.
@@ -479,11 +488,11 @@ class Orchestrator:
         engagement_id: str,
         config: EngagementConfig,
         start_stage: Stage,
-        adapters: list[Any],
-        normalization_policy: Any,
-        consolidation_rule: Any,
-        qa_strategy: Any,
-        renderers: list[Any],
+        adapters: list[ToolAdapter],
+        normalization_policy: NormalizationPolicy,
+        consolidation_rule: ConsolidationRule,
+        qa_strategy: QAStrategy,
+        renderers: list[ReportRenderer],
         output_dir: Path | None = None,
         stop_stage: Stage | None = None,
     ) -> None:

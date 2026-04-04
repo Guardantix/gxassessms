@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 import pytest
 
+from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import ToolSource
 
 # ---------------------------------------------------------------------------
@@ -25,7 +26,7 @@ class _ValidAdapter:
     tool_name: str = "TestTool"
     storage_slug: str = "testtool"
     tool_source: ToolSource = ToolSource.SCUBAGEAR
-    capabilities: frozenset[str] = frozenset({"collect", "parse"})
+    capabilities: frozenset[AdapterCapability] = frozenset({"collect", "parse"})
 
     def check_prerequisites(self) -> Any:
         return None
@@ -52,7 +53,7 @@ class _MissingParseAdapter:
     tool_name: str = "Broken"
     storage_slug: str = "broken"
     tool_source: ToolSource = ToolSource.SCUBAGEAR
-    capabilities: frozenset[str] = frozenset()
+    capabilities: frozenset[AdapterCapability] = frozenset()
 
     def check_prerequisites(self) -> Any:
         return None
@@ -84,7 +85,7 @@ class _TypeErrorOnInit:
     tool_name: str = "Broken"
     storage_slug: str = "broken"
     tool_source: ToolSource = ToolSource.SCUBAGEAR
-    capabilities: frozenset[str] = frozenset()
+    capabilities: frozenset[AdapterCapability] = frozenset()
     check_prerequisites = authenticate = collect = validate_raw = parse = coverage = None
 
     def __init__(self, required_arg: str) -> None:

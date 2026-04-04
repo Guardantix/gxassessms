@@ -18,7 +18,19 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from concurrent.futures import Future
+
+    from gxassessms.core.contracts.types import (
+        ConsolidationRule,
+        NormalizationPolicy,
+        QAResult,
+        QAStrategy,
+        ReportRenderer,
+        ToolAdapter,
+    )
 
 from gxassessms.core.config.config import EngagementConfig
 from gxassessms.core.contracts.errors import GxAssessError
@@ -63,7 +75,7 @@ STAGE_ORDER: list[Stage] = list(Stage)
 
 def collect(
     config: EngagementConfig,
-    adapters: list[Any],  # list[ToolAdapter] -- Any to avoid circular import
+    adapters: list[ToolAdapter],
 ) -> list[CollectionResult]:
     """Run adapters in parallel, return results including failures.
 
@@ -101,7 +113,7 @@ def collect(
     return results
 
 
-def _run_adapter(adapter: Any, config: EngagementConfig) -> CollectionResult:
+def _run_adapter(adapter: ToolAdapter, config: EngagementConfig) -> CollectionResult:
     """Execute a single adapter's authenticate + collect sequence with timing."""
     start = time.monotonic()
     auth = adapter.authenticate(config)
@@ -116,7 +128,7 @@ def _run_adapter(adapter: Any, config: EngagementConfig) -> CollectionResult:
     )
 
 
-def _resolve_future(future: Any, adapter: Any) -> CollectionResult:
+def _resolve_future(future: Future[CollectionResult], adapter: ToolAdapter) -> CollectionResult:
     """Resolve a completed future into a CollectionResult."""
     try:
         return future.result()
@@ -148,7 +160,7 @@ def _resolve_future(future: Any, adapter: Any) -> CollectionResult:
 
 def parse(
     results: list[AdapterResult],
-    adapters: list[Any],  # list[ToolAdapter]
+    adapters: list[ToolAdapter],
 ) -> list[ToolObservation]:
     """Parse raw adapter output into ToolObservations.
 
@@ -182,6 +194,7 @@ def parse(
             )
             continue
 
+        assert result.raw_output is not None  # noqa: S101 -- SUCCESS guarantees raw_output
         adapter.validate_raw(result.raw_output)
         parsed = adapter.parse(result.raw_output)
         observations.extend(parsed)
@@ -196,7 +209,7 @@ def parse(
 
 def collect_coverage(
     results: list[AdapterResult],
-    adapters: list[Any],  # list[ToolAdapter]
+    adapters: list[ToolAdapter],
 ) -> list[CoverageRecord]:
     """Extract coverage records from adapters that declare coverage_export.
 
@@ -224,6 +237,7 @@ def collect_coverage(
         if "coverage_export" not in adapter.capabilities:
             continue
 
+        assert result.raw_output is not None  # noqa: S101 -- SUCCESS guarantees raw_output
         coverage = adapter.coverage(result.raw_output)
         records.extend(coverage)
         logger.info(
@@ -237,7 +251,7 @@ def collect_coverage(
 
 def normalize(
     observations: list[ToolObservation],
-    policy: Any,  # NormalizationPolicy
+    policy: NormalizationPolicy,
     adapter_severity_map: dict[tuple[str, str], str] | None = None,
     adapter_category_map: dict[str, str] | None = None,
     adapter_dedup_keys: dict[str, str] | None = None,
@@ -277,7 +291,7 @@ def normalize(
 
 def consolidate(
     findings: list[Finding],
-    rule: Any,  # ConsolidationRule
+    rule: ConsolidationRule,
 ) -> list[ConsolidatedFinding]:
     """Consolidate (dedup + merge) Findings using the consolidation rule.
 
@@ -301,8 +315,8 @@ def consolidate(
 
 def qa_review(
     consolidated: list[ConsolidatedFinding],
-    strategy: Any,  # QAStrategy
-) -> list[Any]:  # list[QAResult]
+    strategy: QAStrategy,
+) -> list[QAResult]:
     """Run QA review on consolidated findings.
 
     Pure function -- delegates entirely to the QAStrategy.
@@ -321,7 +335,7 @@ def qa_review(
 
 def render(
     payload: ReportPayload,
-    renderers: list[Any],  # list[ReportRenderer]
+    renderers: list[ReportRenderer],
     output_dir: Path,
 ) -> list[Path]:
     """Render report payload using all registered renderers.

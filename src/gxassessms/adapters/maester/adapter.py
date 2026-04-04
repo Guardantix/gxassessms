@@ -30,6 +30,7 @@ from gxassessms.core.contracts.errors import (
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
+from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import CoverageStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
@@ -54,7 +55,7 @@ class MaesterAdapter:
     tool_name: str = "Maester"
     storage_slug: str = "maester"
     tool_source: ToolSource = ToolSource.MAESTER
-    capabilities: frozenset[str] = frozenset(
+    capabilities: frozenset[AdapterCapability] = frozenset(
         {"collect", "parse", "prerequisites", "coverage_export", "benchmark_mapping"}
     )
 

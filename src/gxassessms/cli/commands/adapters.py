@@ -18,6 +18,7 @@ import click
 
 from gxassessms.cli._helpers import discover_adapter_metadata, discover_cli_adapters
 from gxassessms.cli.output import console, make_adapter_list_table, print_preflight_result
+from gxassessms.core.domain.constants import AdapterCapability
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +64,7 @@ def check_cmd() -> None:
 
     for adapter in adapters:
         tool_name = getattr(adapter, "tool_name", "unknown")
-        caps: frozenset[str] = getattr(adapter, "capabilities", frozenset())
+        caps: frozenset[AdapterCapability] = getattr(adapter, "capabilities", frozenset())
 
         if "prerequisites" not in caps:
             results.append(

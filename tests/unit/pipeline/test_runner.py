@@ -42,6 +42,7 @@ from gxassessms.pipeline._runner import (
     _recover_stale_state,
     _rehydrate_upstream_state,
     _require_in_memory,
+    _verify_stage_completed,
     run_stages,
 )
 from gxassessms.pipeline.orchestrator import Orchestrator
@@ -684,3 +685,267 @@ class TestFailureFallbacks:
         assert isinstance(first_call.args[3], ValueError)
         assert str(first_call.args[3]) == "bad parse"
         assert second_call == call("Failed to transition %s to FAILED", "eng-001", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Issue #11 -- coverage gap tests
+# ---------------------------------------------------------------------------
+
+
+class TestStopStageGuard:
+    def test_stop_stage_qa_review_raises(self, harness: RunnerHarness) -> None:
+        with pytest.raises(ValueError, match=r"stop_stage=Stage\.QA_REVIEW is not supported"):
+            run_stages(
+                orchestrator=harness.orchestrator,
+                engagement_id="eng-001",
+                config=_make_config(),
+                adapters=[],
+                normalization_policy=MagicMock(),
+                consolidation_rule=MagicMock(),
+                qa_strategy=MagicMock(),
+                renderers=[],
+                start_stage=Stage.COLLECT,
+                stop_stage=Stage.QA_REVIEW,
+            )
+        harness.engagement_repo.update_state.assert_not_called()
+
+
+class TestRehydrateEntries:
+    def test_collect_returns_nones(self, harness: RunnerHarness) -> None:
+        result = _rehydrate_upstream_state(Stage.COLLECT, "eng-001", [], harness.orchestrator)
+        assert result == (None, None, None)
+
+    def test_normalize_raises(self, harness: RunnerHarness) -> None:
+        with pytest.raises(PipelineError, match="Cannot resume from NORMALIZE") as exc_info:
+            _rehydrate_upstream_state(Stage.NORMALIZE, "eng-001", [], harness.orchestrator)
+        assert "CONSOLIDATE" in str(exc_info.value)
+        assert "PARSE" in str(exc_info.value)
+
+    def test_parse_loads_manifests(self, harness: RunnerHarness) -> None:
+        sentinel = MagicMock()
+        harness.artifact_manager.get_engagement_dir.return_value = Path("/fake/eng")
+        with patch(
+            "gxassessms.pipeline.replay.load_raw_outputs", return_value=[sentinel]
+        ) as mock_load:
+            result = _rehydrate_upstream_state(Stage.PARSE, "eng-001", [], harness.orchestrator)
+        assert result == ([sentinel], None, None)
+        mock_load.assert_called_once_with(Path("/fake/eng"))
+
+    def test_consolidate_loads_findings(self, harness: RunnerHarness) -> None:
+        findings = [_make_finding()]
+        harness.event_repo.get_events_by_type.return_value = [{"payload": '{"to": "NORMALIZED"}'}]
+        harness.finding_repo.get_parsed_as_findings.return_value = findings
+        result = _rehydrate_upstream_state(Stage.CONSOLIDATE, "eng-001", [], harness.orchestrator)
+        assert result == (None, findings, None)
+        harness.finding_repo.get_parsed_as_findings.assert_called_once_with("eng-001")
+
+    def test_render_verifies_qa(self, harness: RunnerHarness) -> None:
+        consolidated = [_make_consolidated()]
+        harness.finding_repo.get_consolidated_as_findings.return_value = consolidated
+        with patch.object(harness.orchestrator, "_verify_qa_for_render") as mock_verify:
+            result = _rehydrate_upstream_state(Stage.RENDER, "eng-001", [], harness.orchestrator)
+        assert result == (None, None, consolidated)
+        mock_verify.assert_called_once_with("eng-001")
+
+
+class TestVerifyStageCompleted:
+    def test_succeeds_when_state_in_events(self, harness: RunnerHarness) -> None:
+        harness.event_repo.get_events_by_type.return_value = [{"payload": '{"to": "NORMALIZED"}'}]
+        _verify_stage_completed(harness.orchestrator, "eng-001", EngagementState.NORMALIZED)
+
+    def test_raises_when_state_missing(self, harness: RunnerHarness) -> None:
+        harness.event_repo.get_events_by_type.return_value = [{"payload": '{"to": "COLLECTED"}'}]
+        with pytest.raises(PipelineError, match="upstream stage never completed"):
+            _verify_stage_completed(harness.orchestrator, "eng-001", EngagementState.NORMALIZED)
+
+
+class TestRecoverStaleStateSuccess:
+    def test_recovers_to_entry_state(self, harness: RunnerHarness) -> None:
+        result = _recover_stale_state(harness.orchestrator, "eng-001", EngagementState.COLLECTING)
+        assert result == Stage.COLLECT
+        harness.engagement_repo.force_update_state.assert_called_once_with(
+            "eng-001", EngagementState.CREATED
+        )
+        event = harness.event_repo.append.call_args.args[0]
+        assert event.event_type == "stale_recovery"
+        assert event.payload["from"] == "COLLECTING"
+        assert event.payload["to"] == "CREATED"
+        assert "Stale" in event.payload["reason"]
+
+
+class TestStageIntegration:
+    def test_collect_stop_stage_halts_after_collect(self, harness: RunnerHarness) -> None:
+        _set_engagement_state(harness.engagement_repo, EngagementState.CREATED)
+        collection_results = [_make_collection_result()]
+        raw_outputs = [_make_raw_output()]
+        harness.artifact_manager.save_raw_outputs.return_value = raw_outputs
+
+        with (
+            patch(
+                "gxassessms.pipeline._runner.collect",
+                return_value=collection_results,
+            ) as mock_collect,
+            patch(
+                "gxassessms.pipeline._runner._rehydrate_upstream_state",
+                return_value=(None, None, None),
+            ),
+            patch("gxassessms.pipeline._runner.parse") as mock_parse,
+        ):
+            run_stages(
+                orchestrator=harness.orchestrator,
+                engagement_id="eng-001",
+                config=_make_config(),
+                adapters=[],
+                normalization_policy=MagicMock(),
+                consolidation_rule=MagicMock(),
+                qa_strategy=MagicMock(),
+                renderers=[],
+                start_stage=Stage.COLLECT,
+                stop_stage=Stage.COLLECT,
+            )
+
+        mock_collect.assert_called_once()
+        harness.artifact_manager.save_raw_outputs.assert_called_once()
+        mock_parse.assert_not_called()
+        state_calls = [c.args[1] for c in harness.engagement_repo.update_state.call_args_list]
+        assert EngagementState.COLLECTING in state_calls
+        assert EngagementState.COLLECTED in state_calls
+
+    def test_parse_resume_with_empty_coverage_skips_save(self, harness: RunnerHarness) -> None:
+        _set_engagement_state(harness.engagement_repo, EngagementState.COLLECTED)
+        loaded_manifests = [MagicMock()]
+        resolved = [_make_raw_output()]
+
+        with (
+            patch(
+                "gxassessms.pipeline._runner._rehydrate_upstream_state",
+                return_value=(loaded_manifests, None, None),
+            ),
+            patch(
+                "gxassessms.pipeline.confinement.confine_and_resolve",
+                return_value=resolved,
+            ),
+            patch(
+                "gxassessms.pipeline._runner.parse",
+                return_value=[_make_observation()],
+            ),
+            patch(
+                "gxassessms.pipeline._runner.collect_coverage",
+                return_value=[],
+            ),
+        ):
+            run_stages(
+                orchestrator=harness.orchestrator,
+                engagement_id="eng-001",
+                config=_make_config(),
+                adapters=[],
+                normalization_policy=MagicMock(),
+                consolidation_rule=MagicMock(),
+                qa_strategy=MagicMock(),
+                renderers=[],
+                start_stage=Stage.PARSE,
+                stop_stage=Stage.PARSE,
+            )
+
+        harness.coverage_repo.delete_for_engagement.assert_called_once_with("eng-001")
+        harness.coverage_repo.save.assert_not_called()
+
+    def test_noop_qa_auto_advances_through_to_render(
+        self, harness: RunnerHarness, tmp_path: Path
+    ) -> None:
+        _set_engagement_state(harness.engagement_repo, EngagementState.CONSOLIDATED)
+        consolidated = [_make_consolidated()]
+        qa_strategy = MagicMock(is_noop=True, review_findings=MagicMock(return_value=[]))
+
+        with (
+            patch(
+                "gxassessms.pipeline._runner._rehydrate_upstream_state",
+                return_value=(None, None, consolidated),
+            ),
+            patch(
+                "gxassessms.pipeline._runner._build_report_payload",
+                return_value=MagicMock(),
+            ),
+            patch("gxassessms.pipeline._runner.render") as mock_render,
+        ):
+            run_stages(
+                orchestrator=harness.orchestrator,
+                engagement_id="eng-001",
+                config=_make_config(),
+                adapters=[],
+                normalization_policy=MagicMock(),
+                consolidation_rule=MagicMock(),
+                qa_strategy=qa_strategy,
+                renderers=[],
+                start_stage=Stage.QA_REVIEW,
+                output_dir=tmp_path,
+            )
+
+        qa_strategy.review_findings.assert_called_once_with(consolidated)
+        state_calls = [c.args[1] for c in harness.engagement_repo.update_state.call_args_list]
+        assert EngagementState.QA_REVIEW in state_calls
+        assert EngagementState.QA_APPROVED in state_calls
+        assert EngagementState.RENDERING in state_calls
+        assert EngagementState.COMPLETE in state_calls
+        mock_render.assert_called_once()
+
+    def test_parse_through_consolidate_exercises_normalize_and_consolidate(
+        self, harness: RunnerHarness
+    ) -> None:
+        _set_engagement_state(harness.engagement_repo, EngagementState.COLLECTED)
+        loaded_manifests = [MagicMock()]
+        resolved = [_make_raw_output()]
+        observations = [_make_observation()]
+        findings = [_make_finding()]
+        consolidated = [_make_consolidated()]
+
+        with (
+            patch(
+                "gxassessms.pipeline._runner._rehydrate_upstream_state",
+                return_value=(loaded_manifests, None, None),
+            ),
+            patch(
+                "gxassessms.pipeline.confinement.confine_and_resolve",
+                return_value=resolved,
+            ),
+            patch("gxassessms.pipeline._runner.parse", return_value=observations),
+            patch("gxassessms.pipeline._runner.collect_coverage", return_value=[]),
+            patch(
+                "gxassessms.pipeline._runner.normalize",
+                return_value=findings,
+            ) as mock_normalize,
+            patch(
+                "gxassessms.pipeline._runner.consolidate",
+                return_value=consolidated,
+            ) as mock_consolidate,
+        ):
+            run_stages(
+                orchestrator=harness.orchestrator,
+                engagement_id="eng-001",
+                config=_make_config(),
+                adapters=[],
+                normalization_policy=MagicMock(),
+                consolidation_rule=MagicMock(),
+                qa_strategy=MagicMock(),
+                renderers=[],
+                start_stage=Stage.PARSE,
+                stop_stage=Stage.CONSOLIDATE,
+            )
+
+        mock_normalize.assert_called_once()
+        norm_args = mock_normalize.call_args
+        assert norm_args.args[0] == observations
+        assert "adapter_severity_map" in norm_args.kwargs
+
+        mock_consolidate.assert_called_once()
+        assert mock_consolidate.call_args.args[0] == findings
+
+        harness.finding_repo.save_parsed_findings.assert_called_once_with("eng-001", findings)
+        harness.finding_repo.save_consolidated_findings.assert_called_once_with(
+            "eng-001", consolidated
+        )
+
+        state_calls = [c.args[1] for c in harness.engagement_repo.update_state.call_args_list]
+        assert EngagementState.PARSING in state_calls
+        assert EngagementState.NORMALIZING in state_calls
+        assert EngagementState.CONSOLIDATED in state_calls

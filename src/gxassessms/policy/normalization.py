@@ -10,8 +10,9 @@ injected as plain dicts.
 from __future__ import annotations
 
 import logging
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
+from gxassessms.core.contracts.types import NormalizationPolicy as NormalizationPolicy
 from gxassessms.core.domain.enums import (
     Category,
     FindingStatus,
@@ -20,23 +21,6 @@ from gxassessms.core.domain.enums import (
 from gxassessms.core.domain.models import Finding, ToolObservation
 
 logger = logging.getLogger(__name__)
-
-
-@runtime_checkable
-class NormalizationPolicy(Protocol):
-    """Protocol for normalization policy extension point.
-
-    Implementations transform raw ToolObservations into normalized Findings
-    using severity mapping, category mapping, and dedup key assignment.
-    """
-
-    def normalize(
-        self,
-        observations: list[ToolObservation],
-        adapter_severity_map: dict[tuple[str, str], str],
-        adapter_category_map: dict[str, str],
-        adapter_dedup_keys: dict[str, str],
-    ) -> list[Finding]: ...
 
 
 class DefaultNormalizationPolicy:
