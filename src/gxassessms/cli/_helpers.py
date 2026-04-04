@@ -34,10 +34,13 @@ def build_orchestrator() -> Any:
     from gxassessms.pipeline.state import EngagementLock
 
     try:
+        from gxassessms.core.security.permissions import secure_mkdir, warn_broad_permissions
+
         db = DatabaseManager()
         db.initialize()
         engagements_root = get_default_data_dir() / "engagements"
-        engagements_root.mkdir(parents=True, exist_ok=True)
+        secure_mkdir(engagements_root, parents=True, exist_ok=True)
+        warn_broad_permissions(engagements_root, "engagement data root")
     except OSError as e:
         raise GxAssessError(
             f"Failed to initialize data directory: {e}. Check disk space and directory permissions."
@@ -62,7 +65,10 @@ def get_engagements_root() -> Path:
 
     root = get_default_data_dir() / "engagements"
     try:
-        root.mkdir(parents=True, exist_ok=True)
+        from gxassessms.core.security.permissions import secure_mkdir, warn_broad_permissions
+
+        secure_mkdir(root, parents=True, exist_ok=True)
+        warn_broad_permissions(root, "engagement data root")
     except OSError as e:
         raise GxAssessError(
             f"Failed to create engagements directory: {e}. "

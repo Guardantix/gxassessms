@@ -27,6 +27,7 @@ from gxassessms.core.contracts.errors import (
 )
 from gxassessms.core.contracts.types import ReportRenderer
 from gxassessms.core.domain.models import ReportPayload
+from gxassessms.core.security.permissions import secure_mkdir
 from gxassessms.registry import DiscoveryError, discover_entry_points
 from gxassessms.reporting.constants_bridge import write_constants_file
 
@@ -186,7 +187,7 @@ class NodeRenderer:
         validate_version_compatibility(payload.schema_version, self.supported_payload_versions)
 
         output_dir = output_dir.resolve()
-        output_dir.mkdir(parents=True, exist_ok=True)
+        secure_mkdir(output_dir, parents=True, exist_ok=True)
         stem = f"{payload.engagement_id}_{self.name}" if self.name else payload.engagement_id
         output_path = output_dir / f"{stem}.{self.format}"
         output_path.unlink(missing_ok=True)

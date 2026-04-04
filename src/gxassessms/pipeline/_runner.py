@@ -21,6 +21,7 @@ from gxassessms.core.domain.models import (
     ReportPayload,
     ToolObservation,
 )
+from gxassessms.core.security.permissions import secure_mkdir, warn_broad_permissions
 from gxassessms.pipeline.stages import (
     STAGE_STATE_MAP,
     Stage,
@@ -204,8 +205,13 @@ def run_stages(
                 elif stage == Stage.RENDER:
                     _require_in_memory("consolidated_findings", consolidated_findings, stage)
                     assert consolidated_findings is not None  # noqa: S101 -- narrowing for type checker
-                    report_dir = output_dir or Path("output")
-                    report_dir.mkdir(parents=True, exist_ok=True)
+                    if output_dir is None:
+                        eng_dir = orchestrator._artifact_manager.get_engagement_dir(engagement_id)
+                        report_dir = eng_dir / "reports"
+                    else:
+                        report_dir = output_dir
+                    secure_mkdir(report_dir, parents=True, exist_ok=True)
+                    warn_broad_permissions(report_dir, "report output directory")
                     payload = _build_report_payload(
                         engagement_id,
                         config,

@@ -409,6 +409,44 @@ class TestRunStagesResumePaths:
         mock_render.assert_called_once_with(payload, [], report_dir)
         assert report_dir.exists()
 
+    def test_render_stage_defaults_to_engagement_reports_dir(
+        self, harness: RunnerHarness, tmp_path: Path
+    ) -> None:
+        """When output_dir is None, report_dir defaults to engagement_dir/reports/."""
+        _set_engagement_state(harness.engagement_repo, EngagementState.QA_APPROVED)
+        eng_dir = tmp_path / "acme-eng-001"
+        eng_dir.mkdir()
+        (eng_dir / "reports").mkdir()
+        harness.artifact_manager.get_engagement_dir.return_value = eng_dir
+        consolidated = [_make_consolidated()]
+        payload = object()
+
+        with (
+            patch(
+                "gxassessms.pipeline._runner._rehydrate_upstream_state",
+                return_value=(None, None, consolidated),
+            ),
+            patch(
+                "gxassessms.pipeline._runner._build_report_payload",
+                return_value=payload,
+            ),
+            patch("gxassessms.pipeline._runner.render") as mock_render,
+        ):
+            run_stages(
+                orchestrator=harness.orchestrator,
+                engagement_id="eng-001",
+                config=_make_config(),
+                adapters=[],
+                normalization_policy=MagicMock(),
+                consolidation_rule=MagicMock(),
+                qa_strategy=MagicMock(),
+                renderers=[],
+                start_stage=Stage.RENDER,
+                # output_dir intentionally omitted -- should default to eng_dir/reports
+            )
+
+        mock_render.assert_called_once_with(payload, [], eng_dir / "reports")
+
 
 class TestRehydrateHelpers:
     def test_qa_review_rehydration_returns_consolidated_findings(

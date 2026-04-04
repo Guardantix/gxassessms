@@ -214,8 +214,10 @@ def scaffold_cmd(name: str, output_dir: str) -> None:
         raise SystemExit(1)
 
     # Create directory structure
-    output_path.mkdir(parents=True)
-    (output_path / "fixtures").mkdir()
+    from gxassessms.core.security.permissions import secure_mkdir
+
+    secure_mkdir(output_path, parents=True)
+    secure_mkdir(output_path / "fixtures")
     (output_path / "__init__.py").write_text(
         f'"""Adapter for {name} assessment tool."""\n', encoding="utf-8"
     )

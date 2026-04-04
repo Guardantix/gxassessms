@@ -33,6 +33,27 @@ from gxassessms.core.contracts.errors import ConfigError, GxAssessError, Persist
 logger = logging.getLogger(__name__)
 
 
+def _resolve_operator() -> str:
+    """Resolve the OS username for audit attribution. Never raises."""
+    import getpass
+
+    try:
+        return getpass.getuser()
+    except Exception:
+        return "unknown"
+
+
+def _check_storage_permissions(artifacts: Any, engagement_id: str) -> None:
+    """Advisory permission check -- never raises, never blocks."""
+    from gxassessms.core.security.permissions import warn_broad_permissions
+
+    try:
+        eng_dir = artifacts.get_engagement_dir(engagement_id)
+        warn_broad_permissions(eng_dir, f"engagement directory for {engagement_id}")
+    except GxAssessError:
+        pass
+
+
 @click.group("engagement")
 def engagement_group() -> None:
     """Manage assessment engagements (create, list, status, archive, restore, purge, export)."""
@@ -153,7 +174,9 @@ def archive_cmd(engagement_id: str) -> None:
             raise SystemExit(1)
 
         artifacts = _helpers.get_artifact_manager()
-        artifacts.archive(engagement_id)
+        _check_storage_permissions(artifacts, engagement_id)
+        operator = _resolve_operator()
+        artifacts.archive(engagement_id, operator=operator)
         console.print(f"[bright_green]Engagement {engagement_id} archived.[/bright_green]")
         console.print(
             "[dim]Use 'mseco engagement restore <id>' to decompress for re-analysis.[/dim]"
@@ -173,7 +196,9 @@ def restore_cmd(engagement_id: str) -> None:
     """
     try:
         artifacts = _helpers.get_artifact_manager()
-        artifacts.restore(engagement_id)
+        _check_storage_permissions(artifacts, engagement_id)
+        operator = _resolve_operator()
+        artifacts.restore(engagement_id, operator=operator)
         console.print(f"[bright_green]Engagement {engagement_id} restored.[/bright_green]")
     except GxAssessError as e:
         console.print(f"[bright_red]Restore failed:[/bright_red] {e}")
@@ -208,6 +233,8 @@ def purge_cmd(engagement_id: str, confirm: bool) -> None:
 
     try:
         artifacts = _helpers.get_artifact_manager()
+        _check_storage_permissions(artifacts, engagement_id)
+        operator = _resolve_operator()
 
         manifest: dict[str, Any]
         try:
@@ -216,7 +243,7 @@ def purge_cmd(engagement_id: str, confirm: bool) -> None:
             eng_dir = None
 
         if eng_dir is not None and eng_dir.exists():
-            manifest = artifacts.purge(engagement_id)
+            manifest = artifacts.purge(engagement_id, operator=operator)
         else:
             # Directory missing or already removed -- clean up DB record only
             console.print(
@@ -299,6 +326,15 @@ def export_cmd(engagement_id: str, output_format: str) -> None:
             output = yaml.dump(metadata, default_flow_style=False)
 
         click.echo(output)
+
+        from gxassessms.core.security.audit_context import build_audit_context
+
+        logger.info(
+            "Exported engagement metadata: %s",
+            json.dumps(
+                {"engagement_id": engagement_id, "format": output_format, **build_audit_context()}
+            ),
+        )
 
     except GxAssessError as e:
         console.print(f"[bright_red]Export failed:[/bright_red] {e}")

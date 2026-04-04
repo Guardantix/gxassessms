@@ -15,10 +15,11 @@ import re
 import shutil
 import tarfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from gxassessms.core.config.datetime_utils import format_utc, utc_now
 from gxassessms.core.contracts.errors import PersistenceError
+from gxassessms.core.security.permissions import secure_mkdir
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,8 @@ RAW_OUTPUT_DIR = "raw-output"
 _REPORTS_DIR = "reports"
 _ARCHIVE_NAME = "raw-output.tar.gz"
 _RESTORE_STAGING_DIR = ".restore-staging"
+
+LifecycleAction = Literal["archive", "restore", "purge"]
 
 
 def _sanitize_slug(name: str) -> str:
@@ -84,6 +87,45 @@ class ArtifactManager:
         self._engagements_root = engagements_root
         self._audit_dir = audit_dir or (engagements_root.parent / "audit")
 
+    def _write_lifecycle_audit(
+        self,
+        action: LifecycleAction,
+        engagement_id: str,
+        operator: str,
+        details: dict[str, Any],
+    ) -> tuple[dict[str, Any], Path]:
+        """Write a JSON audit manifest for a lifecycle operation.
+
+        Defense-in-depth: callers validate engagement_id via
+        get_engagement_dir(), but a direct call with a crafted ID could
+        escape the audit directory.
+
+        Returns (manifest_dict, manifest_path) so callers like purge can
+        rewrite the file on post-operation failure.
+        """
+        from gxassessms.core.security.audit_context import build_audit_context
+
+        now = utc_now()
+        manifest: dict[str, Any] = {
+            "action": action,
+            "engagement_id": engagement_id,
+            "operator": operator,
+            "timestamp": format_utc(now),
+            **build_audit_context(),
+            **details,
+        }
+
+        secure_mkdir(self._audit_dir, parents=True, exist_ok=True)
+        timestamp_slug = format_utc(now).replace(":", "-").replace(".", "-")
+        manifest_path = self._audit_dir / f"{action}-{engagement_id}-{timestamp_slug}.json"
+
+        # Path confinement -- prevent traversal via crafted engagement_id
+        _validate_path_within_root(manifest_path, self._audit_dir)
+
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+        logger.info("Wrote %s audit manifest to %s", action, manifest_path)
+        return manifest, manifest_path
+
     def create_engagement_dir(self, engagement_id: str, client_name: str) -> Path:
         """Create the engagement directory with standard subdirectories.
 
@@ -95,10 +137,10 @@ class ArtifactManager:
 
         _validate_path_within_root(eng_dir, self._engagements_root)
 
-        eng_dir.mkdir(parents=True, exist_ok=True)
-        (eng_dir / RAW_OUTPUT_DIR / "manifests").mkdir(parents=True, exist_ok=True)
-        (eng_dir / RAW_OUTPUT_DIR / "artifacts").mkdir(parents=True, exist_ok=True)
-        (eng_dir / _REPORTS_DIR).mkdir(exist_ok=True)
+        secure_mkdir(eng_dir, parents=True, exist_ok=True)
+        secure_mkdir(eng_dir / RAW_OUTPUT_DIR / "manifests", parents=True, exist_ok=True)
+        secure_mkdir(eng_dir / RAW_OUTPUT_DIR / "artifacts", parents=True, exist_ok=True)
+        secure_mkdir(eng_dir / _REPORTS_DIR, exist_ok=True)
 
         logger.info("Created engagement directory: %s", eng_dir)
         return eng_dir
@@ -115,7 +157,7 @@ class ArtifactManager:
                 return entry
         raise PersistenceError(f"Engagement directory not found for: {engagement_id}")
 
-    def archive(self, engagement_id: str) -> Path:
+    def archive(self, engagement_id: str, operator: str = "system") -> Path:
         """Archive raw output to a compressed tarball.
 
         Compresses the raw-output directory, then removes the original
@@ -153,16 +195,32 @@ class ArtifactManager:
             )
 
         shutil.rmtree(raw_dir)
-        raw_dir.mkdir()
+        secure_mkdir(raw_dir)
 
         logger.info(
             "Archived raw output for engagement %s to %s",
             engagement_id,
             archive_path,
         )
+
+        try:
+            self._write_lifecycle_audit(
+                "archive",
+                engagement_id,
+                operator,
+                {
+                    "engagement_dir": str(eng_dir),
+                    "archive_path": str(archive_path),
+                },
+            )
+        except OSError:
+            logger.warning(
+                "Failed to write archive audit manifest for %s", engagement_id, exc_info=True
+            )
+
         return archive_path
 
-    def restore(self, engagement_id: str) -> Path:
+    def restore(self, engagement_id: str, operator: str = "system") -> Path:
         """Restore raw output from a compressed tarball.
 
         Extracts to a staging directory first; only replaces raw-output/
@@ -177,7 +235,7 @@ class ArtifactManager:
         raw_dir = eng_dir / RAW_OUTPUT_DIR
         staging_dir = eng_dir / _RESTORE_STAGING_DIR
         try:
-            staging_dir.mkdir()
+            secure_mkdir(staging_dir)
             with tarfile.open(str(archive_path), "r:gz") as tar:
                 tar.extractall(path=str(staging_dir), filter="data")
         except (tarfile.TarError, OSError) as e:
@@ -200,6 +258,23 @@ class ArtifactManager:
             shutil.rmtree(staging_dir, ignore_errors=True)
 
         logger.info("Restored raw output for engagement %s from %s", engagement_id, archive_path)
+
+        try:
+            self._write_lifecycle_audit(
+                "restore",
+                engagement_id,
+                operator,
+                {
+                    "engagement_dir": str(eng_dir),
+                    "archive_path": str(archive_path),
+                    "raw_output_dir": str(raw_dir),
+                },
+            )
+        except OSError:
+            logger.warning(
+                "Failed to write restore audit manifest for %s", engagement_id, exc_info=True
+            )
+
         return raw_dir
 
     def purge(self, engagement_id: str, operator: str = "system") -> dict[str, Any]:
@@ -224,21 +299,15 @@ class ArtifactManager:
                 f"Engagement directory is empty, nothing to purge: {engagement_id}"
             )
 
-        now = utc_now()
-        manifest: dict[str, Any] = {
-            "engagement_id": engagement_id,
-            "operator": operator,
-            "purged_at": format_utc(now),
+        details = {
             "engagement_dir": str(eng_dir),
             "files_deleted": files_deleted,
             "file_count": len(files_deleted),
         }
-
-        self._audit_dir.mkdir(parents=True, exist_ok=True)
-        timestamp_slug = format_utc(now).replace(":", "-").replace(".", "-")
-        manifest_path = self._audit_dir / f"purge-{engagement_id}-{timestamp_slug}.json"
-        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-        logger.info("Wrote purge audit manifest to %s", manifest_path)
+        manifest, manifest_path = self._write_lifecycle_audit(
+            "purge", engagement_id, operator, details
+        )
+        manifest["audit_path"] = str(manifest_path)
 
         try:
             shutil.rmtree(eng_dir)
@@ -369,13 +438,13 @@ class ArtifactManager:
         # Phase 2: Stage the full generation
         staging_id = str(uuid_mod.uuid4())
         staging_dir = raw_output_dir / f".staging-{staging_id}"
-        staging_dir.mkdir(parents=True)
+        secure_mkdir(staging_dir, parents=True)
 
         try:
             staging_artifacts = staging_dir / "artifacts"
             staging_manifests = staging_dir / "manifests"
-            staging_artifacts.mkdir()
-            staging_manifests.mkdir()
+            secure_mkdir(staging_artifacts)
+            secure_mkdir(staging_manifests)
 
             persisted: dict[str, RawToolOutput] = {}
 
@@ -389,7 +458,7 @@ class ArtifactManager:
                 for artifact in co.artifacts:
                     source = Path(artifact.source_path)
                     dest = staging_artifacts / artifact.target_relpath
-                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    secure_mkdir(dest.parent, parents=True, exist_ok=True)
                     shutil.copy2(str(source), str(dest))
 
                     # Verify copy
