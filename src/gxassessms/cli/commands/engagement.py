@@ -34,7 +34,12 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_operator() -> str:
-    """Resolve the OS username for audit attribution. Never raises."""
+    """Resolve the OS username for audit attribution. Never raises.
+
+    Separate from build_audit_context()["os_user"] so that operator can
+    eventually come from an external source (e.g., authenticated identity
+    injected by a CI wrapper) rather than the local OS user.
+    """
     import getpass
 
     try:

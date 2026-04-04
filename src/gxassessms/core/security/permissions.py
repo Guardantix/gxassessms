@@ -74,11 +74,8 @@ def secure_mkdir(
         existing_ancestor = existing_ancestor.parent
 
     path.mkdir(parents=parents, exist_ok=exist_ok)
-
-    # chmod target (even if it already existed with exist_ok=True)
     path.chmod(mode)
 
-    # chmod newly created parent directories (only if new dirs were actually created)
     if parents and existing_ancestor != path:
         current = path.parent
         while current != existing_ancestor:

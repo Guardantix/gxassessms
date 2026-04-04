@@ -126,6 +126,28 @@ class ArtifactManager:
         logger.info("Wrote %s audit manifest to %s", action, manifest_path)
         return manifest, manifest_path
 
+    def _try_write_lifecycle_audit(
+        self,
+        action: LifecycleAction,
+        engagement_id: str,
+        operator: str,
+        details: dict[str, Any],
+    ) -> None:
+        """Best-effort audit write -- logs warning on failure, never raises.
+
+        Used by archive/restore where the operation has already completed
+        and failing the audit write would leave inconsistent state.
+        """
+        try:
+            self._write_lifecycle_audit(action, engagement_id, operator, details)
+        except OSError:
+            logger.warning(
+                "Failed to write %s audit manifest for %s",
+                action,
+                engagement_id,
+                exc_info=True,
+            )
+
     def create_engagement_dir(self, engagement_id: str, client_name: str) -> Path:
         """Create the engagement directory with standard subdirectories.
 
@@ -203,20 +225,15 @@ class ArtifactManager:
             archive_path,
         )
 
-        try:
-            self._write_lifecycle_audit(
-                "archive",
-                engagement_id,
-                operator,
-                {
-                    "engagement_dir": str(eng_dir),
-                    "archive_path": str(archive_path),
-                },
-            )
-        except OSError:
-            logger.warning(
-                "Failed to write archive audit manifest for %s", engagement_id, exc_info=True
-            )
+        self._try_write_lifecycle_audit(
+            "archive",
+            engagement_id,
+            operator,
+            {
+                "engagement_dir": str(eng_dir),
+                "archive_path": str(archive_path),
+            },
+        )
 
         return archive_path
 
@@ -259,21 +276,16 @@ class ArtifactManager:
 
         logger.info("Restored raw output for engagement %s from %s", engagement_id, archive_path)
 
-        try:
-            self._write_lifecycle_audit(
-                "restore",
-                engagement_id,
-                operator,
-                {
-                    "engagement_dir": str(eng_dir),
-                    "archive_path": str(archive_path),
-                    "raw_output_dir": str(raw_dir),
-                },
-            )
-        except OSError:
-            logger.warning(
-                "Failed to write restore audit manifest for %s", engagement_id, exc_info=True
-            )
+        self._try_write_lifecycle_audit(
+            "restore",
+            engagement_id,
+            operator,
+            {
+                "engagement_dir": str(eng_dir),
+                "archive_path": str(archive_path),
+                "raw_output_dir": str(raw_dir),
+            },
+        )
 
         return raw_dir
 
