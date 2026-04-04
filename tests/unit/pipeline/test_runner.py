@@ -230,6 +230,29 @@ class RunnerHarness:
     coverage_repo: MagicMock
     artifact_manager: MagicMock
 
+    def run(
+        self,
+        *,
+        start_stage: Stage,
+        stop_stage: Stage | None = None,
+        qa_strategy: object | None = None,
+        output_dir: Path | None = None,
+    ) -> None:
+        """Shorthand for run_stages with common defaults."""
+        run_stages(
+            orchestrator=self.orchestrator,
+            engagement_id="eng-001",
+            config=_make_config(),
+            adapters=[],
+            normalization_policy=MagicMock(),
+            consolidation_rule=MagicMock(),
+            qa_strategy=qa_strategy if qa_strategy is not None else MagicMock(),
+            renderers=[],
+            start_stage=start_stage,
+            stop_stage=stop_stage,
+            output_dir=output_dir,
+        )
+
 
 @pytest.fixture
 def harness() -> RunnerHarness:
@@ -687,26 +710,10 @@ class TestFailureFallbacks:
         assert second_call == call("Failed to transition %s to FAILED", "eng-001", exc_info=True)
 
 
-# ---------------------------------------------------------------------------
-# Issue #11 -- coverage gap tests
-# ---------------------------------------------------------------------------
-
-
 class TestStopStageGuard:
     def test_stop_stage_qa_review_raises(self, harness: RunnerHarness) -> None:
         with pytest.raises(ValueError, match=r"stop_stage=Stage\.QA_REVIEW is not supported"):
-            run_stages(
-                orchestrator=harness.orchestrator,
-                engagement_id="eng-001",
-                config=_make_config(),
-                adapters=[],
-                normalization_policy=MagicMock(),
-                consolidation_rule=MagicMock(),
-                qa_strategy=MagicMock(),
-                renderers=[],
-                start_stage=Stage.COLLECT,
-                stop_stage=Stage.QA_REVIEW,
-            )
+            harness.run(start_stage=Stage.COLLECT, stop_stage=Stage.QA_REVIEW)
         harness.engagement_repo.update_state.assert_not_called()
 
 
@@ -791,18 +798,7 @@ class TestStageIntegration:
             ),
             patch("gxassessms.pipeline._runner.parse") as mock_parse,
         ):
-            run_stages(
-                orchestrator=harness.orchestrator,
-                engagement_id="eng-001",
-                config=_make_config(),
-                adapters=[],
-                normalization_policy=MagicMock(),
-                consolidation_rule=MagicMock(),
-                qa_strategy=MagicMock(),
-                renderers=[],
-                start_stage=Stage.COLLECT,
-                stop_stage=Stage.COLLECT,
-            )
+            harness.run(start_stage=Stage.COLLECT, stop_stage=Stage.COLLECT)
 
         mock_collect.assert_called_once()
         harness.artifact_manager.save_raw_outputs.assert_called_once()
@@ -834,18 +830,7 @@ class TestStageIntegration:
                 return_value=[],
             ),
         ):
-            run_stages(
-                orchestrator=harness.orchestrator,
-                engagement_id="eng-001",
-                config=_make_config(),
-                adapters=[],
-                normalization_policy=MagicMock(),
-                consolidation_rule=MagicMock(),
-                qa_strategy=MagicMock(),
-                renderers=[],
-                start_stage=Stage.PARSE,
-                stop_stage=Stage.PARSE,
-            )
+            harness.run(start_stage=Stage.PARSE, stop_stage=Stage.PARSE)
 
         harness.coverage_repo.delete_for_engagement.assert_called_once_with("eng-001")
         harness.coverage_repo.save.assert_not_called()
@@ -868,18 +853,7 @@ class TestStageIntegration:
             ),
             patch("gxassessms.pipeline._runner.render") as mock_render,
         ):
-            run_stages(
-                orchestrator=harness.orchestrator,
-                engagement_id="eng-001",
-                config=_make_config(),
-                adapters=[],
-                normalization_policy=MagicMock(),
-                consolidation_rule=MagicMock(),
-                qa_strategy=qa_strategy,
-                renderers=[],
-                start_stage=Stage.QA_REVIEW,
-                output_dir=tmp_path,
-            )
+            harness.run(start_stage=Stage.QA_REVIEW, qa_strategy=qa_strategy, output_dir=tmp_path)
 
         qa_strategy.review_findings.assert_called_once_with(consolidated)
         state_calls = [c.args[1] for c in harness.engagement_repo.update_state.call_args_list]
@@ -919,18 +893,7 @@ class TestStageIntegration:
                 return_value=consolidated,
             ) as mock_consolidate,
         ):
-            run_stages(
-                orchestrator=harness.orchestrator,
-                engagement_id="eng-001",
-                config=_make_config(),
-                adapters=[],
-                normalization_policy=MagicMock(),
-                consolidation_rule=MagicMock(),
-                qa_strategy=MagicMock(),
-                renderers=[],
-                start_stage=Stage.PARSE,
-                stop_stage=Stage.CONSOLIDATE,
-            )
+            harness.run(start_stage=Stage.PARSE, stop_stage=Stage.CONSOLIDATE)
 
         mock_normalize.assert_called_once()
         norm_args = mock_normalize.call_args
