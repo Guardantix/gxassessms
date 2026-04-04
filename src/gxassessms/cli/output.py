@@ -193,15 +193,15 @@ def make_adapter_list_table(
 
 
 def print_preflight_result(
-    results: list[dict[str, str]],
+    results: list[Any],
     console: Console | None = None,
 ) -> None:
     """Print preflight validation results as a Rich table.
 
-    Args:
-        results: List of dicts with keys: check, status, message.
-        console: Optional Console instance (for testing).
+    Accepts both PreflightCheckResult objects and legacy dicts.
     """
+    from gxassessms.cli.preflight_types import PreflightCheckResult
+
     con = console or Console(stderr=True)
     table = Table(title="Preflight Validation", show_header=True)
     table.add_column("Check", style="bold")
@@ -209,17 +209,33 @@ def print_preflight_result(
     table.add_column("Details")
 
     for result in results:
-        status_str = format_status(result.get("status", ""))
-        table.add_row(
-            result.get("check", ""),
-            status_str,
-            result.get("message", ""),
-        )
+        if isinstance(result, PreflightCheckResult):
+            status_str = format_status(result.status)
+            detail = result.message
+            if result.provenance and result.provenance.approved_candidate:
+                ac = result.provenance.approved_candidate
+                detail += (
+                    f"\n  Version: {ac.version}"
+                    f"\n  Evidence: {result.provenance.evidence_path}"
+                    f"\n  Hash: {ac.package_hash}"
+                )
+            table.add_row(result.check, status_str, detail)
+        else:
+            # Legacy dict path
+            status_str = format_status(result.get("status", ""))
+            table.add_row(
+                result.get("check", ""),
+                status_str,
+                result.get("message", ""),
+            )
 
     con.print(table)
 
     # Summary line
-    status_counts = Counter(r.get("status") for r in results)
+    statuses = [
+        r.status if isinstance(r, PreflightCheckResult) else r.get("status") for r in results
+    ]
+    status_counts = Counter(statuses)
     pass_count = status_counts.get("PASS", 0)
     fail_count = status_counts.get("FAIL", 0)
     warn_count = status_counts.get("WARN", 0)

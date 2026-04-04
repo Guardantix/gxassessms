@@ -31,6 +31,9 @@ Design spec: `../gxassessms-guardantix/docs/specs/2026-03-25-gxassessms-architec
 - All domain constants via `core/domain/constants.py` (Literal + frozenset pattern)
 - Fail-closed error handling: typed exceptions, narrow catches, no silent fallbacks
 - <=400 lines per file target
+- Module provenance policy lives in `adapters/<tool>/policy.py` -- changes are security-critical and require careful PR review
+- PowerShell templates in `adapters/_verification_scripts/` are static; all dynamic data flows through JSON input (no string substitution)
+- Config `module_policy_override` can narrow policy (exact version pin, hash subset) but never widen it
 
 ## Workspace
 

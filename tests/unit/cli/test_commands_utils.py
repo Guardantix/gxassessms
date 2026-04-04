@@ -36,9 +36,10 @@ class TestPreflightCommand:
         result = runner.invoke(cli, ["preflight", "/nonexistent/config.yaml"])
         assert result.exit_code != 0
 
+    @patch("gxassessms.cli.commands.preflight._try_ps_adapter_preflight", return_value=None)
     @patch("gxassessms.cli._helpers.discover_cli_adapters")
     def test_mixed_case_tool_name_still_matches(
-        self, mock_discover: MagicMock, tmp_path: Path
+        self, mock_discover: MagicMock, mock_ps: MagicMock, tmp_path: Path
     ) -> None:
         """Adapter with lowercase tool_name matches mixed-case config key."""
         config_path = tmp_path / "config.yaml"
@@ -72,8 +73,11 @@ class TestPreflightCommand:
         assert "no adapter" not in result.output.lower()
         assert result.exit_code == 0
 
+    @patch("gxassessms.cli.commands.preflight._try_ps_adapter_preflight", return_value=None)
     @patch("gxassessms.cli._helpers.discover_cli_adapters")
-    def test_valid_config_shows_pass(self, mock_discover: MagicMock, tmp_path: Path) -> None:
+    def test_valid_config_shows_pass(
+        self, mock_discover: MagicMock, mock_ps: MagicMock, tmp_path: Path
+    ) -> None:
         config_path = tmp_path / "config.yaml"
         config_data = {
             "client": {
@@ -104,10 +108,11 @@ class TestPreflightCommand:
         )
         assert result.exit_code == 0
 
+    @patch("gxassessms.cli.commands.preflight._try_ps_adapter_preflight", return_value=None)
     @patch("gxassessms.cli.commands.preflight.validate_config")
     @patch("gxassessms.cli._helpers.discover_cli_adapters")
     def test_config_validation_errors_show_fail(
-        self, mock_discover: MagicMock, mock_validate: MagicMock, tmp_path: Path
+        self, mock_discover: MagicMock, mock_validate: MagicMock, mock_ps: MagicMock, tmp_path: Path
     ) -> None:
         """Config validation errors produce FAIL results and exit nonzero."""
         config_path = tmp_path / "config.yaml"
@@ -172,9 +177,10 @@ class TestPreflightCommand:
         assert "WARN" in result.output
         assert "No tools" in result.output or "no tools" in result.output.lower()
 
+    @patch("gxassessms.cli.commands.preflight._try_ps_adapter_preflight", return_value=None)
     @patch("gxassessms.cli._helpers.discover_cli_adapters")
     def test_adapter_not_in_enabled_tools_skipped(
-        self, mock_discover: MagicMock, tmp_path: Path
+        self, mock_discover: MagicMock, mock_ps: MagicMock, tmp_path: Path
     ) -> None:
         """Adapter whose tool_name doesn't match any enabled tool is skipped."""
         config_path = tmp_path / "config.yaml"
@@ -256,9 +262,10 @@ class TestPreflightCommand:
         assert "WARN" in result.output
         assert "does not declare prerequisites" in result.output.lower()
 
+    @patch("gxassessms.cli.commands.preflight._try_ps_adapter_preflight", return_value=None)
     @patch("gxassessms.cli._helpers.discover_cli_adapters")
     def test_adapter_prerequisites_not_satisfied_via_preflight(
-        self, mock_discover: MagicMock, tmp_path: Path
+        self, mock_discover: MagicMock, mock_ps: MagicMock, tmp_path: Path
     ) -> None:
         """Adapter with unsatisfied prerequisites shows FAIL in preflight."""
         config_path = tmp_path / "config.yaml"
@@ -325,8 +332,11 @@ class TestPreflightCommand:
         assert "no adapter" in result.output.lower()
         assert result.exit_code == 1
 
+    @patch("gxassessms.cli.commands.preflight._try_ps_adapter_preflight", return_value=None)
     @patch("gxassessms.cli._helpers.discover_cli_adapters")
-    def test_auth_env_var_not_set(self, mock_discover: MagicMock, tmp_path: Path) -> None:
+    def test_auth_env_var_not_set(
+        self, mock_discover: MagicMock, mock_ps: MagicMock, tmp_path: Path
+    ) -> None:
         """Missing auth env var shows FAIL and exit nonzero."""
         config_path = tmp_path / "config.yaml"
         config_data = {
@@ -369,10 +379,11 @@ class TestPreflightCommand:
         assert "config error" in result.output.lower() or "invalid yaml" in result.output.lower()
         assert result.exit_code == 1
 
+    @patch("gxassessms.cli.commands.preflight._try_ps_adapter_preflight", return_value=None)
     @patch("shutil.which", return_value=None)
     @patch("gxassessms.cli._helpers.discover_cli_adapters")
     def test_node_not_found_shows_warning(
-        self, mock_discover: MagicMock, mock_which: MagicMock, tmp_path: Path
+        self, mock_discover: MagicMock, mock_which: MagicMock, mock_ps: MagicMock, tmp_path: Path
     ) -> None:
         """Node.js not found produces WARN for renderer dependency."""
         config_path = tmp_path / "config.yaml"
@@ -450,11 +461,14 @@ class TestAdaptersScaffold:
 
 
 class TestAdaptersCheckBehavior:
+    @patch("gxassessms.cli.commands.adapters._try_ps_adapter_baseline_check", return_value=None)
     @patch("gxassessms.cli.commands.adapters.discover_cli_adapters", autospec=True)
-    def test_adapter_with_prerequisites_pass(self, mock_discover: MagicMock) -> None:
-        """Adapter with satisfied prerequisites shows PASS."""
+    def test_adapter_with_prerequisites_pass(
+        self, mock_discover: MagicMock, mock_ps: MagicMock
+    ) -> None:
+        """Non-PS adapter with satisfied prerequisites shows PASS."""
         adapter = MagicMock()
-        adapter.tool_name = "scubagear"
+        adapter.tool_name = "sometool"
         adapter.capabilities = frozenset({"collect", "parse", "prerequisites"})
         adapter.check_prerequisites.return_value = {"satisfied": True, "message": "Found"}
         mock_discover.return_value = [adapter]
@@ -477,15 +491,18 @@ class TestAdaptersCheckBehavior:
         assert result.exit_code == 0
         assert "WARN" in result.output or "warn" in result.output.lower()
 
+    @patch("gxassessms.cli.commands.adapters._try_ps_adapter_baseline_check", return_value=None)
     @patch("gxassessms.cli.commands.adapters.discover_cli_adapters", autospec=True)
-    def test_adapter_prerequisites_not_satisfied_shows_fail(self, mock_discover: MagicMock) -> None:
-        """Adapter with unsatisfied prerequisites shows FAIL."""
+    def test_adapter_prerequisites_not_satisfied_shows_fail(
+        self, mock_discover: MagicMock, mock_ps: MagicMock
+    ) -> None:
+        """Non-PS adapter with unsatisfied prerequisites shows FAIL."""
         adapter = MagicMock()
-        adapter.tool_name = "maester"
+        adapter.tool_name = "sometool"
         adapter.capabilities = frozenset({"collect", "parse", "prerequisites"})
         adapter.check_prerequisites.return_value = {
             "satisfied": False,
-            "message": "Maester not installed",
+            "message": "Tool not installed",
         }
         mock_discover.return_value = [adapter]
         runner = CliRunner()
@@ -493,8 +510,11 @@ class TestAdaptersCheckBehavior:
         assert result.exit_code == 0
         assert "FAIL" in result.output or "fail" in result.output.lower()
 
+    @patch("gxassessms.cli.commands.adapters._try_ps_adapter_baseline_check", return_value=None)
     @patch("gxassessms.cli.commands.adapters.discover_cli_adapters", autospec=True)
-    def test_adapter_check_prerequisites_raises_shows_fail(self, mock_discover: MagicMock) -> None:
+    def test_adapter_check_prerequisites_raises_shows_fail(
+        self, mock_discover: MagicMock, mock_ps: MagicMock
+    ) -> None:
         """If check_prerequisites() raises RuntimeError, the adapter shows FAIL with the error."""
         adapter = MagicMock()
         adapter.tool_name = "flaky_tool"
@@ -506,6 +526,31 @@ class TestAdaptersCheckBehavior:
         assert result.exit_code == 0
         assert "FAIL" in result.output or "fail" in result.output.lower()
         assert "subprocess failed" in result.output
+
+    @patch("gxassessms.cli.commands.adapters.discover_cli_adapters", autospec=True)
+    def test_ps_adapter_calls_verifier_directly(self, mock_discover: MagicMock) -> None:
+        """PS adapters go through _try_ps_adapter_baseline_check, not check_prerequisites."""
+        adapter = MagicMock()
+        adapter.tool_name = "scubagear"
+        adapter.capabilities = frozenset({"collect", "parse", "prerequisites"})
+        mock_discover.return_value = [adapter]
+
+        mock_pass_result = {
+            "check": "scubagear",
+            "status": "PASS",
+            "message": "ScubaGear 1.5.2 verified (hash_only)",
+        }
+        with patch(
+            "gxassessms.cli.commands.adapters._try_ps_adapter_baseline_check",
+            return_value=mock_pass_result,
+        ):
+            runner = CliRunner()
+            result = runner.invoke(cli, ["adapters", "check"])
+
+        assert result.exit_code == 0
+        assert "PASS" in result.output
+        # check_prerequisites should NOT have been called for PS adapters
+        adapter.check_prerequisites.assert_not_called()
 
 
 class TestAdaptersScaffoldValidation:

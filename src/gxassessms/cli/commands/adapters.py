@@ -51,8 +51,12 @@ def list_cmd() -> None:
 def check_cmd() -> None:
     """Run prerequisite checks for all discovered adapters.
 
-    Calls check_prerequisites() on each adapter that declares the
-    'prerequisites' capability. Reports pass/warn/fail for each.
+    For PowerShell adapters with MODULE_POLICY, calls the verifier
+    directly with code-owned baseline policy (no config overrides).
+    Use ``mseco preflight`` for policy-complete validation with config
+    overrides via ModulePolicyOverride.
+
+    Non-PowerShell adapters use check_prerequisites() as before.
     """
     adapters = discover_cli_adapters()
     results: list[dict[str, str]] = []
@@ -71,6 +75,13 @@ def check_cmd() -> None:
             )
             continue
 
+        # PowerShell adapters: call verifier directly for rich provenance display
+        ps_result = _try_ps_adapter_baseline_check(adapter)
+        if ps_result is not None:
+            results.append(ps_result)
+            continue
+
+        # Non-PowerShell adapters: standard check_prerequisites()
         try:
             prereq = adapter.check_prerequisites()
             if prereq.get("satisfied", False):
@@ -103,6 +114,57 @@ def check_cmd() -> None:
         return
 
     print_preflight_result(results)
+
+
+def _try_ps_adapter_baseline_check(adapter: object) -> dict[str, str] | None:
+    """Run baseline provenance verification for a PowerShell adapter.
+
+    Uses code-owned MODULE_POLICY only (no config overrides).
+    Returns a preflight result dict if the adapter has MODULE_POLICY,
+    or None to fall back to standard check_prerequisites().
+    """
+    tool_name = getattr(adapter, "tool_name", "unknown")
+
+    try:
+        import importlib
+
+        policy_mod = importlib.import_module(f"gxassessms.adapters.{tool_name.lower()}.policy")
+        module_policy = getattr(policy_mod, "MODULE_POLICY", None)
+        if module_policy is None:
+            return None
+    except ImportError:
+        return None
+    except AttributeError:
+        return None
+
+    from gxassessms.adapters._verification import verify_module
+    from gxassessms.core.contracts.errors import ModuleVerificationError
+
+    try:
+        result = verify_module(
+            policy=module_policy,
+            mode="preflight",
+            adapter_name=tool_name,
+            timeout_seconds=60,
+        )
+        version = result.approved_candidate.version if result.approved_candidate else "?"
+        return {
+            "check": tool_name,
+            "status": "PASS",
+            "message": f"{tool_name} {version} verified ({result.evidence_path})",
+        }
+    except (ModuleVerificationError, ValueError) as exc:
+        return {
+            "check": tool_name,
+            "status": "FAIL",
+            "message": str(exc),
+        }
+    except OSError as exc:
+        return {
+            "check": tool_name,
+            "status": "FAIL",
+            "message": str(exc),
+        }
 
 
 @adapters_group.command("scaffold")

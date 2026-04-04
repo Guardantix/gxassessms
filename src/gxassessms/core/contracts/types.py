@@ -68,7 +68,13 @@ class ToolAdapter(Protocol):
     capabilities: frozenset[str] = frozenset()
 
     def check_prerequisites(self) -> PrerequisiteResult:
-        """Verify tool is installed and meets version requirements."""
+        """Verify tool is installed and meets version requirements.
+
+        For PowerShell adapters, this validates against the code-owned
+        baseline policy (MODULE_POLICY), not config overrides. Use
+        ``mseco preflight`` for policy-complete validation including
+        config overrides via ModulePolicyOverride.
+        """
         ...
 
     def authenticate(self, config: EngagementConfig) -> AuthContext | None:

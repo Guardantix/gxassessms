@@ -179,7 +179,7 @@ OWASP input-validation and file-handling guidance recommends explicit size limit
 ## Priority Order
 
 1. ~~Fix replay path confinement and hash binding first.~~ **DONE** (PR #47, SBP-001 remediated)
-2. Pin approved PowerShell module versions and verify publisher or signature before collection runs.
+2. ~~Pin approved PowerShell module versions and verify publisher or signature before collection runs.~~ **Addressed**: Module provenance verification implemented (version range pinning, sha256tree:v1 tree hash, Authenticode signature, TOCTOU-eliminating staging). See `src/gxassessms/adapters/_verification.py` and `docs/superpowers/specs/2026-04-03-powershell-module-provenance-design.md`. Remaining gap: transitive dependency verification (RequiredModules logged but not blocked).
 3. Add plugin and renderer allowlisting plus config-based renderer filtering.
 4. Harden artifact/report directory permissions and move default report output under the protected data root.
 5. Add artifact and payload size ceilings plus preflight checks.

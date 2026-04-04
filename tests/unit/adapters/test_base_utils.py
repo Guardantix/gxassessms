@@ -67,6 +67,48 @@ class TestValidateExtraArgs:
 
 
 # ---------------------------------------------------------------------------
+# TestParseExtraArgs
+# ---------------------------------------------------------------------------
+
+
+class TestParseExtraArgs:
+    """parse_extra_args structured decomposition."""
+
+    @pytest.fixture(autouse=True)
+    def _import(self) -> None:
+        from gxassessms.adapters._base import parse_extra_args
+
+        self.parse_extra_args = parse_extra_args
+
+    def test_switch_only(self) -> None:
+        named, switches = self.parse_extra_args(["-Quiet"])
+        assert named == {}
+        assert switches == {"Quiet": True}
+
+    def test_named_arg_only(self) -> None:
+        named, switches = self.parse_extra_args(["-M365Environment:Commercial"])
+        assert named == {"M365Environment": "Commercial"}
+        assert switches == {}
+
+    def test_mixed(self) -> None:
+        named, switches = self.parse_extra_args(
+            ["-Quiet", "-M365Environment:Commercial", "-DisconnectOnExit"]
+        )
+        assert named == {"M365Environment": "Commercial"}
+        assert switches == {"Quiet": True, "DisconnectOnExit": True}
+
+    def test_empty_list(self) -> None:
+        named, switches = self.parse_extra_args([])
+        assert named == {}
+        assert switches == {}
+
+    def test_complex_value_with_dots_and_commas(self) -> None:
+        named, switches = self.parse_extra_args(["-Filter:a.b,c-d"])
+        assert named == {"Filter": "a.b,c-d"}
+        assert switches == {}
+
+
+# ---------------------------------------------------------------------------
 # TestLoadJsonFile
 # ---------------------------------------------------------------------------
 

@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic import ValidationError as PydanticValidationError
 
 from gxassessms.core.contracts.errors import ConfigError, ConfigValidationError
+from gxassessms.core.contracts.verification import ModulePolicyOverride
 from gxassessms.core.domain.constants import AuthMethod
 
 
@@ -27,6 +28,20 @@ class ToolConfig(BaseModel):
     modules: list[str] = Field(default_factory=list)
     timeout: int | None = Field(default=None, gt=0)
     extra_args: list[str] = Field(default_factory=list)
+    module_policy_override: ModulePolicyOverride | None = None
+
+    @field_validator("module_policy_override", mode="before")
+    @classmethod
+    def parse_module_policy_override(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, dict):
+            raw: dict[str, Any] = cast(dict[str, Any], v)
+            pinned: Any = raw.get("pinned_package_hashes")
+            if pinned is not None:
+                raw["pinned_package_hashes"] = frozenset(pinned)
+            return ModulePolicyOverride(**raw)
+        return v
 
     @field_validator("enabled", mode="before")
     @classmethod

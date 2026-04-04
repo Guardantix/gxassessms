@@ -19,6 +19,11 @@ from subprocess import CompletedProcess
 from typing import Any
 
 from gxassessms.core.contracts.errors import CollectionError, RawOutputValidationError
+from gxassessms.core.contracts.verification import (
+    ModulePolicy,
+    ModulePolicyOverride,
+    ModuleVerificationResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +68,29 @@ def validate_extra_args(extra_args: list[str]) -> list[str]:
                 f"Extra argument rejected by allowlist: {arg!r}",
             )
     return extra_args
+
+
+def parse_extra_args(
+    extra_args: list[str],
+) -> tuple[dict[str, str], dict[str, bool]]:
+    """Parse validated extra args into named_args and switches.
+
+    Each entry must have already passed ``validate_extra_args``, so it
+    matches ``-Name`` (switch) or ``-Name:value`` (named parameter).
+
+    Returns:
+        ``(named_args, switches)`` tuple.
+    """
+    named_args: dict[str, str] = {}
+    switches: dict[str, bool] = {}
+    for arg in extra_args:
+        bare = arg[1:]  # strip leading dash
+        if ":" in bare:
+            name, value = bare.split(":", 1)
+            named_args[name] = value
+        else:
+            switches[bare] = True
+    return named_args, switches
 
 
 def run_powershell(
@@ -225,3 +253,41 @@ def load_json_file(
             f"Invalid JSON in {path}: {exc}",
             adapter_name=adapter_name,
         ) from exc
+
+
+def run_verified_powershell(
+    *,
+    policy: ModulePolicy,
+    allowed_commands: frozenset[str],
+    command_name: str,
+    named_args: dict[str, Any],
+    switches: dict[str, bool] | None = None,
+    override: ModulePolicyOverride | None = None,
+    timeout_seconds: int = 1800,
+    adapter_name: str = "",
+    engagement_id: str = "",
+) -> ModuleVerificationResult:
+    """Verify module provenance and invoke a tool command in one shot.
+
+    Returns ModuleVerificationResult on success.
+    Raises ModuleVerificationError subclasses or CollectionError.
+    """
+    from gxassessms.adapters._verification import validate_command_allowlist, verify_module
+
+    validate_command_allowlist(command_name, allowed_commands)
+
+    invocation = {
+        "command_name": command_name,
+        "named_args": named_args,
+        "switches": switches or {},
+    }
+
+    return verify_module(
+        policy=policy,
+        override=override,
+        mode="collection",
+        post_import_invocation=invocation,
+        adapter_name=adapter_name,
+        engagement_id=engagement_id,
+        timeout_seconds=timeout_seconds,
+    )
