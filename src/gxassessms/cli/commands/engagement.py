@@ -56,7 +56,7 @@ def _check_storage_permissions(artifacts: Any, engagement_id: str) -> None:
         eng_dir = artifacts.get_engagement_dir(engagement_id)
         warn_broad_permissions(eng_dir, f"engagement directory for {engagement_id}")
     except GxAssessError:
-        pass
+        logger.debug("advisory permission check skipped for %s", engagement_id)
 
 
 @click.group("engagement")
