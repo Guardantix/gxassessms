@@ -57,12 +57,16 @@ _DEFAULT_TIMEOUT_SECONDS = 1800  # 30 minutes
 _DEFAULT_OUTPUT_FILENAME = "ProwlerResults"
 _OCSF_EXTENSION = ".ocsf.json"
 
-# Valid auth methods and their CLI flags
-_AUTH_FLAGS: dict[str, list[str]] = {
-    "az_cli": ["--az-cli-auth"],
-    "service_principal": ["--sp-env-auth"],
-    "browser": ["--browser-auth"],
-    "managed_identity": ["--managed-identity-auth"],
+# Engagement config AuthMethod -> Prowler CLI auth flag.
+#   client_credential -> --sp-env-auth (service principal via env vars)
+#   device_code       -> --browser-auth (closest Prowler equivalent)
+#   interactive       -> --browser-auth
+# For Prowler-specific methods (az_cli, managed_identity), the operator
+# overrides via extra_args: ["--az-cli-auth"] or ["--managed-identity-auth"].
+_AUTH_METHOD_MAP: dict[str, list[str]] = {
+    "client_credential": ["--sp-env-auth"],
+    "device_code": ["--browser-auth"],
+    "interactive": ["--browser-auth"],
 }
 
 
@@ -94,7 +98,6 @@ class ProwlerAdapter:
                 ),
             )
 
-        # Verify it can execute
         try:
             result = subprocess.run(  # noqa: S603
                 [prowler_path, "--version"],
@@ -150,25 +153,11 @@ class ProwlerAdapter:
         output_filename = _DEFAULT_OUTPUT_FILENAME
         timeout = tc.timeout if tc.timeout is not None else _DEFAULT_TIMEOUT_SECONDS
 
-        # Build command: prowler azure <auth_flag> -o <dir> -F <name> -M json-ocsf
         cmd: list[str] = [
             "prowler",
             "azure",  # POSITIONAL provider (not --provider)
         ]
 
-        # Map engagement auth method to Prowler's auth flags.
-        # Engagement config AuthMethod -> Prowler flag:
-        #   client_credential -> --sp-env-auth (service principal via env vars)
-        #   device_code       -> --browser-auth (closest Prowler equivalent)
-        #   interactive       -> --browser-auth
-        # For Prowler-specific methods (az_cli, managed_identity), the
-        # operator overrides via extra_args: ["--az-cli-auth"] or
-        # ["--managed-identity-auth"].
-        _AUTH_METHOD_MAP: dict[str, list[str]] = {
-            "client_credential": ["--sp-env-auth"],
-            "device_code": ["--browser-auth"],
-            "interactive": ["--browser-auth"],
-        }
         auth_flags = _AUTH_METHOD_MAP.get(config.auth.method)
         if auth_flags is None:
             raise CollectionError(
@@ -189,12 +178,11 @@ class ProwlerAdapter:
                 )
             cmd.extend(["--tenant-id", tenant_id])
 
-        # Output flags
         cmd.extend(["-o", str(output_dir)])
         cmd.extend(["-F", output_filename])
         cmd.extend(["-M", "json-ocsf"])
 
-        # Optional: specific checks (nargs+ = space-separated, NOT comma-joined)
+        # nargs+ = space-separated, NOT comma-joined
         checks = tc.modules if tc.modules else []
         if checks:
             cmd.extend(["--checks", *list(checks)])
@@ -225,7 +213,6 @@ class ProwlerAdapter:
                 adapter_name=self.tool_name,
             )
 
-        # Locate output file: {output_dir}/**/{filename}.ocsf.json
         ocsf_files = list(output_dir.rglob(f"{output_filename}{_OCSF_EXTENSION}"))
         if not ocsf_files:
             raise CollectionError(
@@ -267,13 +254,45 @@ class ProwlerAdapter:
         )
 
     def validate_raw(self, raw: ResolvedManifest) -> None:
-        """Validate Prowler OCSF output structure before parsing.
+        """Validate Prowler OCSF output structure before parsing."""
+        self._validate_and_load(raw)
 
-        Checks:
-        1. At least one output file in manifest
-        2. File contains valid JSON
-        3. Top-level structure is a list (JSON array)
-        4. Each element has required OCSF fields: metadata, finding_info, status_code
+    def parse(self, raw: ResolvedManifest) -> list[ToolObservation]:
+        """Parse Prowler OCSF output into ToolObservations (validates first)."""
+        all_findings = self._validate_and_load(raw)
+
+        all_observations: list[ToolObservation] = []
+        for file_path, findings in all_findings.items():
+            try:
+                observations = parse_prowler_findings(findings)
+                all_observations.extend(observations)
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ParseError(
+                    f"Failed to parse Prowler output from {file_path}: {exc}",
+                    adapter_name=self.tool_name,
+                ) from exc
+
+        logger.info(
+            "Parsed %d observations from %d Prowler output file(s)",
+            len(all_observations),
+            len(all_findings),
+        )
+        return all_observations
+
+    def _validate_and_load(
+        self,
+        raw: ResolvedManifest,
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Validate raw output and return loaded findings per file.
+
+        Shared helper used by ``validate_raw()`` and ``parse()`` to avoid
+        reading files twice.
+
+        Returns:
+            Dict of file_path -> list of finding dicts.
+
+        Raises:
+            RawOutputValidationError: If any structural check fails.
         """
         if not raw.file_manifest:
             raise RawOutputValidationError(
@@ -281,9 +300,10 @@ class ProwlerAdapter:
                 adapter_name=self.tool_name,
             )
 
+        result: dict[str, list[dict[str, Any]]] = {}
+
         for file_path in raw.file_manifest:
             path = Path(file_path)
-
             data: Any = load_json_file(path, adapter_name=self.tool_name)
 
             if not isinstance(data, list):
@@ -317,34 +337,9 @@ class ProwlerAdapter:
                         adapter_name=self.tool_name,
                     )
 
-    def parse(self, raw: ResolvedManifest) -> list[ToolObservation]:
-        """Parse Prowler OCSF output into ToolObservations."""
-        self.validate_raw(raw)
+            result[file_path] = findings
 
-        all_observations: list[ToolObservation] = []
-
-        for file_path in raw.file_manifest:
-            try:
-                data = load_json_file(
-                    Path(file_path),
-                    adapter_name=self.tool_name,
-                )
-                observations = parse_prowler_findings(data)
-                all_observations.extend(observations)
-            except RawOutputValidationError:
-                raise
-            except (KeyError, TypeError, ValueError) as exc:
-                raise ParseError(
-                    f"Failed to parse Prowler output from {file_path}: {exc}",
-                    adapter_name=self.tool_name,
-                ) from exc
-
-        logger.info(
-            "Parsed %d observations from %d Prowler output file(s)",
-            len(all_observations),
-            len(raw.file_manifest),
-        )
-        return all_observations
+        return result
 
     def coverage(self, raw: ResolvedManifest) -> list[CoverageRecord]:
         """Report coverage based on parsed findings.

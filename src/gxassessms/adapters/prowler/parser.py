@@ -61,39 +61,32 @@ def parse_prowler_findings(
             cast(dict[str, Any], raw_finding_info) if isinstance(raw_finding_info, dict) else {}
         )
 
-        # Check ID is in metadata.event_code (NOT finding_info.uid)
         raw_check_id: Any = metadata.get("event_code", "")
         check_id: str = str(raw_check_id) if raw_check_id else ""
         if not check_id:
-            raw_uid: Any = finding_info.get("uid", "<unknown>")
+            fallback_uid: Any = finding_info.get("uid", "unknown")
+            check_id = str(fallback_uid) if fallback_uid else "unknown"
             logger.warning(
                 "Finding missing metadata.event_code, using finding_info.uid: %s",
-                raw_uid,
+                check_id,
             )
-            raw_fallback: Any = finding_info.get("uid", "unknown")
-            check_id = str(raw_fallback) if raw_fallback else "unknown"
 
-        # Severity: title-case OCSF string, preserved as-is for normalization layer
         raw_severity: Any = finding.get("severity", "Unknown")
         severity_str: str = str(raw_severity) if raw_severity else "Unknown"
 
-        # Status: from status_code (UPPERCASE), NOT from status ("New"/"Suppressed")
         raw_status: Any = finding.get("status_code", FindingStatus.FAIL)
         status_code: str = str(raw_status) if raw_status else FindingStatus.FAIL
 
-        # Title and description from finding_info
         raw_title: Any = finding_info.get("title", "")
         title: str = str(raw_title) if raw_title else ""
 
-        raw_desc: Any = finding_info.get("desc", "")  # "desc", not "description"
+        # "desc", not "description" -- OCSF field name trap
+        raw_desc: Any = finding_info.get("desc", "")
         description: str = str(raw_desc) if raw_desc else ""
 
-        # Build benchmark_refs from unmapped.compliance
         benchmark_refs = _extract_benchmark_refs(finding)
 
-        # Build unique observation_id: prowler:{check_id}:{uid_hash}
-        # Since Prowler produces per-resource findings, we need the finding_info.uid
-        # to differentiate observations for the same check across resources.
+        # Hash finding_info.uid to differentiate per-resource observations
         raw_finding_uid: Any = finding_info.get("uid", "")
         finding_uid: str = str(raw_finding_uid) if raw_finding_uid else ""
         uid_hash = hashlib.sha256(finding_uid.encode()).hexdigest()[:12]
@@ -137,8 +130,7 @@ def _extract_benchmark_refs(finding: dict[str, Any]) -> list[str]:
 
     for framework, control_ids in compliance.items():
         if isinstance(control_ids, list):
-            typed_ids: list[Any] = cast(list[Any], control_ids)
-            for control_id in typed_ids:
+            for control_id in cast(list[Any], control_ids):
                 refs.append(f"{framework}:{control_id!s}")
 
     return sorted(refs)

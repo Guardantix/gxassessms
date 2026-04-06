@@ -1,7 +1,8 @@
 """Tests for Prowler OCSF parser -- transforms Detection Findings into ToolObservations."""
 
-import json
-from pathlib import Path
+from __future__ import annotations
+
+from typing import Any
 
 import pytest
 
@@ -11,19 +12,9 @@ from gxassessms.core.domain.models import ToolObservation
 
 
 @pytest.fixture
-def fixture_data() -> list[dict]:
-    """Load the Prowler OCSF fixture data."""
-    fixture_path = (
-        Path(__file__).parent.parent.parent.parent
-        / "src"
-        / "gxassessms"
-        / "adapters"
-        / "prowler"
-        / "fixtures"
-        / "prowler_sample.json"
-    )
-    with open(fixture_path) as f:
-        return json.load(f)
+def fixture_data(prowler_fixture_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Alias for shared prowler_fixture_data fixture."""
+    return prowler_fixture_data
 
 
 class TestParseProwlerFindings:
