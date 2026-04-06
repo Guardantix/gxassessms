@@ -1,6 +1,7 @@
 """Tests for Secure Score parser -- joins two APIs into ToolObservations."""
 
 import json
+import logging
 from pathlib import Path
 
 import pytest
@@ -87,12 +88,20 @@ class TestDeriveStatus:
         assert result == FindingStatus.NOT_APPLICABLE
 
     def test_default_state_with_full_score_is_pass(self) -> None:
-        """Default state with full score -> PASS (state check doesn't fire)."""
+        """Default state with full score -> PASS (state check doesn't fire).
+
+        This passes even before the fix -- it's a regression guard ensuring
+        the fix doesn't break the Default/PASS path.
+        """
         result = _derive_status(score=10.0, max_score=10.0, latest_state="Default")
         assert result == FindingStatus.PASS
 
     def test_none_score_is_always_manual(self) -> None:
-        """None score -> MANUAL regardless of state."""
+        """None score -> MANUAL regardless of state.
+
+        This passes even before the fix -- it's a regression guard ensuring
+        the fix preserves the None score -> MANUAL path.
+        """
         assert (
             _derive_status(score=None, max_score=10.0, latest_state="thirdParty")
             == FindingStatus.MANUAL
@@ -250,19 +259,15 @@ class TestParseSecureScore:
 
     def test_empty_profiles_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """Empty profiles array emits a warning log."""
-        import logging
-
         empty = {"value": []}
         with caplog.at_level(logging.WARNING, logger="gxassessms.adapters.secure_score.parser"):
             parse_secure_score(empty, {"value": []})
-        assert "empty list" in caplog.text.lower() or "empty" in caplog.text.lower()
+        assert "empty list" in caplog.text.lower()
 
     def test_empty_scores_logs_warning(
         self, caplog: pytest.LogCaptureFixture, profiles_data: dict
     ) -> None:
         """Empty scores response emits a warning log."""
-        import logging
-
         with caplog.at_level(logging.WARNING, logger="gxassessms.adapters.secure_score.parser"):
             parse_secure_score(profiles_data, {"value": []})
-        assert "no records" in caplog.text.lower() or "manual" in caplog.text.lower()
+        assert "no records" in caplog.text.lower()
