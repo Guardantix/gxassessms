@@ -148,6 +148,14 @@ class ProwlerAdapter:
         from gxassessms.core.config.datetime_utils import utc_now
         from gxassessms.core.hashing import sha256_file
 
+        prowler_path = shutil.which("prowler")
+        if prowler_path is None:
+            raise CollectionError(
+                "Prowler CLI not found on PATH. "
+                "Install with: pip install prowler (requires Python 3.10-3.12)",
+                adapter_name=self.tool_name,
+            )
+
         tc = config.tools.get(self.tool_name.lower())
         if tc is None or not tc.output_dir:
             raise CollectionError(
@@ -164,7 +172,7 @@ class ProwlerAdapter:
         timeout = tc.timeout if tc.timeout is not None else _DEFAULT_TIMEOUT_SECONDS
 
         cmd: list[str] = [
-            "prowler",
+            prowler_path,
             "azure",  # POSITIONAL provider (not --provider)
         ]
 

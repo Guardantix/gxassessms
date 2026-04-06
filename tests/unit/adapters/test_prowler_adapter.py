@@ -136,9 +136,13 @@ class TestCheckPrerequisites:
 
 
 class TestCollectExtraArgs:
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
     @patch("subprocess.run")
-    def test_extra_args_appended_to_command(self, mock_run: MagicMock, tmp_path: Path) -> None:
+    def test_extra_args_appended_to_command(
+        self, mock_run: MagicMock, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
         """extra_args from tool config should appear in the subprocess command."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
         mock_run.return_value = MagicMock(returncode=0, stderr=b"")
         config = _make_config(
             extra_args=["--az-cli-auth", "--scan-list", "check1"],
@@ -158,9 +162,13 @@ class TestCollectExtraArgs:
         assert "--scan-list" in cmd
         assert "check1" in cmd
 
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
     @patch("subprocess.run")
-    def test_extra_args_satisfy_auth_requirement(self, mock_run: MagicMock, tmp_path: Path) -> None:
+    def test_extra_args_satisfy_auth_requirement(
+        self, mock_run: MagicMock, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
         """When auth method has no mapping, extra_args should prevent the error."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
         mock_run.return_value = MagicMock(returncode=0, stderr=b"")
 
         # client_credential has a mapping, but let's test the fallback path
@@ -186,8 +194,10 @@ class TestCollectExtraArgs:
         cmd = mock_run.call_args[0][0]
         assert "--managed-identity-auth" in cmd
 
-    def test_no_auth_mapping_and_no_extra_args_raises(self) -> None:
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_no_auth_mapping_and_no_extra_args_raises(self, mock_shutil: MagicMock) -> None:
         """No auth mapping + no extra_args = CollectionError."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
         config = _make_config(extra_args=[])
         adapter = ProwlerAdapter()
 
@@ -297,6 +307,46 @@ class TestCoverageAggregation:
         assert len(by_id) == 2
         assert by_id["check_a"].status == CoverageStatus.ASSESSED
         assert by_id["check_b"].status == CoverageStatus.PARTIALLY_ASSESSED
+
+
+# ---------------------------------------------------------------------------
+# collect -- path resolution
+# ---------------------------------------------------------------------------
+
+
+class TestCollectPathResolution:
+    """Verify collect() resolves the prowler binary path."""
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_prowler_not_on_path_raises_collection_error(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """If prowler is not on PATH when collect() runs, CollectionError is raised."""
+        mock_shutil.which.return_value = None
+        config = _make_config(output_dir=str(tmp_path))
+        adapter = ProwlerAdapter()
+        with pytest.raises(CollectionError, match="not found on PATH"):
+            adapter.collect(config, None)
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_collect_uses_resolved_path_in_command(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """collect() must use the resolved binary path, not the bare string 'prowler'."""
+        mock_shutil.which.return_value = "/opt/prowler-venv/bin/prowler"
+        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
+        ocsf_file.write_text('[{"finding_info": {}}]')
+        config = _make_config(output_dir=str(tmp_path))
+        adapter = ProwlerAdapter()
+        captured_cmd: list[str] = []
+
+        def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
+            captured_cmd.extend(cmd)
+            return MagicMock(returncode=0, stdout=b"", stderr=b"")
+
+        with patch("subprocess.run", side_effect=capture):
+            adapter.collect(config, None)
+        assert captured_cmd[0] == "/opt/prowler-venv/bin/prowler"
 
 
 # ---------------------------------------------------------------------------
