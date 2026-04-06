@@ -2,6 +2,7 @@
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -11,11 +12,11 @@ from gxassessms.adapters.monkey365.mappings import (
     SEVERITY_MAP,
     STATUS_MAP,
 )
-from gxassessms.core.domain.enums import Category, Severity
+from gxassessms.core.domain.enums import Category, FindingStatus, Severity
 
 
-@pytest.fixture
-def fixture_data() -> list[dict]:
+@pytest.fixture(scope="module")
+def fixture_data() -> list[dict[str, Any]]:
     """Load the Monkey365 OCSF fixture data."""
     fixture_path = (
         Path(__file__).parent.parent.parent.parent
@@ -49,7 +50,7 @@ class TestSeverityMap:
         assert SEVERITY_MAP["Informational"] == Severity.INFO
         assert SEVERITY_MAP["Unknown"] == Severity.INFO  # Unknown -> INFO (conservative)
 
-    def test_fixture_severities_covered(self, fixture_data: list[dict]) -> None:
+    def test_fixture_severities_covered(self, fixture_data: list[dict[str, Any]]) -> None:
         """Every severity value in fixtures is in SEVERITY_MAP."""
         unmapped: set[str] = set()
         for finding in fixture_data:
@@ -63,24 +64,18 @@ class TestStatusMap:
     """Maps OCSF statusCode -> domain FindingStatus enum."""
 
     def test_pass_maps_to_pass(self) -> None:
-        from gxassessms.core.domain.enums import FindingStatus
-
         assert STATUS_MAP["pass"] == FindingStatus.PASS
 
     def test_fail_maps_to_fail(self) -> None:
-        from gxassessms.core.domain.enums import FindingStatus
-
         assert STATUS_MAP["fail"] == FindingStatus.FAIL
 
     def test_manual_maps_to_manual(self) -> None:
-        from gxassessms.core.domain.enums import FindingStatus
-
         assert STATUS_MAP["manual"] == FindingStatus.MANUAL
 
     def test_all_three_statuses_present(self) -> None:
         assert len(STATUS_MAP) == 3
 
-    def test_fixture_statuses_covered(self, fixture_data: list[dict]) -> None:
+    def test_fixture_statuses_covered(self, fixture_data: list[dict[str, Any]]) -> None:
         """Every statusCode value in fixtures is in STATUS_MAP."""
         unmapped: set[str] = set()
         for finding in fixture_data:
@@ -106,7 +101,7 @@ class TestCategoryMap:
         assert CATEGORY_MAP["SharePoint Online"] == Category.DATA_PROTECTION
         assert CATEGORY_MAP["Microsoft Teams"] == Category.EMAIL_COLLABORATION
 
-    def test_fixture_groups_covered(self, fixture_data: list[dict]) -> None:
+    def test_fixture_groups_covered(self, fixture_data: list[dict[str, Any]]) -> None:
         """Every resources.group.name in fixtures has a matching category."""
         unmapped: set[str] = set()
         for finding in fixture_data:

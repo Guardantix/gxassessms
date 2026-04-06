@@ -14,7 +14,7 @@ from gxassessms.core.domain.enums import FindingStatus, Severity
 from gxassessms.core.domain.models import ToolObservation
 
 
-@pytest.fixture
+@pytest.fixture(scope="module")
 def fixture_data() -> list[dict[str, Any]]:
     """Load the Monkey365 OCSF fixture data."""
     fixture_path = (
