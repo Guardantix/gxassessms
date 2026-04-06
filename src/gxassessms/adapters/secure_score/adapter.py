@@ -178,7 +178,7 @@ class SecureScoreAdapter:
                 adapter_name=self.tool_name,
             )
 
-        tc = config.tools.get(self.tool_name.lower())
+        tc = config.tools.get("secure_score")
         if tc is None or not tc.output_dir:
             raise CollectionError(
                 "Secure Score adapter requires 'output_dir' in tool config",
