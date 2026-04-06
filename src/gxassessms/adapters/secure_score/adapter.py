@@ -356,43 +356,64 @@ class SecureScoreAdapter:
         timeout: int,
         label: str,
     ) -> dict[str, Any]:
-        """Fetch a single Graph API endpoint. Raises CollectionError on failure."""
+        """Fetch a Graph API endpoint, following @odata.nextLink for pagination.
+
+        Accumulates all pages into a single ``{"value": [...]}`` response.
+        Raises CollectionError on any HTTP or parse failure.
+        """
         import httpx
 
-        try:
-            with httpx.Client(timeout=timeout) as client:
-                response = client.get(url, headers=headers)
-                response.raise_for_status()
-                data: Any = response.json()
-        except httpx.TimeoutException as exc:
-            raise CollectionError(
-                f"Graph API request timed out for {label} (timeout={timeout}s)",
-                adapter_name=self.tool_name,
-            ) from exc
-        except httpx.HTTPStatusError as exc:
-            raise CollectionError(
-                f"Graph API returned HTTP {exc.response.status_code} "
-                f"for {label}: {exc.response.text[:500]}",
-                adapter_name=self.tool_name,
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise CollectionError(
-                f"Graph API request failed for {label}: {exc}",
-                adapter_name=self.tool_name,
-            ) from exc
-        except ValueError as exc:
-            raise CollectionError(
-                f"Graph API returned invalid JSON for {label}: {exc}",
-                adapter_name=self.tool_name,
-            ) from exc
+        all_items: list[Any] = []
+        next_url: str | None = url
+        page_count = 0
 
-        if not isinstance(data, dict):
-            raise CollectionError(
-                f"Graph API returned non-object JSON for {label} (got {type(data).__name__})",
-                adapter_name=self.tool_name,
-            )
+        with httpx.Client(timeout=timeout) as client:
+            while next_url is not None:
+                page_count += 1
+                try:
+                    response = client.get(next_url, headers=headers)  # pyright: ignore[reportUnknownArgumentType]
+                    response.raise_for_status()
+                    data: Any = response.json()
+                except httpx.TimeoutException as exc:
+                    raise CollectionError(
+                        f"Graph API request timed out for {label} "
+                        f"(timeout={timeout}s, page={page_count})",
+                        adapter_name=self.tool_name,
+                    ) from exc
+                except httpx.HTTPStatusError as exc:
+                    raise CollectionError(
+                        f"Graph API returned HTTP {exc.response.status_code} "
+                        f"for {label} (page={page_count}): {exc.response.text[:500]}",
+                        adapter_name=self.tool_name,
+                    ) from exc
+                except httpx.HTTPError as exc:
+                    raise CollectionError(
+                        f"Graph API request failed for {label} (page={page_count}): {exc}",
+                        adapter_name=self.tool_name,
+                    ) from exc
+                except ValueError as exc:
+                    raise CollectionError(
+                        f"Graph API returned invalid JSON for {label} (page={page_count}): {exc}",
+                        adapter_name=self.tool_name,
+                    ) from exc
 
-        return data  # pyright: ignore[reportUnknownVariableType]
+                if not isinstance(data, dict):
+                    raise CollectionError(
+                        f"Graph API returned non-object JSON for {label} "
+                        f"(page={page_count}, got {type(data).__name__})",
+                        adapter_name=self.tool_name,
+                    )
+
+                all_items.extend(data.get("value", []))  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+                next_url = data.get("@odata.nextLink")  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
+
+        logger.info(
+            "Fetched %s: %d items across %d page(s)",
+            label,
+            len(all_items),
+            page_count,
+        )
+        return {"value": all_items}
 
     def _validate_and_load_responses(
         self, raw: ResolvedManifest
