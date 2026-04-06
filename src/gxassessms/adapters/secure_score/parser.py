@@ -113,11 +113,20 @@ def parse_secure_score(
     """
     profiles = profiles_response.get("value", [])
     if not profiles:
+        logger.warning(
+            "Secure Score control profiles returned an empty list. "
+            "Verify SecurityEvents.Read.All is granted for this tenant."
+        )
         return []
 
     score_lookup: dict[str, dict[str, Any]] = {}
     scores_list = scores_response.get("value", [])
-    if scores_list:
+    if not scores_list:
+        logger.warning(
+            "Secure Score snapshot returned no records; all controls will be MANUAL. "
+            "Verify SecurityEvents.Read.All is granted and Secure Score is enabled."
+        )
+    else:
         latest_snapshot = scores_list[0]
         for cs in latest_snapshot.get("controlScores", []):
             control_name = cs.get("controlName", "")
@@ -147,8 +156,21 @@ def parse_secure_score(
                 "Control '%s' missing 'maxScore' field; status will be MANUAL",
                 control_id,
             )
-        rank = profile.get("rank", 999)
-        tier = profile.get("tier", "")
+        rank_raw = profile.get("rank")
+        if rank_raw is None:
+            logger.warning(
+                "Control '%s' missing 'rank' field; severity will be INFO",
+                control_id,
+            )
+        rank: int = rank_raw if rank_raw is not None else 999
+
+        tier_raw = profile.get("tier")
+        if tier_raw is None:
+            logger.warning(
+                "Control '%s' missing 'tier' field; severity will be INFO",
+                control_id,
+            )
+        tier: str = tier_raw if tier_raw is not None else ""
 
         severity = derive_severity(rank=rank, tier=tier)
         latest_state = get_latest_control_state(
