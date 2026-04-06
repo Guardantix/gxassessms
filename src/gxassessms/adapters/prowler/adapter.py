@@ -58,6 +58,12 @@ _DEFAULT_TIMEOUT_SECONDS = 1800  # 30 minutes
 _DEFAULT_OUTPUT_FILENAME = "ProwlerResults"
 _OCSF_EXTENSION = ".ocsf.json"
 
+# Prowler exit codes:
+#   0 = success, no FAIL findings
+#   1 = configuration/infrastructure error
+#   3 = success WITH FAIL findings (normal for real assessments)
+_PROWLER_SUCCESS_CODES: frozenset[int] = frozenset({0, 3})
+
 # Engagement config AuthMethod -> Prowler CLI auth flag.
 #   client_credential -> --sp-env-auth (service principal via env vars)
 #   device_code       -> --browser-auth (closest Prowler equivalent)
@@ -197,7 +203,12 @@ class ProwlerAdapter:
         if extra_args:
             cmd.extend(extra_args)
 
-        logger.info("[Prowler] Running: %s", " ".join(cmd))
+        logger.info(
+            "[Prowler] Starting collection: auth_method=%r, extra_args=%d arg(s)",
+            config.auth.method,
+            len(extra_args),
+        )
+        logger.debug("[Prowler] Full command: %s", " ".join(cmd))
 
         try:
             result = subprocess.run(  # noqa: S603
@@ -216,11 +227,18 @@ class ProwlerAdapter:
                 adapter_name=self.tool_name,
             ) from exc
 
-        if result.returncode != 0:
+        if result.returncode not in _PROWLER_SUCCESS_CODES:
             stderr_snippet = (result.stderr or b"").decode(errors="replace")[:500]
+            stdout_snippet = (result.stdout or b"").decode(errors="replace")[:500]
             raise CollectionError(
-                f"Prowler exited with code {result.returncode}: {stderr_snippet}",
+                f"Prowler exited with code {result.returncode}.\n"
+                f"  stderr: {stderr_snippet or '(empty)'}\n"
+                f"  stdout: {stdout_snippet or '(empty)'}",
                 adapter_name=self.tool_name,
+            )
+        if result.returncode == 3:
+            logger.debug(
+                "[Prowler] Exit code 3: FAIL findings present (expected for real assessments)"
             )
 
         ocsf_files = list(output_dir.rglob(f"{output_filename}{_OCSF_EXTENSION}"))
@@ -233,7 +251,13 @@ class ProwlerAdapter:
 
         artifacts: list[CollectedArtifact] = []
         for f in ocsf_files:
-            sha = sha256_file(f)
+            try:
+                sha = sha256_file(f)
+            except OSError as exc:
+                raise CollectionError(
+                    f"Cannot hash Prowler output file {f}: {exc}",
+                    adapter_name=self.tool_name,
+                ) from exc
             artifacts.append(
                 CollectedArtifact(
                     source_path=str(f),

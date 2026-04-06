@@ -297,3 +297,81 @@ class TestCoverageAggregation:
         assert len(by_id) == 2
         assert by_id["check_a"].status == CoverageStatus.ASSESSED
         assert by_id["check_b"].status == CoverageStatus.PARTIALLY_ASSESSED
+
+
+# ---------------------------------------------------------------------------
+# collect -- exit codes
+# ---------------------------------------------------------------------------
+
+
+class TestCollectExitCodes:
+    """Verify Prowler exit code handling."""
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_exit_code_3_does_not_raise(self, mock_shutil: MagicMock, tmp_path: Path) -> None:
+        """Exit code 3 (FAIL findings present) is Prowler's normal success signal."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
+        ocsf_file.write_text('[{"finding_info": {}}]')
+        config = _make_config(output_dir=str(tmp_path))
+        adapter = ProwlerAdapter()
+        with patch(
+            "subprocess.run",
+            return_value=MagicMock(returncode=3, stdout=b"", stderr=b""),
+        ):
+            result = adapter.collect(config, None)
+        assert result is not None
+        assert result.tool == ToolSource.PROWLER
+        assert len(result.artifacts) == 1
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_exit_code_0_does_not_raise(self, mock_shutil: MagicMock, tmp_path: Path) -> None:
+        """Exit code 0 (no FAIL findings) is also success."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
+        ocsf_file.write_text('[{"finding_info": {}}]')
+        config = _make_config(output_dir=str(tmp_path))
+        adapter = ProwlerAdapter()
+        with patch(
+            "subprocess.run",
+            return_value=MagicMock(returncode=0, stdout=b"", stderr=b""),
+        ):
+            result = adapter.collect(config, None)
+        assert result is not None
+        assert result.tool == ToolSource.PROWLER
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_exit_code_1_raises_collection_error(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """Exit code 1 (infrastructure/config error) must raise CollectionError."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        config = _make_config(output_dir=str(tmp_path))
+        adapter = ProwlerAdapter()
+        with (
+            patch(
+                "subprocess.run",
+                return_value=MagicMock(
+                    returncode=1, stdout=b"auth failed detail", stderr=b"error detail"
+                ),
+            ),
+            pytest.raises(CollectionError, match="exited with code 1"),
+        ):
+            adapter.collect(config, None)
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_exit_code_1_error_includes_stdout(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """Failure message must include stdout (Prowler writes diagnostics there)."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        config = _make_config(output_dir=str(tmp_path))
+        adapter = ProwlerAdapter()
+        with (
+            pytest.raises(CollectionError, match="auth failed detail"),
+            patch(
+                "subprocess.run",
+                return_value=MagicMock(returncode=1, stdout=b"auth failed detail", stderr=b""),
+            ),
+        ):
+            adapter.collect(config, None)
