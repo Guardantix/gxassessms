@@ -37,6 +37,7 @@ mseco = "gxassessms.cli.main:main"
 [project.entry-points."gxassessms.adapters"]
 scubagear = "gxassessms.adapters.scubagear:ScubaGearAdapter"
 maester = "gxassessms.adapters.maester:MaesterAdapter"
+m365_assess = "gxassessms.adapters.m365_assess:M365AssessAdapter"
 
 [project.entry-points."gxassessms.credentials"]
 env_var = "gxassessms.core.contracts.credentials:EnvVarProvider"
