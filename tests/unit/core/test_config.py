@@ -25,6 +25,8 @@ class TestToolConfig:
         tc = ToolConfig(enabled=True)
         assert tc.enabled is True
         assert tc.output_dir == ""
+        assert tc.controls_dir == ""
+        assert tc.script_dir == ""
         assert tc.modules == []
         assert tc.timeout is None
         assert tc.extra_args == []
@@ -88,6 +90,7 @@ class TestEngagementConfig:
             tools={},
         )
         assert cfg.client_name == "Test"
+        assert cfg.subscription_id == ""
         assert cfg.max_parallel == 4
 
     def test_rejects_unknown_fields(self) -> None:
@@ -327,6 +330,11 @@ class TestLoadConfig:
         assert cfg.tools["scubagear"].enabled is True
         assert cfg.tools["maester"].enabled is False
 
+    def test_load_subscription_id_round_trip(self, fixtures_config_dir: Path) -> None:
+        cfg = load_config(fixtures_config_dir / "with_subscription.yaml")
+        assert cfg.subscription_id == "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+        assert cfg.client_name == "Azure Sub Client"
+
     def test_load_tool_shorthand_string_raises(self, tmp_path: Path) -> None:
         """Quoted YAML string 'false' must not be silently coerced to True."""
         f = tmp_path / "string_tool.yaml"
@@ -448,3 +456,48 @@ class TestValidateConfig:
         errors, _warnings = validate_config(cfg)
         # tenant_id, client_name, auth.tenant_id, auth.client_id, missing credential
         assert len(errors) == 5
+
+    def test_device_code_with_secret_env_warns(self) -> None:
+        cfg = EngagementConfig(
+            client_name="Test",
+            tenant_id="t1",
+            auth=AuthConfig(
+                method="device_code",
+                tenant_id="t1",
+                client_id="c1",
+                client_secret_env="GX_SECRET",
+            ),
+            tools={},
+        )
+        _errors, warnings = validate_config(cfg)
+        assert any("device_code" in w and "client_secret_env" in w for w in warnings)
+
+    def test_interactive_with_certificate_path_warns(self) -> None:
+        cfg = EngagementConfig(
+            client_name="Test",
+            tenant_id="t1",
+            auth=AuthConfig(
+                method="interactive",
+                tenant_id="t1",
+                client_id="c1",
+                certificate_path="/some/cert.pem",
+            ),
+            tools={},
+        )
+        _errors, warnings = validate_config(cfg)
+        assert any("interactive" in w and "certificate_path" in w for w in warnings)
+
+    def test_client_credential_does_not_warn_on_secret(self) -> None:
+        cfg = EngagementConfig(
+            client_name="Test",
+            tenant_id="t1",
+            auth=AuthConfig(
+                method="client_credential",
+                tenant_id="t1",
+                client_id="c1",
+                client_secret_env="GX_SECRET",
+            ),
+            tools={},
+        )
+        _errors, warnings = validate_config(cfg)
+        assert not any("ignores" in w for w in warnings)

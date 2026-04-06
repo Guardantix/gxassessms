@@ -25,6 +25,8 @@ class ToolConfig(BaseModel):
 
     enabled: bool = False
     output_dir: str = ""
+    controls_dir: str = ""
+    script_dir: str = ""
     modules: list[str] = Field(default_factory=list)
     timeout: int | None = Field(default=None, gt=0)
     extra_args: list[str] = Field(default_factory=list)
@@ -77,6 +79,7 @@ class EngagementConfig(BaseModel):
 
     client_name: str
     tenant_id: str
+    subscription_id: str = ""
     auth: AuthConfig
     tools: dict[str, ToolConfig]
     max_parallel: int = Field(default=4, gt=0)
@@ -137,7 +140,7 @@ def load_config(path: Path) -> EngagementConfig:
 
 
 _KNOWN_SECTIONS = frozenset({"client", "auth", "tools", "report", "pipeline"})
-_KNOWN_CLIENT_KEYS = frozenset({"name", "tenant_id"})
+_KNOWN_CLIENT_KEYS = frozenset({"name", "tenant_id", "subscription_id"})
 _KNOWN_REPORT_KEYS = frozenset({"formats", "theme", "logo_path"})
 _KNOWN_PIPELINE_KEYS = frozenset({"max_parallel", "qa_model", "qa_token_budget"})
 
@@ -198,6 +201,7 @@ def _parse_raw_config(raw: dict[str, Any]) -> EngagementConfig:
     return EngagementConfig(
         client_name=client.get("name", ""),
         tenant_id=client.get("tenant_id", ""),
+        subscription_id=client.get("subscription_id", ""),
         auth=auth,
         tools=tools,
         max_parallel=pipeline_raw.get("max_parallel", 4),
@@ -237,6 +241,12 @@ def validate_config(config: EngagementConfig) -> tuple[list[str], list[str]]:
         errors.append(
             "auth: client_credential method requires client_secret_env or certificate_path"
         )
+
+    if config.auth.method in ("device_code", "interactive"):
+        if config.auth.client_secret_env:
+            warnings.append(f"auth: {config.auth.method} method ignores client_secret_env")
+        if config.auth.certificate_path:
+            warnings.append(f"auth: {config.auth.method} method ignores certificate_path")
 
     if not any(tc.enabled for tc in config.tools.values()):
         warnings.append("No tools are enabled -- pipeline will produce no findings")

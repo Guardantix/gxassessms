@@ -6,6 +6,7 @@ import pytest
 
 from gxassessms.core.config.datetime_utils import (
     format_utc,
+    from_epoch,
     parse_utc,
     utc_now,
     utc_to_local,
@@ -74,6 +75,38 @@ class TestFormatUtc:
         dt = datetime(2026, 3, 25, 15, 30, 0, tzinfo=tz_plus5)
         result = format_utc(dt)
         assert result == "2026-03-25T10:30:00Z"
+
+
+class TestFromEpoch:
+    def test_zero_epoch_is_1970(self) -> None:
+        result = from_epoch(0)
+        assert result.year == 1970
+        assert result.month == 1
+        assert result.day == 1
+        assert result.hour == 0
+        assert result.tzinfo == UTC
+
+    def test_known_value_round_trip(self) -> None:
+        # 2026-03-25T10:30:00Z = 1774434600
+        result = from_epoch(1774434600)
+        assert result.year == 2026
+        assert result.month == 3
+        assert result.day == 25
+        assert result.hour == 10
+        assert result.minute == 30
+
+    def test_result_is_utc_aware(self) -> None:
+        result = from_epoch(1000000)
+        assert result.tzinfo == UTC
+
+    def test_float_accepted(self) -> None:
+        result = from_epoch(1000000.5)
+        assert result.tzinfo == UTC
+        assert result.microsecond == 500000
+
+    def test_negative_raises_value_error(self) -> None:
+        with pytest.raises(ValueError, match="non-negative"):
+            from_epoch(-1)
 
 
 class TestUtcToLocal:
