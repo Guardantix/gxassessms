@@ -340,6 +340,26 @@ class TestFetchPaginatedJson:
 
         assert len(items) == 2
 
+    def test_default_port_origin_accepted(self) -> None:
+        page1 = _mock_response(
+            {
+                "value": [{"id": 1}],
+                "@odata.nextLink": "https://graph.microsoft.com:443/v1.0/test?page=2",
+            }
+        )
+        page2 = _mock_response({"value": [{"id": 2}]})
+
+        client = _make_client(get=MagicMock(side_effect=[page1, page2]))
+
+        with patch("httpx.Client", return_value=client):
+            items = fetch_paginated_json(
+                url="https://graph.microsoft.com/v1.0/test",
+                headers={},
+                adapter_name="test",
+            )
+
+        assert len(items) == 2
+
     def test_cross_origin_next_link_rejected(self) -> None:
         page1 = _mock_response(
             {

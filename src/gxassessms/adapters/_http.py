@@ -8,12 +8,25 @@ from __future__ import annotations
 
 import importlib
 from typing import Any, cast
-from urllib.parse import urlparse
+from urllib.parse import ParseResult, urlparse
 
 from gxassessms.core.config.datetime_utils import utc_now
 from gxassessms.core.contracts.errors import CollectionError
 from gxassessms.core.contracts.types import PrerequisiteResult
 from gxassessms.core.domain.models import AuthContext
+
+_DEFAULT_PORTS = {"https": 443, "http": 80}
+
+
+def _canonical_origin(parsed: ParseResult) -> tuple[str, str]:
+    """Normalize a parsed URL to (scheme, host) with default ports stripped."""
+    scheme = parsed.scheme.lower()
+    host = parsed.hostname or ""
+    port = parsed.port
+    if port and port == _DEFAULT_PORTS.get(scheme):
+        port = None
+    netloc = f"{host}:{port}" if port else host
+    return (scheme, netloc)
 
 
 def check_python_packages(
@@ -94,10 +107,7 @@ def fetch_paginated_json(
     """
     import httpx  # function-scoped: heavy third-party dep
 
-    initial_origin = urlparse(url)
-    # Normalize scheme + netloc to lowercase for case-insensitive comparison
-    # (RFC 3986: scheme and host are case-insensitive)
-    origin = (initial_origin.scheme.lower(), initial_origin.netloc.lower())
+    origin = _canonical_origin(urlparse(url))
 
     all_items: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
@@ -154,8 +164,7 @@ def fetch_paginated_json(
                         adapter_name=adapter_name,
                     )
                 else:
-                    parsed = urlparse(next_link)
-                    if (parsed.scheme.lower(), parsed.netloc.lower()) != origin:
+                    if _canonical_origin(urlparse(next_link)) != origin:
                         raise CollectionError(
                             f"{adapter_name}: cross-origin pagination link rejected"
                             f" at {label} page {page}",
