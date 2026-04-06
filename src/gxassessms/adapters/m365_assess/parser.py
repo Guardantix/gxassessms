@@ -77,7 +77,7 @@ def parse_security_config_csv(
             sev_str = severity_lookup.get(base_id, "Medium")
 
             # Category hint for normalization layer (stored in raw_data)
-            category_hint = CATEGORY_MAP.get(collector, Category.COMPLIANCE)
+            category_hint = CATEGORY_MAP.get(collector.lower(), Category.COMPLIANCE)
 
             # Title from Setting column
             title = row.get("Setting", "").strip()

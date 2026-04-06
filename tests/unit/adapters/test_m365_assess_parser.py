@@ -124,3 +124,15 @@ class TestParseSecurityConfigCsv:
         cloud_admin = [o for o in observations if "ENTRA-CLOUDADMIN-001" in o.native_check_id]
         assert len(cloud_admin) == 1
         assert "cis:m365:1.1.1" in cloud_admin[0].benchmark_refs
+
+    def test_category_hint_reflects_collector(self, severity_map, registry) -> None:
+        """category_hint in raw_data must match the actual collector, not always COMPLIANCE."""
+        from gxassessms.core.domain.enums import Category
+
+        csv_path = FIXTURE_DIR / "entra_security_config.csv"
+        observations = parse_security_config_csv(csv_path, severity_map, registry)
+        # All rows come from the ENTRA collector -> should be IDENTITY_ACCESS
+        for obs in observations:
+            assert obs.raw_data["category_hint"] == Category.IDENTITY_ACCESS, (
+                f"Expected IDENTITY_ACCESS for ENTRA collector, got {obs.raw_data['category_hint']}"
+            )
