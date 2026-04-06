@@ -26,7 +26,7 @@ from gxassessms.core.contracts.errors import (
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
 from gxassessms.core.domain.constants import AdapterCapability
-from gxassessms.core.domain.enums import CoverageStatus, ToolSource
+from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, Severity, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
     CollectedArtifact,
@@ -341,14 +341,14 @@ class SecureScoreAdapter:
         through to fallback_severity (MEDIUM), discarding the computed value.
         """
         return {
-            ("CRITICAL", "FAIL"): "CRITICAL",
-            ("HIGH", "FAIL"): "HIGH",
-            ("MEDIUM", "FAIL"): "MEDIUM",
-            ("LOW", "FAIL"): "LOW",
-            ("CRITICAL", "MANUAL"): "CRITICAL",
-            ("HIGH", "MANUAL"): "HIGH",
-            ("MEDIUM", "MANUAL"): "MEDIUM",
-            ("LOW", "MANUAL"): "LOW",
+            (Severity.CRITICAL, FindingStatus.FAIL): Severity.CRITICAL,
+            (Severity.HIGH, FindingStatus.FAIL): Severity.HIGH,
+            (Severity.MEDIUM, FindingStatus.FAIL): Severity.MEDIUM,
+            (Severity.LOW, FindingStatus.FAIL): Severity.LOW,
+            (Severity.CRITICAL, FindingStatus.MANUAL): Severity.CRITICAL,
+            (Severity.HIGH, FindingStatus.MANUAL): Severity.HIGH,
+            (Severity.MEDIUM, FindingStatus.MANUAL): Severity.MEDIUM,
+            (Severity.LOW, FindingStatus.MANUAL): Severity.LOW,
         }
 
     @property
