@@ -257,6 +257,46 @@ class TestParseSecureScore:
         assert len(observations) == 1
         assert observations[0].native_status == FindingStatus.MANUAL
 
+    def test_missing_rank_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Profile with no 'rank' field emits a warning log."""
+        profiles = {
+            "value": [
+                {
+                    "id": "NoRankControl",
+                    "title": "Control Without Rank",
+                    "deprecated": False,
+                    "tier": "Core",
+                    "controlCategory": "Identity",
+                    "maxScore": 5.0,
+                    "controlStateUpdates": [],
+                    # intentionally omitting "rank"
+                }
+            ]
+        }
+        with caplog.at_level(logging.WARNING, logger="gxassessms.adapters.secure_score.parser"):
+            parse_secure_score(profiles, {"value": []})
+        assert "rank" in caplog.text.lower()
+
+    def test_missing_tier_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Profile with no 'tier' field emits a warning log."""
+        profiles = {
+            "value": [
+                {
+                    "id": "NoTierControl",
+                    "title": "Control Without Tier",
+                    "deprecated": False,
+                    "rank": 10,
+                    "controlCategory": "Identity",
+                    "maxScore": 5.0,
+                    "controlStateUpdates": [],
+                    # intentionally omitting "tier"
+                }
+            ]
+        }
+        with caplog.at_level(logging.WARNING, logger="gxassessms.adapters.secure_score.parser"):
+            parse_secure_score(profiles, {"value": []})
+        assert "tier" in caplog.text.lower()
+
     def test_empty_profiles_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """Empty profiles array emits a warning log."""
         empty = {"value": []}
