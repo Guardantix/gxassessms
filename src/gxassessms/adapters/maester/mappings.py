@@ -78,18 +78,32 @@ CATEGORY_MAP: dict[str, Category] = {
 # ---------------------------------------------------------------------------
 
 DEDUP_KEY_RULES: dict[str, str] = {
-    # CISA SCuBA tests -- same controls as ScubaGear, same dedup keys
-    "CISA.MS.AAD.3.1": "cis:m365:1.1.1",
-    "CISA.MS.AAD.3.2": "cis:m365:1.1.2",
-    "CISA.MS.AAD.3.3": "cis:m365:1.1.3",
-    "CISA.MS.AAD.7.1": "cis:m365:1.1.4",
-    "CISA.MS.EXO.4.1": "cis:m365:2.1.1",
-    "CISA.MS.EXO.4.2": "cis:m365:2.1.2",
-    "CISA.MS.EXO.4.3": "cis:m365:2.1.3",
+    # CISA SCuBA tests -- same controls as ScubaGear, same dedup keys.
+    # Mapped to CIS M365 v5/v6 control IDs where equivalent exists.
+    # --- Section 1.1: Admin Account Governance ---
+    "CISA.MS.AAD.7.3": "cis:m365:1.1.1",  # Admin accounts cloud-only
+    "CISA.MS.AAD.7.1": "cis:m365:1.1.3",  # Global admin count
+    # --- Section 2.1: Email Security (Defender/EXO) ---
+    "CISA.MS.DEFENDER.3.1": "cis:m365:2.1.5",  # Safe Attachments for SPO/ODB/Teams
+    "CISA.MS.EXO.2.2": "cis:m365:2.1.8",  # SPF
+    "CISA.MS.EXO.3.1": "cis:m365:2.1.9",  # DKIM
+    "CISA.MS.EXO.4.1": "cis:m365:2.1.10",  # DMARC record
+    "CISA.MS.EXO.4.2": "cis:m365:2.1.10",  # DMARC p=reject (same CIS control)
+    # --- Section 5.2.2: Conditional Access ---
+    "CISA.MS.AAD.3.6": "cis:m365:5.2.2.1",  # MFA for admin roles
+    "CISA.MS.AAD.3.2": "cis:m365:5.2.2.2",  # MFA for all users
+    "CISA.MS.AAD.1.1": "cis:m365:5.2.2.3",  # Block legacy auth
+    "CISA.MS.AAD.3.1": "cis:m365:5.2.2.5",  # Phishing-resistant MFA
+    # --- Section 5.2.3: Authentication Methods ---
+    "CISA.MS.AAD.3.3": "cis:m365:5.2.3.1",  # Authenticator anti-fatigue
+    "CISA.MS.AAD.3.5": "cis:m365:5.2.3.5",  # Disable weak auth methods
+    # --- Section 6: Exchange Online ---
+    "CISA.MS.EXO.1.1": "cis:m365:6.2.1",  # Block mail forwarding
+    # --- CISA-only (no CIS equivalent) ---
     "CISA.MS.SHAREPOINT.1.1": "cisa:spo:external_sharing",
     # CIS M365 benchmark tests -- separate framework, own dedup keys
     "CIS.M365.1.1.1": "cis:m365:1.1.1:cloud_only_admins",
     "CIS.M365.1.2.1": "cis:m365:1.2.1:public_groups",
-    "CIS.M365.2.1.9": "cis:m365:2.1.9:connection_filter_safelist",
+    "CIS.M365.2.1.9": "cis:m365:2.1.9:dkim",
     "CIS.M365.8.6.1": "cis:m365:8.6.1:teams_security_reporting",
 }

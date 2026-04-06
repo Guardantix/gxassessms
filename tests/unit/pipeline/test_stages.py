@@ -379,7 +379,7 @@ class TestNormalizeStage:
         policy.normalize.return_value = expected_findings
         severity_map: dict[tuple[str, str], str] = {("Shall", "FAIL"): "CRITICAL"}
         category_map: dict[str, str] = {"aad": "IDENTITY_ACCESS"}
-        dedup_keys: dict[str, str] = {"MS.AAD.3.1v1": "cis:m365:1.1.1"}
+        dedup_keys: dict[str, str] = {"MS.AAD.7.3v1": "cis:m365:1.1.1"}
         results = normalize(
             observations,
             policy,

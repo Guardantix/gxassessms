@@ -78,22 +78,22 @@ def adapter_category_map() -> dict:
 def adapter_dedup_keys() -> dict:
     """Adapter-specific dedup key mapping (native_check_id -> finding_key)."""
     return {
-        "MS.AAD.3.1v1": "cis:m365:1.1.1",
-        "MS.AAD.3.2v1": "cis:m365:1.1.2",
-        "MS.EXO.4.1v1": "cis:m365:2.1.1",
+        "MS.AAD.7.3v1": "cis:m365:1.1.1",
+        "MS.AAD.3.2v2": "cis:m365:5.2.2.2",
+        "MS.EXO.4.1v1": "cis:m365:2.1.10",
     }
 
 
 @pytest.fixture
 def sample_observation() -> ToolObservation:
     return ToolObservation(
-        observation_id="scubagear:MS.AAD.3.1v1",
+        observation_id="scubagear:MS.AAD.7.3v1",
         tool=ToolSource.SCUBAGEAR,
-        native_check_id="MS.AAD.3.1v1",
-        title="MFA for privileged roles",
+        native_check_id="MS.AAD.7.3v1",
+        title="Cloud-only admin accounts",
         native_severity="Shall",
         native_status="Fail",
-        description="Multi-factor authentication is not enabled for admins.",
+        description="Administrative accounts are not cloud-only.",
         benchmark_refs=["CIS M365 1.1.1"],
     )
 
@@ -122,7 +122,7 @@ class TestDefaultNormalizationPolicy:
         )
         assert len(findings) == 1
         f = findings[0]
-        assert f.observation_id == "scubagear:MS.AAD.3.1v1"
+        assert f.observation_id == "scubagear:MS.AAD.7.3v1"
         assert f.finding_key == "cis:m365:1.1.1"
         assert f.severity == Severity.CRITICAL
         assert f.status == FindingStatus.FAIL
@@ -137,9 +137,9 @@ class TestDefaultNormalizationPolicy:
         adapter_dedup_keys: dict,
     ) -> None:
         obs = ToolObservation(
-            observation_id="scubagear:MS.AAD.3.2v1",
+            observation_id="scubagear:MS.AAD.3.2v2",
             tool=ToolSource.SCUBAGEAR,
-            native_check_id="MS.AAD.3.2v1",
+            native_check_id="MS.AAD.3.2v2",
             title="MFA for all users",
             native_severity="Should",
             native_status="Fail",
@@ -239,7 +239,7 @@ class TestDefaultNormalizationPolicy:
             observations=[obs],
             adapter_severity_map={},
             adapter_category_map=adapter_category_map,
-            adapter_dedup_keys={"MS.EXO.4.1v1": "cis:m365:2.1.1"},
+            adapter_dedup_keys={"MS.EXO.4.1v1": "cis:m365:2.1.10"},
         )
         assert findings[0].category == Category.EMAIL_COLLABORATION
 

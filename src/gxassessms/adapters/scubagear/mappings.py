@@ -87,9 +87,22 @@ CATEGORY_MAP: dict[str, Category] = {
 # ---------------------------------------------------------------------------
 
 DEDUP_KEY_RULES: dict[str, str] = {
-    "MS.AAD.1.1v1": "cis:m365:1.1.4",  # Block legacy authentication
-    "MS.AAD.3.4v1": "cis:m365:1.1.1",  # Authentication Methods migration complete
-    "MS.EXO.1.1v2": "cis:m365:2.1.4",  # Disable automatic forwarding to external domains
-    "MS.EXO.2.2v2": "cis:m365:2.1.2",  # SPF policy published for each domain
-    "MS.EXO.3.1v1": "cis:m365:2.1.1",  # DKIM enabled for all domains
+    # --- Section 1.1: Admin Account Governance ---
+    "MS.AAD.7.3v1": "cis:m365:1.1.1",  # Admin accounts must be cloud-only
+    "MS.AAD.7.1v1": "cis:m365:1.1.3",  # Global admin count (CISA: 2-8, CIS: 2-4)
+    # --- Section 2.1: Email Security (Defender/EXO) ---
+    "MS.DEFENDER.3.1v1": "cis:m365:2.1.5",  # Safe Attachments for SPO/ODB/Teams
+    "MS.EXO.2.2v3": "cis:m365:2.1.8",  # SPF policy published for each domain
+    "MS.EXO.3.1v1": "cis:m365:2.1.9",  # DKIM enabled for all domains
+    "MS.EXO.4.1v1": "cis:m365:2.1.10",  # DMARC record published for each domain
+    # --- Section 5.2.2: Conditional Access ---
+    "MS.AAD.3.6v1": "cis:m365:5.2.2.1",  # MFA for admin roles
+    "MS.AAD.3.2v2": "cis:m365:5.2.2.2",  # MFA for all users
+    "MS.AAD.1.1v1": "cis:m365:5.2.2.3",  # Block legacy authentication
+    "MS.AAD.3.1v1": "cis:m365:5.2.2.5",  # Phishing-resistant MFA for admins
+    # --- Section 5.2.3: Authentication Methods ---
+    "MS.AAD.3.3v2": "cis:m365:5.2.3.1",  # Authenticator anti-fatigue (context info)
+    "MS.AAD.3.5v2": "cis:m365:5.2.3.5",  # Disable weak auth methods
+    # --- Section 6: Exchange Online ---
+    "MS.EXO.1.1v2": "cis:m365:6.2.1",  # Block all forms of mail forwarding
 }
