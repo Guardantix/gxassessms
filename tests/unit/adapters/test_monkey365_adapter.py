@@ -1,6 +1,7 @@
 """Tests for Monkey365Adapter.collect() reserved-arg guard.
 
-Covers: case-insensitive conflict detection for reserved PowerShell parameters.
+Covers: case-insensitive conflict detection for reserved PowerShell parameters,
+including PowerShell prefix-binding bypasses.
 """
 
 from __future__ import annotations
@@ -98,6 +99,38 @@ class TestReservedArgGuard:
             self._collect_blocked(["-outdir"])
 
     # -- non-reserved args must pass through without triggering the guard --
+
+    # -- PowerShell prefix-binding bypasses must be blocked --
+
+    def test_outdir_prefix_named_blocked(self) -> None:
+        """'-OutDi:foo' is a prefix of 'OutDir' and must be blocked."""
+        with pytest.raises(CollectionError, match="reserved"):
+            self._collect_blocked(["-OutDi:foo"])
+
+    def test_outdir_short_prefix_named_blocked(self) -> None:
+        """'-Outd:foo' is a shorter prefix of 'OutDir' and must be blocked."""
+        with pytest.raises(CollectionError, match="reserved"):
+            self._collect_blocked(["-Outd:foo"])
+
+    def test_instance_prefix_named_blocked(self) -> None:
+        """'-Inst:Azure' is a prefix of 'Instance' and must be blocked."""
+        with pytest.raises(CollectionError, match="reserved"):
+            self._collect_blocked(["-Inst:Azure"])
+
+    def test_exportto_prefix_named_blocked(self) -> None:
+        """'-Export:CSV' is a prefix of 'ExportTo' and must be blocked."""
+        with pytest.raises(CollectionError, match="reserved"):
+            self._collect_blocked(["-Export:CSV"])
+
+    def test_outdir_prefix_switch_blocked(self) -> None:
+        """'-OutDi' as bare switch is a prefix of 'OutDir' and must be blocked."""
+        with pytest.raises(CollectionError, match="reserved"):
+            self._collect_blocked(["-OutDi"])
+
+    def test_instance_prefix_switch_blocked(self) -> None:
+        """'-Inst' as bare switch is a prefix of 'Instance' and must be blocked."""
+        with pytest.raises(CollectionError, match="reserved"):
+            self._collect_blocked(["-Inst"])
 
     def test_non_reserved_arg_passes_guard(self, tmp_path: Path) -> None:
         """A legitimate extra_arg must not be blocked by the reserved-arg guard.

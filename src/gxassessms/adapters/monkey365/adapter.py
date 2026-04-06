@@ -121,8 +121,12 @@ class Monkey365Adapter:
             validated = validate_extra_args(tc.extra_args)
             extra_named, switches = parse_extra_args(validated)
             _reserved_lower = frozenset(r.lower() for r in _RESERVED_ARGS)
-            reserved_conflicts = {k for k in extra_named if k.lower() in _reserved_lower}
-            reserved_conflicts |= {k for k in switches if k.lower() in _reserved_lower}
+            reserved_conflicts = {
+                k for k in extra_named if any(r.startswith(k.lower()) for r in _reserved_lower)
+            }
+            reserved_conflicts |= {
+                k for k in switches if any(r.startswith(k.lower()) for r in _reserved_lower)
+            }
             if reserved_conflicts:
                 raise CollectionError(
                     f"extra_args contains reserved Monkey365 args that cannot be overridden: "
