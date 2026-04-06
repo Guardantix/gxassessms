@@ -172,3 +172,15 @@ class TestParseSecureScore:
         observations = parse_secure_score(profiles_data, snapshot_data)
         noa = next(o for o in observations if o.native_check_id == "NonOwnerAccess")
         assert noa.native_status == FindingStatus.PASS
+
+    def test_native_category_from_control_category(
+        self, profiles_data: dict, snapshot_data: dict
+    ) -> None:
+        """Parser sets native_category from profile controlCategory field."""
+        observations = parse_secure_score(profiles_data, snapshot_data)
+        mfa = next(o for o in observations if o.native_check_id == "MFARegistrationV2")
+        assert mfa.native_category == "Identity"
+        dlp = next(o for o in observations if o.native_check_id == "DLPEnabled")
+        assert dlp.native_category == "Data"
+        tp = next(o for o in observations if o.native_check_id == "ThirdPartyIgnored")
+        assert tp.native_category == "Device"

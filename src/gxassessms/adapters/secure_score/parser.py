@@ -156,6 +156,7 @@ def parse_secure_score(
             description=description,
             native_severity=severity,
             native_status=status,
+            native_category=profile.get("controlCategory"),
             raw_data={
                 "profile": profile,
                 "score_data": score_data if score_data is not None else {},
