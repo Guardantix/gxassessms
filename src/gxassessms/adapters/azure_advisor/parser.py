@@ -69,9 +69,33 @@ def parse_advisor_recommendations(
             )
             instance_name = recommendation_type_id
 
-        category: str = rec.get("category", "")
-        impact: str = rec.get("impact", "Medium")
-        severity = IMPACT_TO_SEVERITY_MAP.get(impact, Severity.MEDIUM)
+        category_raw = rec.get("category")
+        if not isinstance(category_raw, str) or not category_raw:
+            logger.warning(
+                "Recommendation %s has null/empty category; "
+                "native_check_id will lack category prefix",
+                recommendation_type_id,
+            )
+            category = ""
+        else:
+            category = category_raw
+
+        impact_raw = rec.get("impact")
+        if not isinstance(impact_raw, str) or not impact_raw:
+            logger.warning(
+                "Recommendation %s has unexpected impact value %r; defaulting to MEDIUM",
+                recommendation_type_id,
+                impact_raw,
+            )
+            severity = Severity.MEDIUM
+        else:
+            severity = IMPACT_TO_SEVERITY_MAP.get(impact_raw, Severity.MEDIUM)
+            if impact_raw not in IMPACT_TO_SEVERITY_MAP:
+                logger.warning(
+                    "Unknown impact value %r for recommendation %s; defaulting to MEDIUM",
+                    impact_raw,
+                    recommendation_type_id,
+                )
 
         # Prefix native_check_id with Advisor category so normalization's
         # _extract_module_prefix can resolve it via the category_map.
