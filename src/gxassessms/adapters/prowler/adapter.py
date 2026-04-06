@@ -21,6 +21,7 @@ Verified against Prowler source at /home/guardantix/ToolInspection/prowler/.
 from __future__ import annotations
 
 import logging
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -75,6 +76,55 @@ _AUTH_METHOD_MAP: dict[str, list[str]] = {
     "device_code": ["--browser-auth"],
     "interactive": ["--browser-auth"],
 }
+
+# Allowlist of permitted Prowler CLI flags for extra_args.
+_PROWLER_ALLOWED_FLAGS: frozenset[str] = frozenset(
+    {
+        "--az-cli-auth",
+        "--sp-env-auth",
+        "--browser-auth",
+        "--managed-identity-auth",
+        "--tenant-id",
+        "--subscription-ids",
+        "--checks",
+        "--checks-file",
+        "--severity",
+        "--services",
+        "--scan-list",
+        "--ignore-exit-code-3",
+        "--only-logs",
+        "--quiet",
+        "--verbose",
+        "--no-banner",
+        "--scan-unused-services",
+    }
+)
+
+# Permitted character set for non-flag values (UUIDs, check IDs, etc.)
+_PROWLER_VALUE_RE: re.Pattern[str] = re.compile(r"^[\w\-.,:/@ ]+$")
+
+
+def _validate_prowler_extra_args(args: list[str], adapter_name: str) -> list[str]:
+    """Validate Prowler extra_args against the allowed flag allowlist.
+
+    Raises:
+        CollectionError: If any arg contains an unrecognized flag or unsafe value.
+    """
+    for arg in args:
+        if arg.startswith("--"):
+            if arg not in _PROWLER_ALLOWED_FLAGS:
+                raise CollectionError(
+                    f"Unrecognized Prowler flag in extra_args: {arg!r}. "
+                    f"Permitted flags: {sorted(_PROWLER_ALLOWED_FLAGS)}",
+                    adapter_name=adapter_name,
+                )
+        elif not _PROWLER_VALUE_RE.match(arg):
+            raise CollectionError(
+                f"Unsafe value in Prowler extra_args: {arg!r}. "
+                f"Values must match: {_PROWLER_VALUE_RE.pattern}",
+                adapter_name=adapter_name,
+            )
+    return args
 
 
 class ProwlerAdapter:
@@ -176,7 +226,7 @@ class ProwlerAdapter:
             "azure",  # POSITIONAL provider (not --provider)
         ]
 
-        extra_args = tc.extra_args or []
+        extra_args = _validate_prowler_extra_args(tc.extra_args or [], self.tool_name)
 
         auth_flags = _AUTH_METHOD_MAP.get(config.auth.method)
         if auth_flags is not None:

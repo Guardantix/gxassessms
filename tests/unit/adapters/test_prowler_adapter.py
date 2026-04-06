@@ -465,3 +465,86 @@ class TestCollectExitCodes:
             ),
         ):
             adapter.collect(config, None)
+
+
+# ---------------------------------------------------------------------------
+# extra_args validation -- allowlist enforcement
+# ---------------------------------------------------------------------------
+
+
+class TestValidateProwlerExtraArgs:
+    """Verify extra_args are validated against the Prowler flag allowlist."""
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_known_auth_flag_is_accepted(self, mock_shutil: MagicMock, tmp_path: Path) -> None:
+        """Known Prowler auth flags must pass validation."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
+        ocsf_file.write_text('[{"finding_info": {}}]')
+        config = _make_config(
+            auth_method="client_credential",
+            extra_args=["--az-cli-auth"],
+            output_dir=str(tmp_path),
+        )
+        adapter = ProwlerAdapter()
+        with patch(
+            "subprocess.run",
+            return_value=MagicMock(returncode=0, stdout=b"", stderr=b""),
+        ):
+            result = adapter.collect(config, None)
+        assert result is not None
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_unknown_flag_raises_collection_error(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """Unrecognized flags must be rejected before subprocess invocation."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        config = _make_config(
+            auth_method="client_credential",
+            extra_args=["--unknown-dangerous-flag"],
+            output_dir=str(tmp_path),
+        )
+        adapter = ProwlerAdapter()
+        with pytest.raises(CollectionError, match=r"[Uu]nrecognized.*flag"):
+            adapter.collect(config, None)
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_unsafe_value_raises_collection_error(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """Values containing shell metacharacters must be rejected."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        config = _make_config(
+            auth_method="client_credential",
+            extra_args=["--checks", "check; rm -rf /"],
+            output_dir=str(tmp_path),
+        )
+        adapter = ProwlerAdapter()
+        with pytest.raises(CollectionError, match=r"[Uu]nsafe"):
+            adapter.collect(config, None)
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_valid_flag_value_pair_is_accepted(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """Known flag + safe value must pass validation and appear in command."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
+        ocsf_file.write_text('[{"finding_info": {}}]')
+        config = _make_config(
+            auth_method="client_credential",
+            extra_args=["--checks", "defender_ensure_defender_for_app_services_is_on"],
+            output_dir=str(tmp_path),
+        )
+        adapter = ProwlerAdapter()
+        captured_cmd: list[str] = []
+
+        def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
+            captured_cmd.extend(cmd)
+            return MagicMock(returncode=0, stdout=b"", stderr=b"")
+
+        with patch("subprocess.run", side_effect=capture):
+            adapter.collect(config, None)
+        assert "--checks" in captured_cmd
+        assert "defender_ensure_defender_for_app_services_is_on" in captured_cmd
