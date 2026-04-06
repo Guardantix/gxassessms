@@ -206,7 +206,7 @@ class SecureScoreAdapter:
                 adapter_name=self.tool_name,
             )
 
-        tc = config.tools.get("secure_score")
+        tc = config.tools.get(self.tool_name.lower())
         if tc is None or not tc.output_dir:
             raise CollectionError(
                 "Secure Score adapter requires 'output_dir' in tool config",
@@ -332,8 +332,24 @@ class SecureScoreAdapter:
 
     @property
     def severity_map(self) -> dict[tuple[str, str], Any]:
-        """Empty -- Secure Score derives severity from rank/tier, not a map."""
-        return {}
+        """Pass through parser-derived severity for failing/manual controls.
+
+        Secure Score derives severity from rank+tier in the parser and stores
+        it directly as a domain severity string in native_severity. The
+        normalization default_severity_map only covers Shall/Should/May entries
+        (ScubaGear/Maester), so without this map, all non-pass findings fall
+        through to fallback_severity (MEDIUM), discarding the computed value.
+        """
+        return {
+            ("CRITICAL", "FAIL"): "CRITICAL",
+            ("HIGH", "FAIL"): "HIGH",
+            ("MEDIUM", "FAIL"): "MEDIUM",
+            ("LOW", "FAIL"): "LOW",
+            ("CRITICAL", "MANUAL"): "CRITICAL",
+            ("HIGH", "MANUAL"): "HIGH",
+            ("MEDIUM", "MANUAL"): "MEDIUM",
+            ("LOW", "MANUAL"): "LOW",
+        }
 
     @property
     def category_map(self) -> dict[str, Any]:

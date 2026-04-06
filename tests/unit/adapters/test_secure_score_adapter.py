@@ -25,7 +25,35 @@ def _make_auth(*, expired: bool = False) -> AuthContext:
 def _stub_config() -> SimpleNamespace:
     """Minimal config stub that passes auth checks but has no output_dir."""
     tc = SimpleNamespace(output_dir=None, timeout=None)
-    return SimpleNamespace(tools={"secure_score": tc})
+    return SimpleNamespace(tools={"securescore": tc})
+
+
+class TestAdapterProperties:
+    def test_severity_map_covers_all_domain_severities_for_fail(self) -> None:
+        """severity_map passes through all domain severities for FAIL status."""
+        adapter = SecureScoreAdapter()
+        smap = adapter.severity_map
+        for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
+            assert smap.get((sev, "FAIL")) == sev, (
+                f"severity_map missing or wrong for ({sev!r}, 'FAIL')"
+            )
+
+    def test_severity_map_covers_all_domain_severities_for_manual(self) -> None:
+        """severity_map passes through all domain severities for MANUAL status."""
+        adapter = SecureScoreAdapter()
+        smap = adapter.severity_map
+        for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
+            assert smap.get((sev, "MANUAL")) == sev
+
+    def test_tool_name_lower_matches_config_key_convention(self) -> None:
+        """tool_name.lower() matches the key used by collect() for config lookup.
+
+        All other adapters (ScubaGear, Maester) use self.tool_name.lower() as the
+        config key. This test guards against a regression to a hardcoded mismatch.
+        """
+        adapter = SecureScoreAdapter()
+        # tool_name = "SecureScore", tool_name.lower() = "securescore"
+        assert adapter.tool_name.lower() == "securescore"
 
 
 class TestCollectGuards:
