@@ -13,7 +13,7 @@ from gxassessms.core.domain.enums import Category, Severity
 
 logger = logging.getLogger(__name__)
 
-CATEGORY_MAP: dict[str, str] = {
+CATEGORY_MAP: dict[str, Category] = {
     "Identity": Category.IDENTITY_ACCESS,
     "Data": Category.DATA_PROTECTION,
     "Device": Category.DEVICE_MANAGEMENT,
