@@ -330,6 +330,11 @@ class ProwlerAdapter:
                 )
 
             for i, finding in enumerate(findings):
+                if not isinstance(finding, dict):
+                    raise RawOutputValidationError(
+                        f"Finding [{i}] is {type(finding).__name__}, expected object in {path}",
+                        adapter_name=self.tool_name,
+                    )
                 if "finding_info" not in finding:
                     raise RawOutputValidationError(
                         f"Finding [{i}] missing 'finding_info' field in {path}",
