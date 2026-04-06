@@ -44,7 +44,11 @@ def get_latest_control_state(
             reverse=True,
         )
         return sorted_updates[0].get("state", "Default")
-    except TypeError, IndexError, KeyError:
+    except (TypeError, IndexError, KeyError, AttributeError) as exc:
+        logger.warning(
+            "Failed to parse controlStateUpdates; defaulting to 'Default': %s",
+            exc,
+        )
         return "Default"
 
 
