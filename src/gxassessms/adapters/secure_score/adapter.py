@@ -198,6 +198,13 @@ class SecureScoreAdapter:
                 adapter_name=self.tool_name,
             )
 
+        if auth.expires_at is not None and auth.expires_at <= utc_now():
+            raise CollectionError(
+                f"Graph API token expired at {auth.expires_at.isoformat()}. "
+                "Call authenticate() again before collect().",
+                adapter_name=self.tool_name,
+            )
+
         tc = config.tools.get("secure_score")
         if tc is None or not tc.output_dir:
             raise CollectionError(
