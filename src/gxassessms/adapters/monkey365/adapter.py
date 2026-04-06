@@ -91,6 +91,7 @@ class Monkey365Adapter:
         from gxassessms.adapters.monkey365.policy import ALLOWED_COMMANDS, MODULE_POLICY
         from gxassessms.core.config.datetime_utils import utc_now
         from gxassessms.core.hashing import sha256_file
+        from gxassessms.core.security.permissions import secure_mkdir
 
         tc = config.tools.get(self.tool_name.lower())
         if tc is None or not tc.output_dir:
@@ -100,7 +101,7 @@ class Monkey365Adapter:
             )
 
         output_dir = Path(tc.output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        secure_mkdir(output_dir, parents=True, exist_ok=True)
 
         timeout_seconds = tc.timeout if tc.timeout is not None else _DEFAULT_TIMEOUT_SECONDS
 
