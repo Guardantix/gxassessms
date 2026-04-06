@@ -89,7 +89,8 @@ CATEGORY_MAP: dict[str, Category] = {
 DEDUP_KEY_RULES: dict[str, str] = {
     # --- Section 1.1: Admin Account Governance ---
     "MS.AAD.7.3v1": "cis:m365:1.1.1",  # Admin accounts must be cloud-only
-    "MS.AAD.7.1v1": "cis:m365:1.1.3",  # Global admin count (CISA: 2-8, CIS: 2-4)
+    # CIS 1.1.3 requires max 4 global admins; CISA allows 2-8 -- different threshold.
+    "MS.AAD.7.1v1": "cisa:aad:global_admin_count",  # Global admin count (CISA threshold: 2-8)
     # --- Section 2.1: Email Security (Defender/EXO) ---
     "MS.DEFENDER.3.1v1": "cis:m365:2.1.5",  # Safe Attachments for SPO/ODB/Teams
     "MS.EXO.2.2v2": "cis:m365:2.1.8",  # SPF -- ScubaGear <= 1.7.x

@@ -267,7 +267,8 @@ class TestDedupKeyRules:
         assert self.rules["MS.AAD.7.3v1"] == "cis:m365:1.1.1"
 
     def test_ms_aad_7_1v1_global_admin_count(self) -> None:
-        assert self.rules["MS.AAD.7.1v1"] == "cis:m365:1.1.3"
+        # CISA threshold is 2-8; CIS 1.1.3 requires max 4 -- not equivalent.
+        assert self.rules["MS.AAD.7.1v1"] == "cisa:aad:global_admin_count"
 
     def test_ms_aad_1_1v1_block_legacy_auth(self) -> None:
         assert self.rules["MS.AAD.1.1v1"] == "cis:m365:5.2.2.3"

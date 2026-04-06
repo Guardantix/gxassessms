@@ -82,7 +82,8 @@ DEDUP_KEY_RULES: dict[str, str] = {
     # Mapped to CIS M365 v5/v6 control IDs where equivalent exists.
     # --- Section 1.1: Admin Account Governance ---
     "CISA.MS.AAD.7.3": "cis:m365:1.1.1",  # Admin accounts cloud-only
-    "CISA.MS.AAD.7.1": "cis:m365:1.1.3",  # Global admin count
+    # CIS 1.1.3 requires max 4 global admins; CISA allows 2-8 -- different threshold.
+    "CISA.MS.AAD.7.1": "cisa:aad:global_admin_count",  # Global admin count (CISA threshold: 2-8)
     # --- Section 2.1: Email Security (Defender/EXO) ---
     "CISA.MS.DEFENDER.3.1": "cis:m365:2.1.5",  # Safe Attachments for SPO/ODB/Teams
     "CISA.MS.EXO.2.2": "cis:m365:2.1.8",  # SPF
