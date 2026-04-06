@@ -110,6 +110,6 @@ cis:azure:5.3.11:
   prowler: "defender_ensure_defender_for_sql_servers_is_on"
   semantic: "defender:sql_servers:enabled"
 
-cis:azure:5.3.12:
+cis:azure:5.1.7:
   prowler: "defender_ensure_defender_for_storage_is_on"
-  semantic: "defender:storage:enabled"
+  semantic: "Ensure Microsoft Defender for Storage is Set to On"
