@@ -10,6 +10,7 @@ from __future__ import annotations
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -54,7 +55,7 @@ def _make_auth() -> AuthContext:
     )
 
 
-def _make_mock_client(responses: list[dict]) -> MagicMock:
+def _make_mock_client(responses: list[dict[str, Any]]) -> MagicMock:
     """Return a mock httpx client whose get() returns the given dicts in sequence."""
     mock_client = MagicMock()
     mock_responses = []
