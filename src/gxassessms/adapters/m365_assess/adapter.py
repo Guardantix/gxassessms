@@ -307,7 +307,7 @@ class M365AssessAdapter:
             try:
                 obs = parse_security_config_csv(Path(csv_path), severity_lookup, registry_lookup)
                 observations.extend(obs)
-            except (OSError, csv.Error) as exc:
+            except (OSError, UnicodeDecodeError, csv.Error) as exc:
                 raise ParseError(
                     f"Failed to parse {Path(csv_path).name}: {exc}",
                     adapter_name=self.tool_name,
@@ -405,7 +405,7 @@ class M365AssessAdapter:
                     )
         except RawOutputValidationError:
             raise
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError, csv.Error) as exc:
             raise RawOutputValidationError(
                 f"Cannot read CSV file {csv_path.name}: {exc}",
                 adapter_name=self.tool_name,
