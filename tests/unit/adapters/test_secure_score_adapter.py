@@ -1,26 +1,31 @@
 """Unit tests for SecureScoreAdapter guards that don't require network calls."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from pydantic import SecretStr
 
 from gxassessms.adapters.secure_score.adapter import SecureScoreAdapter
+from gxassessms.core.config.datetime_utils import utc_now
 from gxassessms.core.contracts.errors import CollectionError
 from gxassessms.core.domain.models import AuthContext
 
 
 def _make_auth(*, expired: bool = False) -> AuthContext:
     """Build an AuthContext with either a future or past expiry."""
-    if expired:
-        expires_at = datetime.now(UTC) - timedelta(hours=1)
-    else:
-        expires_at = datetime.now(UTC) + timedelta(hours=1)
+    expires_at = utc_now() - timedelta(hours=1) if expired else utc_now() + timedelta(hours=1)
     return AuthContext(
         token=SecretStr("fake-token"),
         expires_at=expires_at,
         extra={},
     )
+
+
+def _stub_config() -> SimpleNamespace:
+    """Minimal config stub that passes auth checks but has no output_dir."""
+    tc = SimpleNamespace(output_dir=None, timeout=None)
+    return SimpleNamespace(tools={"secure_score": tc})
 
 
 class TestCollectGuards:
@@ -38,9 +43,13 @@ class TestCollectGuards:
             adapter.collect(config=object(), auth=expired_auth)  # type: ignore[arg-type]
 
     def test_does_not_raise_for_valid_token_expiry(self) -> None:
-        """A future expiry alone does not trigger the expiry guard."""
+        """A future expiry alone does not trigger the expiry guard.
+
+        The test confirms execution reaches the config validation guard
+        (which comes after the expiry guard), not the expiry guard itself.
+        """
         adapter = SecureScoreAdapter()
         valid_auth = _make_auth(expired=False)
-        # Should get past the expiry guard and fail on missing config, not expiry
-        with pytest.raises((CollectionError, AttributeError, TypeError)):
-            adapter.collect(config=object(), auth=valid_auth)  # type: ignore[arg-type]
+        # Must get past expiry guard and fail on missing output_dir, not expiry
+        with pytest.raises(CollectionError, match="output_dir"):
+            adapter.collect(config=_stub_config(), auth=valid_auth)  # type: ignore[arg-type]
