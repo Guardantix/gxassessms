@@ -1,0 +1,20 @@
+{
+  "description": "Risk severity assignments for M365-Assess security checks",
+  "version": "1.0.0",
+  "severityScale": ["Critical", "High", "Medium", "Low", "Info"],
+  "checks": {
+    "ENTRA-SECDEFAULT-001": "High",
+    "ENTRA-ADMIN-001": "High",
+    "ENTRA-CONSENT-001": "Medium",
+    "ENTRA-GROUP-001": "High",
+    "ENTRA-CA-002": "Medium",
+    "ENTRA-PERUSER-001": "Critical",
+    "ENTRA-CLOUDADMIN-001": "Critical",
+    "ENTRA-AUTHMETHOD-001": "Critical",
+    "EXO-AUTH-001": "Critical",
+    "EXO-AUDIT-001": "High",
+    "EXO-LOCKBOX-001": "Medium",
+    "EXO-FORWARD-001": "High",
+    "EXO-SHAREDMBX-001": "Medium"
+  }
+}
