@@ -202,6 +202,31 @@ class TestProwlerConformance(AdapterConformanceSuite):
         with pytest.raises(RawOutputValidationError, match=r"missing 'metadata\.event_code'"):
             adapter.validate_raw(raw)
 
+    def test_validate_raw_rejects_non_dict_metadata(
+        self,
+        adapter: ProwlerAdapter,
+        tmp_path: Path,
+    ) -> None:
+        """metadata that is not a dict should raise RawOutputValidationError, not TypeError."""
+        bad_file = tmp_path / "bad.ocsf.json"
+        bad_file.write_text(
+            '[{"finding_info": {"uid": "x"}, "status_code": "PASS", "metadata": 1}]'
+        )
+        sha = hashlib.sha256(bad_file.read_bytes()).hexdigest()
+        raw = ResolvedManifest(
+            tool=ToolSource.PROWLER,
+            tool_slug="prowler",
+            schema_version="1.0.0",
+            manifest_version="1.0.0",
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            file_manifest={str(bad_file): ArtifactRecord(encoding="utf-8", sha256=sha)},
+            execution_metadata={},
+        )
+        from gxassessms.core.contracts.errors import RawOutputValidationError
+
+        with pytest.raises(RawOutputValidationError, match=r"missing 'metadata\.event_code'"):
+            adapter.validate_raw(raw)
+
     def test_validate_raw_rejects_metadata_without_event_code(
         self,
         adapter: ProwlerAdapter,

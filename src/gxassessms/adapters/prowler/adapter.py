@@ -423,7 +423,11 @@ class ProwlerAdapter:
                         f"Finding [{i}] missing 'status_code' field in {path}",
                         adapter_name=self.tool_name,
                     )
-                if "metadata" not in finding or "event_code" not in finding["metadata"]:
+                if (
+                    "metadata" not in finding
+                    or not isinstance(finding["metadata"], dict)
+                    or "event_code" not in finding["metadata"]
+                ):
                     raise RawOutputValidationError(
                         f"Finding [{i}] missing 'metadata.event_code' field in {path}",
                         adapter_name=self.tool_name,
