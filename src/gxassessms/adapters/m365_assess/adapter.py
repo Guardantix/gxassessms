@@ -136,7 +136,7 @@ class M365AssessAdapter:
         from gxassessms.core.config.datetime_utils import utc_now
         from gxassessms.core.hashing import sha256_file
 
-        tc = config.tools.get(self.tool_name.lower())
+        tc = config.tools.get(self.tool_name.lower()) or config.tools.get("m365_assess")
         if tc is None or not tc.output_dir:
             raise CollectionError(
                 "M365-Assess adapter requires 'output_dir' in tool config",
@@ -154,9 +154,11 @@ class M365AssessAdapter:
         else:
             script_path = ".\\Invoke-M365Assessment.ps1"
 
-        # Build script invocation
+        # Build script invocation.  Use the call operator (&) with single-quoted
+        # path so PowerShell treats it as a literal string rather than splitting
+        # on spaces -- necessary for paths that include spaces in directory names.
         script_parts: list[str] = [
-            f"{script_path} -TenantId '{config.tenant_id}'",
+            f"& '{script_path}' -TenantId '{config.tenant_id}'",
             f"-OutputPath '{output_dir}'",
         ]
 
