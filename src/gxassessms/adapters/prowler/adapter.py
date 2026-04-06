@@ -1,0 +1,399 @@
+"""Prowler adapter -- implements ToolAdapter Protocol.
+
+Prowler is a Python-based cloud security scanner that produces OCSF
+Detection Finding JSON output. It scans Azure resources against CIS
+benchmarks.
+
+Invocation: prowler azure --az-cli-auth -o /output/dir -F ProwlerResults -M json-ocsf
+Output: JSON array of OCSF Detection Finding objects (*.ocsf.json)
+Auth: Managed by Prowler via CLI auth flags
+
+IMPORTANT:
+- Provider (azure) is POSITIONAL (not --provider azure)
+- Auth flag is REQUIRED (--az-cli-auth, --sp-env-auth, etc.)
+- status_code (UPPERCASE) is the assessment result, NOT status (lifecycle)
+- metadata.event_code is the check ID, NOT finding_info.uid
+- Prowler requires Python >=3.10, <=3.12 (invoked as subprocess)
+
+Verified against Prowler source at /home/guardantix/ToolInspection/prowler/.
+"""
+
+from __future__ import annotations
+
+import logging
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any, cast
+
+from gxassessms.adapters._base import load_json_file
+from gxassessms.adapters.prowler.mappings import (
+    CATEGORY_MAP,
+    DEDUP_KEY_RULES,
+    SEVERITY_MAP,
+)
+from gxassessms.adapters.prowler.parser import parse_prowler_findings
+from gxassessms.core.config.config import EngagementConfig
+from gxassessms.core.contracts.errors import (
+    CollectionError,
+    ParseError,
+    RawOutputValidationError,
+)
+from gxassessms.core.contracts.types import PrerequisiteResult
+from gxassessms.core.domain.enums import CoverageStatus, ToolSource
+from gxassessms.core.domain.models import (
+    AuthContext,
+    CollectedArtifact,
+    CollectionOutput,
+    CoverageRecord,
+    ResolvedManifest,
+    ToolObservation,
+)
+
+logger = logging.getLogger(__name__)
+
+_SCHEMA_VERSION = "1.4.0"  # OCSF metadata.version from Prowler output
+_DEFAULT_TIMEOUT_SECONDS = 1800  # 30 minutes
+_DEFAULT_OUTPUT_FILENAME = "ProwlerResults"
+_OCSF_EXTENSION = ".ocsf.json"
+
+# Valid auth methods and their CLI flags
+_AUTH_FLAGS: dict[str, list[str]] = {
+    "az_cli": ["--az-cli-auth"],
+    "service_principal": ["--sp-env-auth"],
+    "browser": ["--browser-auth"],
+    "managed_identity": ["--managed-identity-auth"],
+}
+
+
+class ProwlerAdapter:
+    """ToolAdapter implementation for Prowler (Azure cloud security scanner)."""
+
+    tool_name: str = "Prowler"
+    storage_slug: str = "prowler"
+    tool_source: ToolSource = ToolSource.PROWLER
+    capabilities: frozenset[str] = frozenset(
+        {
+            "collect",
+            "parse",
+            "prerequisites",
+            "coverage_export",
+            "benchmark_mapping",
+        }
+    )
+
+    def check_prerequisites(self) -> PrerequisiteResult:
+        """Verify the prowler CLI is available on PATH."""
+        prowler_path = shutil.which("prowler")
+        if prowler_path is None:
+            return PrerequisiteResult(
+                satisfied=False,
+                message=(
+                    "Prowler CLI not found on PATH. "
+                    "Install with: pip install prowler (requires Python 3.10-3.12)"
+                ),
+            )
+
+        # Verify it can execute
+        try:
+            result = subprocess.run(  # noqa: S603
+                [prowler_path, "--version"],
+                capture_output=True,
+                timeout=30,
+            )
+            version = (result.stdout or b"").decode(errors="replace").strip()
+            logger.info("Prowler prerequisites satisfied (version: %s)", version)
+            return PrerequisiteResult(
+                satisfied=True,
+                message=f"Prowler prerequisites satisfied (version: {version})",
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            return PrerequisiteResult(
+                satisfied=False,
+                message=f"Prowler found but not executable: {exc}",
+            )
+
+    def authenticate(
+        self,
+        config: EngagementConfig,
+    ) -> AuthContext | None:
+        """Prowler manages its own Azure auth. Return None."""
+        return None
+
+    def collect(
+        self,
+        config: EngagementConfig,
+        auth: AuthContext | None,
+    ) -> CollectionOutput:
+        """Run Prowler and capture OCSF JSON output.
+
+        Reads from config.tools["prowler"]:
+        - output_dir (required): Where to write output
+        - auth_method: One of az_cli, service_principal, browser, managed_identity
+        - tenant_id: Required for browser auth
+        - modules: Optional list of specific checks to run (passed to --checks)
+        - timeout: Seconds (default 1800)
+        """
+        from gxassessms.core.config.datetime_utils import utc_now
+        from gxassessms.core.hashing import sha256_file
+
+        tc = config.tools.get(self.tool_name.lower())
+        if tc is None or not tc.output_dir:
+            raise CollectionError(
+                "Prowler adapter requires 'output_dir' in tool config",
+                adapter_name=self.tool_name,
+            )
+
+        output_dir = Path(tc.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        output_filename = _DEFAULT_OUTPUT_FILENAME
+        timeout = tc.timeout if tc.timeout is not None else _DEFAULT_TIMEOUT_SECONDS
+
+        # Build command: prowler azure <auth_flag> -o <dir> -F <name> -M json-ocsf
+        cmd: list[str] = [
+            "prowler",
+            "azure",  # POSITIONAL provider (not --provider)
+        ]
+
+        # Map engagement auth method to Prowler's auth flags.
+        # Engagement config AuthMethod -> Prowler flag:
+        #   client_credential -> --sp-env-auth (service principal via env vars)
+        #   device_code       -> --browser-auth (closest Prowler equivalent)
+        #   interactive       -> --browser-auth
+        # For Prowler-specific methods (az_cli, managed_identity), the
+        # operator overrides via extra_args: ["--az-cli-auth"] or
+        # ["--managed-identity-auth"].
+        _AUTH_METHOD_MAP: dict[str, list[str]] = {
+            "client_credential": ["--sp-env-auth"],
+            "device_code": ["--browser-auth"],
+            "interactive": ["--browser-auth"],
+        }
+        auth_flags = _AUTH_METHOD_MAP.get(config.auth.method)
+        if auth_flags is None:
+            raise CollectionError(
+                f"No Prowler auth mapping for method: {config.auth.method!r}. "
+                f"Use extra_args to pass a Prowler-specific auth flag "
+                f"(e.g., ['--az-cli-auth'] or ['--managed-identity-auth'])",
+                adapter_name=self.tool_name,
+            )
+        cmd.extend(auth_flags)
+
+        # Browser auth requires --tenant-id
+        if config.auth.method in ("device_code", "interactive"):
+            tenant_id = config.auth.tenant_id
+            if not tenant_id:
+                raise CollectionError(
+                    "Browser auth requires tenant_id in engagement config",
+                    adapter_name=self.tool_name,
+                )
+            cmd.extend(["--tenant-id", tenant_id])
+
+        # Output flags
+        cmd.extend(["-o", str(output_dir)])
+        cmd.extend(["-F", output_filename])
+        cmd.extend(["-M", "json-ocsf"])
+
+        # Optional: specific checks (nargs+ = space-separated, NOT comma-joined)
+        checks = tc.modules if tc.modules else []
+        if checks:
+            cmd.extend(["--checks", *list(checks)])
+
+        logger.info("[Prowler] Running: %s", " ".join(cmd))
+
+        try:
+            result = subprocess.run(  # noqa: S603
+                cmd,
+                capture_output=True,
+                timeout=timeout,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise CollectionError(
+                f"Prowler timed out after {timeout}s",
+                adapter_name=self.tool_name,
+            ) from exc
+        except OSError as exc:
+            raise CollectionError(
+                f"Prowler not accessible: {exc}",
+                adapter_name=self.tool_name,
+            ) from exc
+
+        if result.returncode != 0:
+            stderr_snippet = (result.stderr or b"").decode(errors="replace")[:500]
+            raise CollectionError(
+                f"Prowler exited with code {result.returncode}: {stderr_snippet}",
+                adapter_name=self.tool_name,
+            )
+
+        # Locate output file: {output_dir}/**/{filename}.ocsf.json
+        ocsf_files = list(output_dir.rglob(f"{output_filename}{_OCSF_EXTENSION}"))
+        if not ocsf_files:
+            raise CollectionError(
+                f"No Prowler OCSF output found in {output_dir}. "
+                f"Expected file matching {output_filename}{_OCSF_EXTENSION}",
+                adapter_name=self.tool_name,
+            )
+
+        artifacts: list[CollectedArtifact] = []
+        for f in ocsf_files:
+            sha = sha256_file(f)
+            artifacts.append(
+                CollectedArtifact(
+                    source_path=str(f),
+                    target_relpath=f"{self.storage_slug}/{f.name}",
+                    encoding="utf-8",
+                    sha256=sha,
+                )
+            )
+        artifacts.sort(key=lambda a: a.target_relpath)
+
+        logger.info(
+            "Prowler collection complete. %d OCSF output file(s) in %s",
+            len(ocsf_files),
+            output_dir,
+        )
+
+        return CollectionOutput(
+            tool=ToolSource.PROWLER,
+            tool_slug=self.storage_slug,
+            schema_version=_SCHEMA_VERSION,
+            timestamp=utc_now(),
+            artifacts=artifacts,
+            execution_metadata={
+                "output_dir": str(output_dir),
+                "auth_method": config.auth.method,
+                "checks": checks,
+            },
+        )
+
+    def validate_raw(self, raw: ResolvedManifest) -> None:
+        """Validate Prowler OCSF output structure before parsing.
+
+        Checks:
+        1. At least one output file in manifest
+        2. File contains valid JSON
+        3. Top-level structure is a list (JSON array)
+        4. Each element has required OCSF fields: metadata, finding_info, status_code
+        """
+        if not raw.file_manifest:
+            raise RawOutputValidationError(
+                "Prowler file manifest is empty -- no output files found",
+                adapter_name=self.tool_name,
+            )
+
+        for file_path in raw.file_manifest:
+            path = Path(file_path)
+
+            data: Any = load_json_file(path, adapter_name=self.tool_name)
+
+            if not isinstance(data, list):
+                raise RawOutputValidationError(
+                    f"Expected JSON array, got {type(data).__name__} in {path}",
+                    adapter_name=self.tool_name,
+                )
+
+            findings: list[Any] = cast(list[Any], data)
+
+            if len(findings) == 0:
+                raise RawOutputValidationError(
+                    f"Empty findings array in {path}. Prowler should produce at least one finding.",
+                    adapter_name=self.tool_name,
+                )
+
+            for i, finding in enumerate(findings):
+                if "finding_info" not in finding:
+                    raise RawOutputValidationError(
+                        f"Finding [{i}] missing 'finding_info' field in {path}",
+                        adapter_name=self.tool_name,
+                    )
+                if "status_code" not in finding:
+                    raise RawOutputValidationError(
+                        f"Finding [{i}] missing 'status_code' field in {path}",
+                        adapter_name=self.tool_name,
+                    )
+                if "metadata" not in finding:
+                    raise RawOutputValidationError(
+                        f"Finding [{i}] missing 'metadata' field in {path}",
+                        adapter_name=self.tool_name,
+                    )
+
+    def parse(self, raw: ResolvedManifest) -> list[ToolObservation]:
+        """Parse Prowler OCSF output into ToolObservations."""
+        self.validate_raw(raw)
+
+        all_observations: list[ToolObservation] = []
+
+        for file_path in raw.file_manifest:
+            try:
+                data = load_json_file(
+                    Path(file_path),
+                    adapter_name=self.tool_name,
+                )
+                observations = parse_prowler_findings(data)
+                all_observations.extend(observations)
+            except RawOutputValidationError:
+                raise
+            except Exception as exc:
+                raise ParseError(
+                    f"Failed to parse Prowler output from {file_path}: {exc}",
+                    adapter_name=self.tool_name,
+                ) from exc
+
+        logger.info(
+            "Parsed %d observations from %d Prowler output file(s)",
+            len(all_observations),
+            len(raw.file_manifest),
+        )
+        return all_observations
+
+    def coverage(self, raw: ResolvedManifest) -> list[CoverageRecord]:
+        """Report coverage based on parsed findings.
+
+        Prowler coverage is derived from the findings themselves.
+        Each unique check ID (metadata.event_code) represents a control that
+        was assessed. MANUAL status maps to PARTIALLY_ASSESSED.
+        """
+        observations = self.parse(raw)
+        records: list[CoverageRecord] = []
+        seen_checks: set[str] = set()
+
+        for obs in observations:
+            if obs.native_check_id not in seen_checks:
+                seen_checks.add(obs.native_check_id)
+
+                if obs.native_status == "MANUAL":
+                    status = CoverageStatus.PARTIALLY_ASSESSED
+                    reason: str | None = "Requires manual verification"
+                else:
+                    status = CoverageStatus.ASSESSED
+                    reason = None
+
+                records.append(
+                    CoverageRecord(
+                        control_id=obs.native_check_id,
+                        tool=ToolSource.PROWLER,
+                        status=status,
+                        reason=reason,
+                    )
+                )
+
+        return records
+
+    # ------------------------------------------------------------------
+    # Properties for NormalizationPolicy consumption
+    # ------------------------------------------------------------------
+
+    @property
+    def severity_map(self) -> dict[str, Any]:
+        """OCSF severity string -> Severity for NormalizationPolicy."""
+        return SEVERITY_MAP
+
+    @property
+    def category_map(self) -> dict[str, Any]:
+        """Service group name -> Category for NormalizationPolicy."""
+        return CATEGORY_MAP
+
+    @property
+    def dedup_key_rules(self) -> dict[str, str]:
+        """Check ID -> canonical cross-reference ID for deduplication."""
+        return DEDUP_KEY_RULES
