@@ -18,6 +18,11 @@ import os
 from pathlib import Path
 from typing import Any
 
+from gxassessms.adapters._http import (
+    check_python_packages,
+    fetch_paginated_json,
+    validate_auth_context,
+)
 from gxassessms.adapters.secure_score.mappings import CATEGORY_MAP
 from gxassessms.adapters.secure_score.parser import parse_secure_score
 from gxassessms.core.config.config import EngagementConfig
@@ -26,8 +31,8 @@ from gxassessms.core.contracts.errors import (
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
-from gxassessms.core.domain.constants import AdapterCapability
-from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, Severity, ToolSource
+from gxassessms.core.domain.constants import SEVERITY_IDENTITY_MAP, AdapterCapability
+from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
     CollectedArtifact,
@@ -53,7 +58,6 @@ _SCORES_FILENAME = "secureScores.json"
 
 _SCHEMA_VERSION = "1.0.0"
 _DEFAULT_TIMEOUT_SECONDS = 120
-_MAX_PAGES = 50  # Guard against runaway Graph API pagination
 
 
 class SecureScoreAdapter:
@@ -73,30 +77,9 @@ class SecureScoreAdapter:
 
     def check_prerequisites(self) -> PrerequisiteResult:
         """Verify httpx and azure.identity are importable."""
-        missing: list[str] = []
-
-        try:
-            import httpx  # noqa: F401
-        except ImportError:
-            missing.append("httpx")
-
-        try:
-            import azure.identity  # noqa: F401  # pyright: ignore[reportMissingImports]
-        except ImportError:
-            missing.append("azure-identity")
-
-        if missing:
-            return PrerequisiteResult(
-                satisfied=False,
-                message=(
-                    f"Missing required packages: {', '.join(missing)}. "
-                    f"Install with: pip install {' '.join(missing)}"
-                ),
-            )
-
-        return PrerequisiteResult(
-            satisfied=True,
-            message="httpx and azure.identity available",
+        return check_python_packages(
+            [("httpx", "httpx"), ("azure.identity", "azure-identity")],
+            self.tool_name,
         )
 
     def authenticate(self, config: EngagementConfig) -> AuthContext | None:
@@ -224,18 +207,7 @@ class SecureScoreAdapter:
         from gxassessms.core.config.datetime_utils import utc_now
         from gxassessms.core.hashing import sha256_file
 
-        if auth is None or auth.token is None:
-            raise CollectionError(
-                "Secure Score adapter requires authentication. Call authenticate() first.",
-                adapter_name=self.tool_name,
-            )
-
-        if auth.expires_at is not None and auth.expires_at <= utc_now():
-            raise CollectionError(
-                f"Graph API token expired at {auth.expires_at.isoformat()}. "
-                "Call authenticate() again before collect().",
-                adapter_name=self.tool_name,
-            )
+        validate_auth_context(auth, self.tool_name)
 
         tc = config.tools.get(self.tool_name.lower())
         if tc is None or not tc.output_dir:
@@ -250,22 +222,28 @@ class SecureScoreAdapter:
         secure_mkdir(output_dir, parents=True, exist_ok=True)
         timeout = tc.timeout if tc.timeout is not None else _DEFAULT_TIMEOUT_SECONDS
 
-        bearer_token = auth.token.get_secret_value()
+        assert auth is not None  # noqa: S101 -- guaranteed by validate_auth_context
+        bearer_token = auth.token.get_secret_value()  # type: ignore[union-attr]
         headers = {"Authorization": f"Bearer {bearer_token}"}
 
-        profiles_data = self._fetch_graph_endpoint(
-            f"{_GRAPH_BASE_URL}{_PROFILES_ENDPOINT}",
+        profiles_items = fetch_paginated_json(
+            url=f"{_GRAPH_BASE_URL}{_PROFILES_ENDPOINT}",
             headers=headers,
             timeout=timeout,
             label="secureScoreControlProfiles",
+            adapter_name=self.tool_name,
         )
-        scores_data = self._fetch_graph_endpoint(
-            f"{_GRAPH_BASE_URL}{_SCORES_ENDPOINT}?$top=1",
+        scores_items = fetch_paginated_json(
+            url=f"{_GRAPH_BASE_URL}{_SCORES_ENDPOINT}",
             headers=headers,
+            params={"$top": "1"},
             timeout=timeout,
-            label="secureScores",
             max_pages=1,
+            label="secureScores",
+            adapter_name=self.tool_name,
         )
+        profiles_data = {"value": profiles_items}
+        scores_data = {"value": scores_items}
 
         profiles_path = output_dir / _PROFILES_FILENAME
         scores_path = output_dir / _SCORES_FILENAME
@@ -381,18 +359,7 @@ class SecureScoreAdapter:
         (ScubaGear/Maester), so without this map, all non-pass findings fall
         through to fallback_severity (MEDIUM), discarding the computed value.
         """
-        return {
-            (Severity.CRITICAL, FindingStatus.FAIL): Severity.CRITICAL,
-            (Severity.HIGH, FindingStatus.FAIL): Severity.HIGH,
-            (Severity.MEDIUM, FindingStatus.FAIL): Severity.MEDIUM,
-            (Severity.LOW, FindingStatus.FAIL): Severity.LOW,
-            (Severity.INFO, FindingStatus.FAIL): Severity.INFO,
-            (Severity.CRITICAL, FindingStatus.MANUAL): Severity.CRITICAL,
-            (Severity.HIGH, FindingStatus.MANUAL): Severity.HIGH,
-            (Severity.MEDIUM, FindingStatus.MANUAL): Severity.MEDIUM,
-            (Severity.LOW, FindingStatus.MANUAL): Severity.LOW,
-            (Severity.INFO, FindingStatus.MANUAL): Severity.INFO,
-        }
+        return SEVERITY_IDENTITY_MAP  # type: ignore[return-value]  # StrEnum is str at runtime
 
     @property
     def category_map(self) -> dict[str, Any]:
@@ -411,113 +378,6 @@ class SecureScoreAdapter:
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
-
-    def _fetch_graph_endpoint(
-        self,
-        url: str,
-        *,
-        headers: dict[str, str],
-        timeout: int,
-        label: str,
-        max_pages: int | None = None,
-    ) -> dict[str, Any]:
-        """Fetch a Graph API endpoint, following @odata.nextLink for pagination.
-
-        Accumulates all pages into a single ``{"value": [...]}`` response.
-        Raises CollectionError on any HTTP or parse failure.
-
-        Args:
-            max_pages: Stop after this many pages. Defaults to ``_MAX_PAGES``
-                when ``None``. Use ``1`` when only the first page is needed
-                (e.g. ``secureScores?$top=1``).
-        """
-        import httpx
-
-        page_limit = max_pages if max_pages is not None else _MAX_PAGES
-        all_items: list[Any] = []
-        next_url: str | None = url
-        page_count = 0
-
-        with httpx.Client(timeout=timeout) as client:
-            while next_url is not None:
-                page_count += 1
-                if page_count > page_limit:
-                    raise CollectionError(
-                        f"Graph API pagination exceeded {page_limit} pages for {label}; "
-                        "possible runaway pagination or server error",
-                        adapter_name=self.tool_name,
-                    )
-                try:
-                    response = client.get(next_url, headers=headers)  # pyright: ignore[reportUnknownArgumentType]
-                    response.raise_for_status()
-                    data: Any = response.json()
-                except httpx.TimeoutException as exc:
-                    raise CollectionError(
-                        f"Graph API request timed out for {label} "
-                        f"(timeout={timeout}s, page={page_count})",
-                        adapter_name=self.tool_name,
-                    ) from exc
-                except httpx.HTTPStatusError as exc:
-                    raise CollectionError(
-                        f"Graph API returned HTTP {exc.response.status_code} "
-                        f"for {label} (page={page_count}): {exc.response.text[:500]}",
-                        adapter_name=self.tool_name,
-                    ) from exc
-                except httpx.HTTPError as exc:
-                    raise CollectionError(
-                        f"Graph API request failed for {label} (page={page_count}): {exc}",
-                        adapter_name=self.tool_name,
-                    ) from exc
-                except ValueError as exc:
-                    raise CollectionError(
-                        f"Graph API returned invalid JSON for {label} (page={page_count}): {exc}",
-                        adapter_name=self.tool_name,
-                    ) from exc
-
-                if not isinstance(data, dict):
-                    raise CollectionError(
-                        f"Graph API returned non-object JSON for {label} "
-                        f"(page={page_count}, got {type(data).__name__})",
-                        adapter_name=self.tool_name,
-                    )
-
-                page_value = data.get("value")  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
-                if page_value is None:
-                    raise CollectionError(
-                        f"Graph API response missing 'value' key for {label} "
-                        f"(page={page_count}); possible error response body",
-                        adapter_name=self.tool_name,
-                    )
-                if not isinstance(page_value, list):
-                    raise CollectionError(
-                        f"Graph API 'value' is not a list for {label} "
-                        f"(page={page_count}, got {type(page_value).__name__})",  # pyright: ignore[reportUnknownArgumentType]
-                        adapter_name=self.tool_name,
-                    )
-                all_items.extend(page_value)  # pyright: ignore[reportUnknownArgumentType]
-
-                # Explicit max_pages: stop cleanly after the requested pages.
-                # Default _MAX_PAGES cap: let the top-of-loop guard error on
-                # the next iteration (runaway pagination is unexpected).
-                if max_pages is not None and page_count >= max_pages:
-                    next_url = None
-                else:
-                    raw_next = data.get("@odata.nextLink")  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
-                    if raw_next is not None and not isinstance(raw_next, str):
-                        raise CollectionError(
-                            f"Graph API returned non-string @odata.nextLink for {label} "
-                            f"(page={page_count}, got {type(raw_next).__name__})",  # pyright: ignore[reportUnknownArgumentType]
-                            adapter_name=self.tool_name,
-                        )
-                    next_url = raw_next
-
-        logger.info(
-            "Fetched %s: %d items across %d page(s)",
-            label,
-            len(all_items),
-            page_count,
-        )
-        return {"value": all_items}
 
     def _validate_and_load_responses(
         self, raw: ResolvedManifest
