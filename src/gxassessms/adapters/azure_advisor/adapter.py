@@ -155,7 +155,13 @@ class AzureAdvisorAdapter:
         output_dir = Path(tc.output_dir)
         secure_mkdir(output_dir, parents=True, exist_ok=True)
 
-        subscription_id = config.tenant_id
+        if not config.subscription_id:
+            raise CollectionError(
+                "Azure Advisor requires subscription_id in engagement config",
+                adapter_name=self.tool_name,
+            )
+
+        subscription_id = config.subscription_id
         timeout = tc.timeout if tc.timeout is not None else _DEFAULT_TIMEOUT_SECONDS
 
         url = (
