@@ -58,6 +58,12 @@ def load_registry(path: Path) -> dict[str, dict[str, Any]]:
         )
     result: dict[str, dict[str, Any]] = {}
     for i, entry in enumerate(cast(list[dict[str, Any]], raw)):
+        if not isinstance(entry, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise RawOutputValidationError(
+                f"registry.json 'checks' entry at index {i} must be a mapping, "
+                f"got {type(entry).__name__}",
+                adapter_name="M365Assess",
+            )
         check_id = entry.get("checkId")
         if not check_id:
             raise RawOutputValidationError(
