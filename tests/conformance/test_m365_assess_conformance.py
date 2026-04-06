@@ -290,3 +290,141 @@ class TestM365AssessConformance(AdapterConformanceSuite):
 
         with pytest.raises(RawOutputValidationError, match="missing columns"):
             adapter.validate_raw(raw)
+
+    def test_parse_resolves_controls_via_strategy_2_execution_metadata(
+        self,
+        adapter: M365AssessAdapter,
+        tmp_path: Path,
+    ) -> None:
+        """Controls dir in execution_metadata (not a sibling) must parse correctly."""
+        import hashlib
+        from datetime import UTC, datetime
+
+        from gxassessms.core.domain.enums import ToolSource
+        from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
+
+        # CSV goes in tmp_path; controls go in a SEPARATE directory (no sibling match)
+        csv_dir = tmp_path / "csvs"
+        csv_dir.mkdir()
+        controls_dir = tmp_path / "controls_elsewhere"
+        controls_dir.mkdir()
+
+        csv_dst = csv_dir / f"Entra{_CSV_SUFFIX}"
+        shutil.copy2(FIXTURE_DIR / "entra_security_config.csv", csv_dst)
+        shutil.copy2(FIXTURE_DIR / "risk_severity_sample.json", controls_dir / "risk-severity.json")
+        shutil.copy2(FIXTURE_DIR / "registry_sample.json", controls_dir / "registry.json")
+
+        sha = hashlib.sha256(csv_dst.read_bytes()).hexdigest()
+        raw = ResolvedManifest(
+            tool=ToolSource.M365_ASSESS,
+            tool_slug="m365-assess",
+            schema_version="1.0.0",
+            manifest_version="1.0.0",
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            file_manifest={str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=sha)},
+            execution_metadata={"controls_dir": str(controls_dir)},
+        )
+        observations = adapter.parse(raw)
+        assert len(observations) > 0
+
+    def test_parse_raises_on_invalid_explicit_controls_dir(
+        self,
+        adapter: M365AssessAdapter,
+        tmp_path: Path,
+    ) -> None:
+        """Explicit controls_dir that doesn't exist must raise ParseError immediately."""
+        import hashlib
+        from datetime import UTC, datetime
+
+        from gxassessms.core.contracts.errors import ParseError
+        from gxassessms.core.domain.enums import ToolSource
+        from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
+
+        csv_dst = tmp_path / f"Entra{_CSV_SUFFIX}"
+        shutil.copy2(FIXTURE_DIR / "entra_security_config.csv", csv_dst)
+        sha = hashlib.sha256(csv_dst.read_bytes()).hexdigest()
+        raw = ResolvedManifest(
+            tool=ToolSource.M365_ASSESS,
+            tool_slug="m365-assess",
+            schema_version="1.0.0",
+            manifest_version="1.0.0",
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            file_manifest={str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=sha)},
+            execution_metadata={"controls_dir": str(tmp_path / "does_not_exist")},
+        )
+        with pytest.raises(ParseError, match="controls_dir does not exist"):
+            adapter.parse(raw)
+
+    def test_parse_resolves_controls_via_strategy_3_manifest_scan(
+        self,
+        adapter: M365AssessAdapter,
+        tmp_path: Path,
+    ) -> None:
+        """Controls files in file_manifest (no sibling dir, no execution_metadata) must work."""
+        import hashlib
+        from datetime import UTC, datetime
+
+        from gxassessms.core.domain.enums import ToolSource
+        from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
+
+        # CSV and controls all in separate dirs, no sibling relationship
+        csv_dir = tmp_path / "csvs"
+        controls_dir = tmp_path / "controls"
+        csv_dir.mkdir()
+        controls_dir.mkdir()
+
+        csv_dst = csv_dir / f"Entra{_CSV_SUFFIX}"
+        sev_dst = controls_dir / "risk-severity.json"
+        reg_dst = controls_dir / "registry.json"
+
+        shutil.copy2(FIXTURE_DIR / "entra_security_config.csv", csv_dst)
+        shutil.copy2(FIXTURE_DIR / "risk_severity_sample.json", sev_dst)
+        shutil.copy2(FIXTURE_DIR / "registry_sample.json", reg_dst)
+
+        def _sha(p: Path) -> str:
+            return hashlib.sha256(p.read_bytes()).hexdigest()
+
+        raw = ResolvedManifest(
+            tool=ToolSource.M365_ASSESS,
+            tool_slug="m365-assess",
+            schema_version="1.0.0",
+            manifest_version="1.0.0",
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            file_manifest={
+                str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=_sha(csv_dst)),
+                str(sev_dst): ArtifactRecord(encoding="utf-8", sha256=_sha(sev_dst)),
+                str(reg_dst): ArtifactRecord(encoding="utf-8", sha256=_sha(reg_dst)),
+            },
+            execution_metadata={},  # No controls_dir hint
+        )
+        observations = adapter.parse(raw)
+        assert len(observations) > 0
+
+    def test_parse_raises_when_controls_unreachable(
+        self,
+        adapter: M365AssessAdapter,
+        tmp_path: Path,
+    ) -> None:
+        """All three strategies failing must raise ParseError with clear message."""
+        import hashlib
+        from datetime import UTC, datetime
+
+        from gxassessms.core.contracts.errors import ParseError
+        from gxassessms.core.domain.enums import ToolSource
+        from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
+
+        csv_dst = tmp_path / f"Entra{_CSV_SUFFIX}"
+        shutil.copy2(FIXTURE_DIR / "entra_security_config.csv", csv_dst)
+        sha = hashlib.sha256(csv_dst.read_bytes()).hexdigest()
+        # No controls/ sibling, no execution_metadata hint, no JSON in manifest
+        raw = ResolvedManifest(
+            tool=ToolSource.M365_ASSESS,
+            tool_slug="m365-assess",
+            schema_version="1.0.0",
+            manifest_version="1.0.0",
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            file_manifest={str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=sha)},
+            execution_metadata={},
+        )
+        with pytest.raises(ParseError, match="Cannot locate M365-Assess controls directory"):
+            adapter.parse(raw)
