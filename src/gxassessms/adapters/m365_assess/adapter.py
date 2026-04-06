@@ -104,8 +104,11 @@ class M365AssessAdapter:
                 stdout = result.stdout.decode(errors="replace").strip()
                 if not stdout:
                     missing.append(module)
-            except CollectionError:
-                missing.append(module)
+            except CollectionError as exc:
+                return PrerequisiteResult(
+                    satisfied=False,
+                    message=f"Cannot verify PS module '{module}': {exc.message}",
+                )
 
         if missing:
             return PrerequisiteResult(
@@ -190,6 +193,30 @@ class M365AssessAdapter:
                     encoding="utf-8",
                     sha256=sha,
                 )
+            )
+
+        # Collect controls directory reference files so they are saved in the
+        # raw-output manifest and available during replay via manifest scan
+        # (strategy #3 in _locate_m365_assess_controls).
+        controls_dir = Path(tc.controls_dir) if tc.controls_dir else output_dir / "controls"
+        for filename in ("risk-severity.json", "registry.json"):
+            ctrl_file = controls_dir / filename
+            if ctrl_file.is_file():
+                sha = sha256_file(ctrl_file)
+                artifacts.append(
+                    CollectedArtifact(
+                        source_path=str(ctrl_file),
+                        target_relpath=f"{self.storage_slug}/controls/{filename}",
+                        encoding="utf-8",
+                        sha256=sha,
+                    )
+                )
+        if not any(a.target_relpath.endswith("risk-severity.json") for a in artifacts):
+            logger.warning(
+                "M365-Assess controls directory not found at %s; "
+                "parse will attempt to locate controls at runtime. "
+                "Set 'controls_dir' in tool config to specify the path explicitly.",
+                controls_dir,
             )
 
         logger.info(
@@ -304,8 +331,8 @@ class M365AssessAdapter:
         return records
 
     @property
-    def severity_map(self) -> dict[str, Any]:
-        """Severity string -> Severity enum for NormalizationPolicy."""
+    def severity_map(self) -> dict[tuple[str, str], Any]:
+        """(native_severity_str, canonical_status) -> Severity for NormalizationPolicy."""
         return SEVERITY_MAP
 
     @property

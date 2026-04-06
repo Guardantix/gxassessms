@@ -9,7 +9,7 @@ from gxassessms.adapters.m365_assess.parser import (
     load_risk_severity,
     parse_security_config_csv,
 )
-from gxassessms.core.domain.enums import FindingStatus, Severity, ToolSource
+from gxassessms.core.domain.enums import FindingStatus, ToolSource
 from gxassessms.core.domain.models import ToolObservation
 
 FIXTURE_DIR = (
@@ -94,10 +94,12 @@ class TestParseSecurityConfigCsv:
     def test_severity_from_risk_severity_json(self, severity_map, registry) -> None:
         csv_path = FIXTURE_DIR / "entra_security_config.csv"
         observations = parse_security_config_csv(csv_path, severity_map, registry)
-        # ENTRA-SECDEFAULT-001 -> High
-        assert observations[0].native_severity == Severity.HIGH
-        # ENTRA-AUTHMETHOD-001 -> Critical
-        assert observations[7].native_severity == Severity.CRITICAL
+        # native_severity stores the raw string from risk-severity.json so the
+        # normalization layer can resolve it via the tuple-keyed adapter severity_map.
+        # ENTRA-SECDEFAULT-001 -> "High"
+        assert observations[0].native_severity == "High"
+        # ENTRA-AUTHMETHOD-001 -> "Critical"
+        assert observations[7].native_severity == "Critical"
 
     def test_observation_id_format(self, severity_map, registry) -> None:
         csv_path = FIXTURE_DIR / "entra_security_config.csv"

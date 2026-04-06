@@ -19,12 +19,11 @@ from typing import Any
 from gxassessms.adapters._base import load_json_file
 from gxassessms.adapters.m365_assess.mappings import (
     CATEGORY_MAP,
-    SEVERITY_MAP,
     STATUS_MAP,
     extract_base_check_id,
     extract_collector_prefix,
 )
-from gxassessms.core.domain.enums import Category, FindingStatus, Severity, ToolSource
+from gxassessms.core.domain.enums import Category, FindingStatus, ToolSource
 from gxassessms.core.domain.models import ToolObservation
 
 logger = logging.getLogger(__name__)
@@ -73,9 +72,9 @@ def parse_security_config_csv(
             status_str = row.get("Status", "Unknown").strip()
             status = STATUS_MAP.get(status_str, FindingStatus.ERROR)
 
-            # Severity from risk-severity.json
+            # Severity string from risk-severity.json; stored raw so the
+            # normalization layer can resolve it via the adapter severity_map.
             sev_str = severity_lookup.get(base_id, "Medium")
-            severity = SEVERITY_MAP.get(sev_str, Severity.MEDIUM)
 
             # Category hint for normalization layer (stored in raw_data)
             category_hint = CATEGORY_MAP.get(collector, Category.COMPLIANCE)
@@ -107,7 +106,7 @@ def parse_security_config_csv(
                 native_check_id=check_id,
                 title=title,
                 description=description,
-                native_severity=severity,
+                native_severity=sev_str,
                 native_status=status,
                 raw_data=raw_data,
                 benchmark_refs=benchmark_refs,

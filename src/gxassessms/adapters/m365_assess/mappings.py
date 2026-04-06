@@ -34,15 +34,39 @@ STATUS_MAP: dict[str, FindingStatus] = {
 }
 
 # ---------------------------------------------------------------------------
-# Severity mapping: risk-severity.json value -> Severity
+# Severity mapping: (native_severity_str, canonical_status) -> Severity
+#
+# Keys use the raw severity string from risk-severity.json paired with the
+# canonical status value (after default_status_map normalization).  This
+# matches the (native_severity, _mapped) tuple looked up by
+# DefaultNormalizationPolicy._resolve_severity().
+#
+# M365-Assess severity is status-independent: a "High" risk check is HIGH
+# regardless of whether it FAILed or produced a WARNING.  PASS and N/A
+# observations are short-circuited to INFO by the normalization policy before
+# this map is consulted, so those statuses are intentionally absent.
 # ---------------------------------------------------------------------------
 
-SEVERITY_MAP: dict[str, Severity] = {
+_SEVERITY_BASE: dict[str, Severity] = {
     "Critical": Severity.CRITICAL,
     "High": Severity.HIGH,
     "Medium": Severity.MEDIUM,
     "Low": Severity.LOW,
     "Info": Severity.INFO,
+}
+
+# Canonical status values produced by default_status_map for non-passing checks
+_ACTIONABLE_STATUSES: tuple[str, ...] = (
+    FindingStatus.FAIL,
+    FindingStatus.WARNING,
+    FindingStatus.MANUAL,
+    FindingStatus.ERROR,
+)
+
+SEVERITY_MAP: dict[tuple[str, str], Severity] = {
+    (sev_str, status): sev_enum
+    for sev_str, sev_enum in _SEVERITY_BASE.items()
+    for status in _ACTIONABLE_STATUSES
 }
 
 # ---------------------------------------------------------------------------

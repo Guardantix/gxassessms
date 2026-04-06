@@ -5,6 +5,7 @@ from gxassessms.adapters.m365_assess.mappings import (
     SEVERITY_MAP,
     STATUS_MAP,
     extract_base_check_id,
+    extract_collector_prefix,
 )
 from gxassessms.core.domain.enums import Category, FindingStatus, Severity
 
@@ -35,14 +36,34 @@ class TestStatusMap:
 
 
 class TestSeverityMap:
-    """Maps risk-severity.json severity string -> domain Severity."""
+    """Maps (severity_string, canonical_status) -> domain Severity.
 
-    def test_all_five_levels(self) -> None:
-        assert SEVERITY_MAP["Critical"] == Severity.CRITICAL
-        assert SEVERITY_MAP["High"] == Severity.HIGH
-        assert SEVERITY_MAP["Medium"] == Severity.MEDIUM
-        assert SEVERITY_MAP["Low"] == Severity.LOW
-        assert SEVERITY_MAP["Info"] == Severity.INFO
+    The adapter severity_map uses tuple keys so DefaultNormalizationPolicy
+    can look up (obs.native_severity, _mapped_status) directly.
+    """
+
+    def test_critical_fail(self) -> None:
+        assert SEVERITY_MAP[("Critical", "FAIL")] == Severity.CRITICAL
+
+    def test_high_fail(self) -> None:
+        assert SEVERITY_MAP[("High", "FAIL")] == Severity.HIGH
+
+    def test_high_warning(self) -> None:
+        assert SEVERITY_MAP[("High", "WARNING")] == Severity.HIGH
+
+    def test_medium_fail(self) -> None:
+        assert SEVERITY_MAP[("Medium", "FAIL")] == Severity.MEDIUM
+
+    def test_low_fail(self) -> None:
+        assert SEVERITY_MAP[("Low", "FAIL")] == Severity.LOW
+
+    def test_info_fail(self) -> None:
+        assert SEVERITY_MAP[("Info", "FAIL")] == Severity.INFO
+
+    def test_all_actionable_statuses_covered(self) -> None:
+        for sev in ("Critical", "High", "Medium", "Low", "Info"):
+            for status in ("FAIL", "WARNING", "MANUAL", "ERROR"):
+                assert (sev, status) in SEVERITY_MAP
 
 
 class TestCategoryMap:
@@ -82,5 +103,21 @@ class TestExtractBaseCheckId:
     def test_no_sub_number(self) -> None:
         assert extract_base_check_id("ENTRA-ADMIN-001") == "ENTRA-ADMIN-001"
 
-    def test_extracts_collector_prefix(self) -> None:
-        assert extract_base_check_id("CA-MFA-ADMIN-001.1").split("-")[0] == "CA"
+    def test_hyphenated_prefix_unchanged(self) -> None:
+        assert extract_base_check_id("CA-MFA-ADMIN-001.1") == "CA-MFA-ADMIN-001"
+
+
+class TestExtractCollectorPrefix:
+    """Extract first hyphen-delimited segment from CheckId."""
+
+    def test_simple_prefix(self) -> None:
+        assert extract_collector_prefix("ENTRA-ADMIN-001.1") == "ENTRA"
+
+    def test_two_char_prefix(self) -> None:
+        assert extract_collector_prefix("CA-MFA-ADMIN-001.1") == "CA"
+
+    def test_no_sub_number(self) -> None:
+        assert extract_collector_prefix("EXO-AUTH-001") == "EXO"
+
+    def test_multi_segment_prefix(self) -> None:
+        assert extract_collector_prefix("DEFENDER-ANTIPHISH-001.15") == "DEFENDER"
