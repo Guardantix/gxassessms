@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import time
 from pathlib import Path
 from typing import Any
 
@@ -144,9 +145,16 @@ class M365AssessAdapter:
         secure_mkdir(output_dir, parents=True, exist_ok=True)
         timeout = tc.timeout if tc.timeout is not None else _DEFAULT_TIMEOUT_SECONDS
 
+        # Resolve script path.  When script_dir is configured, build an absolute
+        # path so the script is discoverable regardless of the process CWD.
+        if tc.script_dir:
+            script_path = f"{tc.script_dir}\\Invoke-M365Assessment.ps1"
+        else:
+            script_path = ".\\Invoke-M365Assessment.ps1"
+
         # Build script invocation
         script_parts: list[str] = [
-            f".\\Invoke-M365Assessment.ps1 -TenantId '{config.tenant_id}'",
+            f"{script_path} -TenantId '{config.tenant_id}'",
             f"-OutputPath '{output_dir}'",
         ]
 
@@ -161,7 +169,11 @@ class M365AssessAdapter:
 
         script = " ".join(script_parts)
 
-        existing_files: set[Path] = {f for f in output_dir.iterdir() if f.is_file()}
+        # Record wall-clock time before invoking the script so we can detect
+        # new or overwritten CSVs by mtime comparison.  M365-Assess uses stable
+        # filenames (e.g. Entra-Security-Config.csv), so path-presence alone
+        # cannot distinguish a fresh run from a pre-existing stale file.
+        pre_run_ts = time.time()
 
         run_powershell(
             script=script,
@@ -171,12 +183,16 @@ class M365AssessAdapter:
             engagement_id="",
         )
 
-        # Discover CSV output files
+        # Discover CSV output files written or updated during this run.
+        # A small clock-skew allowance (1 s) guards against filesystem
+        # timestamp granularity on FAT/exFAT volumes.
         csv_files = [
-            f for f in output_dir.iterdir() if f.is_file() and f.name.endswith(_CSV_SUFFIX)
+            f
+            for f in output_dir.iterdir()
+            if f.is_file() and f.name.endswith(_CSV_SUFFIX) and f.stat().st_mtime >= pre_run_ts - 1
         ]
 
-        new_csvs = [f for f in csv_files if f not in existing_files]
+        new_csvs = csv_files
         if not new_csvs:
             raise CollectionError(
                 f"M365-Assess did not produce new CSV output in {output_dir}",
@@ -198,7 +214,13 @@ class M365AssessAdapter:
         # Collect controls directory reference files so they are saved in the
         # raw-output manifest and available during replay via manifest scan
         # (strategy #3 in _locate_m365_assess_controls).
-        controls_dir = Path(tc.controls_dir) if tc.controls_dir else output_dir / "controls"
+        # Resolution order: explicit controls_dir > script_dir/controls > output_dir/controls.
+        if tc.controls_dir:
+            controls_dir = Path(tc.controls_dir)
+        elif tc.script_dir:
+            controls_dir = Path(tc.script_dir) / "controls"
+        else:
+            controls_dir = output_dir / "controls"
         for filename in ("risk-severity.json", "registry.json"):
             ctrl_file = controls_dir / filename
             if ctrl_file.is_file():

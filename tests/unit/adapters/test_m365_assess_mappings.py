@@ -67,28 +67,32 @@ class TestSeverityMap:
 
 
 class TestCategoryMap:
-    """Maps CheckId collector prefix -> domain Category."""
+    """Maps CheckId collector prefix (lowercase) -> domain Category.
+
+    Keys must be lowercase to match what _extract_module_prefix returns
+    after applying lower() to the first hyphen-split segment.
+    """
 
     def test_entra_prefix(self) -> None:
-        assert CATEGORY_MAP["ENTRA"] == Category.IDENTITY_ACCESS
+        assert CATEGORY_MAP["entra"] == Category.IDENTITY_ACCESS
 
     def test_ca_prefix(self) -> None:
-        assert CATEGORY_MAP["CA"] == Category.IDENTITY_ACCESS
+        assert CATEGORY_MAP["ca"] == Category.IDENTITY_ACCESS
 
     def test_exo_prefix(self) -> None:
-        assert CATEGORY_MAP["EXO"] == Category.EMAIL_COLLABORATION
+        assert CATEGORY_MAP["exo"] == Category.EMAIL_COLLABORATION
 
     def test_defender_prefix(self) -> None:
-        assert CATEGORY_MAP["DEFENDER"] == Category.EMAIL_COLLABORATION
+        assert CATEGORY_MAP["defender"] == Category.EMAIL_COLLABORATION
 
     def test_spo_prefix(self) -> None:
-        assert CATEGORY_MAP["SPO"] == Category.DATA_PROTECTION
+        assert CATEGORY_MAP["spo"] == Category.DATA_PROTECTION
 
     def test_teams_prefix(self) -> None:
-        assert CATEGORY_MAP["TEAMS"] == Category.EMAIL_COLLABORATION
+        assert CATEGORY_MAP["teams"] == Category.EMAIL_COLLABORATION
 
     def test_compliance_prefix(self) -> None:
-        assert CATEGORY_MAP["COMPLIANCE"] == Category.COMPLIANCE
+        assert CATEGORY_MAP["compliance"] == Category.COMPLIANCE
 
 
 class TestExtractBaseCheckId:

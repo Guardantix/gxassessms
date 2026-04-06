@@ -76,19 +76,19 @@ SEVERITY_MAP: dict[tuple[str, str], Severity] = {
 # ---------------------------------------------------------------------------
 
 CATEGORY_MAP: dict[str, Category] = {
-    "ENTRA": Category.IDENTITY_ACCESS,
-    "CA": Category.IDENTITY_ACCESS,
-    "EntApp": Category.IDENTITY_ACCESS,
-    "EXO": Category.EMAIL_COLLABORATION,
-    "DNS": Category.EMAIL_COLLABORATION,
-    "DEFENDER": Category.EMAIL_COLLABORATION,
-    "SPO": Category.DATA_PROTECTION,
-    "TEAMS": Category.EMAIL_COLLABORATION,
-    "FORMS": Category.EMAIL_COLLABORATION,
-    "INTUNE": Category.DEVICE_MANAGEMENT,
-    "COMPLIANCE": Category.COMPLIANCE,
-    "PURVIEW": Category.COMPLIANCE,
-    "POWERBI": Category.DATA_PROTECTION,
+    "entra": Category.IDENTITY_ACCESS,
+    "ca": Category.IDENTITY_ACCESS,
+    "entapp": Category.IDENTITY_ACCESS,
+    "exo": Category.EMAIL_COLLABORATION,
+    "dns": Category.EMAIL_COLLABORATION,
+    "defender": Category.EMAIL_COLLABORATION,
+    "spo": Category.DATA_PROTECTION,
+    "teams": Category.EMAIL_COLLABORATION,
+    "forms": Category.EMAIL_COLLABORATION,
+    "intune": Category.DEVICE_MANAGEMENT,
+    "compliance": Category.COMPLIANCE,
+    "purview": Category.COMPLIANCE,
+    "powerbi": Category.DATA_PROTECTION,
 }
 
 # ---------------------------------------------------------------------------

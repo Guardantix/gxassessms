@@ -244,15 +244,20 @@ class DefaultNormalizationPolicy:
         """Extract the module prefix from a tool-native check ID.
 
         ScubaGear and Monkey365 use the second segment as the module prefix.
-        All other dot-separated IDs use the first segment (lowercased).
+        All other dot-separated IDs use the first segment (lowercased), with
+        an additional hyphen-split to strip area/numbering suffixes so that
+        hyphen-separated formats (e.g. M365-Assess) resolve to their top-level
+        collector token rather than the full first segment.
 
         Examples:
-            MS.AAD.3.1v1       -> aad      (ScubaGear: second segment)
-            MS.EXO.4.1v1       -> exo
-            m365.iam.mfa_admins -> iam     (Monkey365: second segment)
-            CISA.MS.AAD.3.1    -> cisa     (Maester: first segment)
-            EIDSCA.AF01        -> eidsca
-            MT.1001            -> mt
+            MS.AAD.3.1v1         -> aad      (ScubaGear: second segment)
+            MS.EXO.4.1v1         -> exo
+            m365.iam.mfa_admins  -> iam      (Monkey365: second segment)
+            CISA.MS.AAD.3.1      -> cisa     (Maester: first segment)
+            EIDSCA.AF01          -> eidsca
+            MT.1001              -> mt
+            ENTRA-ADMIN-001.1    -> entra    (M365-Assess: collector prefix)
+            EXO-AUTH-001.2       -> exo
         """
         # ScubaGear pattern: MS.{MODULE}.x.y -- second segment is the module
         if native_check_id.startswith("MS."):
@@ -266,10 +271,13 @@ class DefaultNormalizationPolicy:
             if len(parts) >= 3:
                 return parts[1].lower()
 
-        # Generic: first dot-separated segment for other formats
+        # Generic: first dot-separated segment, then first hyphen-separated
+        # subsegment (lowercased), so hyphen-separated IDs like
+        # ENTRA-ADMIN-001.1 resolve to their collector prefix ("entra")
+        # rather than the full first segment ("entra-admin-001").
         parts = native_check_id.split(".")
         if len(parts) >= 2:
-            return parts[0].lower()
+            return parts[0].split("-")[0].lower()
 
         return None
 
