@@ -247,16 +247,20 @@ class M365AssessAdapter:
             len(artifacts),
         )
 
+        execution_metadata: dict[str, str] = {
+            "script": "Invoke-M365Assessment.ps1",
+            "tenant_id": config.tenant_id,
+        }
+        if tc.controls_dir:
+            execution_metadata["controls_dir"] = str(Path(tc.controls_dir))
+
         return CollectionOutput(
             tool=ToolSource.M365_ASSESS,
             tool_slug=self.storage_slug,
             schema_version=_SCHEMA_VERSION,
             timestamp=utc_now(),
             artifacts=artifacts,
-            execution_metadata={
-                "script": "Invoke-M365Assessment.ps1",
-                "tenant_id": config.tenant_id,
-            },
+            execution_metadata=execution_metadata,
         )
 
     def validate_raw(self, raw: ResolvedManifest) -> None:
@@ -418,12 +422,18 @@ class M365AssessAdapter:
             if controls_dir.is_dir():
                 return controls_dir
 
-        # 2. Explicit controls_dir from execution_metadata
+        # 2. Explicit controls_dir from execution_metadata (stored by collect() when
+        #    tc.controls_dir was set; available during replay without a sibling controls/).
         explicit_dir = raw.execution_metadata.get("controls_dir")
         if explicit_dir:
             explicit_path = Path(explicit_dir)
-            if explicit_path.is_dir():
-                return explicit_path
+            if not explicit_path.is_dir():
+                raise ParseError(
+                    f"Explicitly configured controls_dir does not exist or is not a directory: "
+                    f"{explicit_path}",
+                    adapter_name=self.tool_name,
+                )
+            return explicit_path
 
         # 3. Scan file_manifest for metadata files
         for manifest_path in raw.file_manifest:
