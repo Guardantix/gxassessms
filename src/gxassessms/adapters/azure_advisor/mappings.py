@@ -9,8 +9,7 @@ subscription. Key fields:
 - category: PascalCase string ("Security", "HighAvailability", etc.)
 - recommendationTypeId: GUID identifying the recommendation TYPE (for dedup)
 
-Verified against Azure Advisor REST API docs and sample API response at
-/home/guardantix/ToolInspection/SampleReports/azure-advisor/advisor-sample.json.
+Verified against Azure Advisor REST API docs and real API sample output.
 """
 
 from gxassessms.core.domain.enums import Category, Severity

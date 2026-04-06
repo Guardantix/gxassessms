@@ -4,16 +4,31 @@ Verifies the Azure Advisor adapter meets all ToolAdapter Protocol requirements
 using the shared AdapterConformanceSuite base class.
 """
 
-import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from gxassessms.adapters.azure_advisor import AzureAdvisorAdapter
+from gxassessms.core.contracts.errors import RawOutputValidationError
 from gxassessms.core.domain.enums import FindingStatus, ToolSource
 from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
+from gxassessms.core.hashing import sha256_file
 from tests.conformance.adapter_suite import AdapterConformanceSuite
+
+
+def _make_manifest(file_path: Path) -> ResolvedManifest:
+    """Build a ResolvedManifest from a single JSON file."""
+    sha = sha256_file(file_path)
+    return ResolvedManifest(
+        tool=ToolSource.AZURE_ADVISOR,
+        tool_slug="azure-advisor",
+        schema_version="1.0.0",
+        manifest_version="1.0.0",
+        timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+        file_manifest={str(file_path): ArtifactRecord(encoding="utf-8", sha256=sha)},
+        execution_metadata={},
+    )
 
 
 class TestAzureAdvisorConformance(AdapterConformanceSuite):
@@ -38,20 +53,7 @@ class TestAzureAdvisorConformance(AdapterConformanceSuite):
     def resolved_manifest(
         self, adapter: AzureAdvisorAdapter, fixture_dir: Path
     ) -> ResolvedManifest:
-        """Build a ResolvedManifest pointing at the Azure Advisor fixture files."""
-        results_path = fixture_dir / "azure_advisor_sample.json"
-        sha = hashlib.sha256(results_path.read_bytes()).hexdigest()
-        return ResolvedManifest(
-            tool=ToolSource.AZURE_ADVISOR,
-            tool_slug="azure-advisor",
-            schema_version="1.0.0",
-            manifest_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={
-                str(results_path): ArtifactRecord(encoding="utf-8", sha256=sha),
-            },
-            execution_metadata={},
-        )
+        return _make_manifest(fixture_dir / "azure_advisor_sample.json")
 
     @pytest.fixture
     def normalization_rules(self) -> dict:
@@ -61,8 +63,6 @@ class TestAzureAdvisorConformance(AdapterConformanceSuite):
             "category_map": "azure_advisor.mappings.CATEGORY_MAP",
             "dedup_key_rules": "azure_advisor.mappings.DEDUP_KEY_RULES",
         }
-
-    # Azure Advisor-specific tests (flat, not nested)
 
     def test_all_observations_are_fail_status(
         self,
@@ -104,17 +104,7 @@ class TestAzureAdvisorConformance(AdapterConformanceSuite):
         """Empty value array is valid -- no recommendations."""
         empty_file = tmp_path / "empty.json"
         empty_file.write_text('{"value": []}')
-        sha = hashlib.sha256(empty_file.read_bytes()).hexdigest()
-        raw = ResolvedManifest(
-            tool=ToolSource.AZURE_ADVISOR,
-            tool_slug="azure-advisor",
-            schema_version="1.0.0",
-            manifest_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={str(empty_file): ArtifactRecord(encoding="utf-8", sha256=sha)},
-            execution_metadata={},
-        )
-        # Should NOT raise
+        raw = _make_manifest(empty_file)
         adapter.validate_raw(raw)
 
     def test_parse_empty_value_returns_zero_observations(
@@ -125,16 +115,7 @@ class TestAzureAdvisorConformance(AdapterConformanceSuite):
         """Empty value array produces zero observations, not an error."""
         empty_file = tmp_path / "empty.json"
         empty_file.write_text('{"value": []}')
-        sha = hashlib.sha256(empty_file.read_bytes()).hexdigest()
-        raw = ResolvedManifest(
-            tool=ToolSource.AZURE_ADVISOR,
-            tool_slug="azure-advisor",
-            schema_version="1.0.0",
-            manifest_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={str(empty_file): ArtifactRecord(encoding="utf-8", sha256=sha)},
-            execution_metadata={},
-        )
+        raw = _make_manifest(empty_file)
         observations = adapter.parse(raw)
         assert observations == []
 
@@ -145,17 +126,7 @@ class TestAzureAdvisorConformance(AdapterConformanceSuite):
     ) -> None:
         bad_file = tmp_path / "bad.json"
         bad_file.write_text('{"recommendations": []}')
-        sha = hashlib.sha256(bad_file.read_bytes()).hexdigest()
-        raw = ResolvedManifest(
-            tool=ToolSource.AZURE_ADVISOR,
-            tool_slug="azure-advisor",
-            schema_version="1.0.0",
-            manifest_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={str(bad_file): ArtifactRecord(encoding="utf-8", sha256=sha)},
-            execution_metadata={},
-        )
-        from gxassessms.core.contracts.errors import RawOutputValidationError
+        raw = _make_manifest(bad_file)
 
         with pytest.raises(
             RawOutputValidationError,
@@ -170,17 +141,7 @@ class TestAzureAdvisorConformance(AdapterConformanceSuite):
     ) -> None:
         bad_file = tmp_path / "bad.json"
         bad_file.write_text('[{"not": "an envelope"}]')
-        sha = hashlib.sha256(bad_file.read_bytes()).hexdigest()
-        raw = ResolvedManifest(
-            tool=ToolSource.AZURE_ADVISOR,
-            tool_slug="azure-advisor",
-            schema_version="1.0.0",
-            manifest_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={str(bad_file): ArtifactRecord(encoding="utf-8", sha256=sha)},
-            execution_metadata={},
-        )
-        from gxassessms.core.contracts.errors import RawOutputValidationError
+        raw = _make_manifest(bad_file)
 
         with pytest.raises(
             RawOutputValidationError,

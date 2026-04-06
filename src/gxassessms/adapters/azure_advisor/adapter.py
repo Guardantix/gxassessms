@@ -71,17 +71,12 @@ class AzureAdvisorAdapter:
     )
 
     def check_prerequisites(self) -> PrerequisiteResult:
-        """Verify azure-identity and httpx are importable."""
+        """Verify azure-identity is importable (httpx is a hard dependency)."""
         missing: list[str] = []
         try:
             import azure.identity  # noqa: F401  # pyright: ignore[reportMissingImports]
         except ImportError:
             missing.append("azure-identity")
-
-        try:
-            import httpx as _httpx  # noqa: F401
-        except ImportError:
-            missing.append("httpx")
 
         if missing:
             return PrerequisiteResult(
@@ -161,21 +156,18 @@ class AzureAdvisorAdapter:
         subscription_id = config.tenant_id
         timeout = tc.timeout if tc.timeout is not None else _DEFAULT_TIMEOUT_SECONDS
 
-        # Build API URL
         url = (
             f"{_MANAGEMENT_BASE_URL}/subscriptions/{subscription_id}"
             f"/providers/Microsoft.Advisor/recommendations"
         )
         params: dict[str, str] = {"api-version": _ADVISOR_API_VERSION}
 
-        # Optional category filter from tool config extra_args
         for arg in tc.extra_args:
             if arg.startswith("-Filter:"):
                 params["$filter"] = arg.split(":", 1)[1]
 
         headers = {
             "Authorization": f"Bearer {auth.token.get_secret_value()}",
-            "Content-Type": "application/json",
         }
 
         all_recommendations: list[dict[str, Any]] = []
@@ -209,7 +201,6 @@ class AzureAdvisorAdapter:
                 adapter_name=self.tool_name,
             ) from exc
 
-        # Save merged response to disk
         output_file = output_dir / _OUTPUT_FILENAME
         output_data: dict[str, Any] = {"value": all_recommendations}
         output_file.write_text(
@@ -249,15 +240,7 @@ class AzureAdvisorAdapter:
     def validate_raw(self, raw: ResolvedManifest) -> None:
         """Validate Azure Advisor output structure before parsing.
 
-        Checks:
-        1. At least one output file in manifest
-        2. File contains valid JSON
-        3. Top-level structure has "value" key
-        4. "value" is a list
-        5. Each element has required fields: recommendationTypeId, category,
-           impact, shortDescription
-
-        NOTE: Empty "value" array is VALID -- the subscription may have
+        Empty "value" array is VALID -- the subscription may have
         no active recommendations.
         """
         if not raw.file_manifest:
@@ -289,7 +272,6 @@ class AzureAdvisorAdapter:
                     adapter_name=self.tool_name,
                 )
 
-            # Empty value array is valid -- no recommendations
             for i, rec in enumerate(value):  # pyright: ignore[reportUnknownArgumentType,reportUnknownVariableType]
                 if not isinstance(rec, dict):
                     raise RawOutputValidationError(
@@ -354,14 +336,10 @@ class AzureAdvisorAdapter:
 
         return records
 
-    # ------------------------------------------------------------------
-    # Properties for NormalizationPolicy consumption
-    # ------------------------------------------------------------------
-
     @property
     def severity_map(self) -> dict[tuple[str, str], Any]:
-        """Azure Advisor uses impact-based severity, not standard severity map."""
-        return {}  # severity derived from impact field in parser
+        """Empty: Azure Advisor severity is derived from impact in the parser."""
+        return {}
 
     @property
     def category_map(self) -> dict[str, Any]:
