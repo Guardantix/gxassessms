@@ -1,0 +1,97 @@
+"""M365-Assess declarative mappings -- data, not logic.
+
+Maps M365-Assess output values to domain enums.
+
+M365-Assess outputs CSV files with 7 columns:
+  Category, Setting, CurrentValue, RecommendedValue, Status, CheckId, Remediation
+
+Severity comes from a separate risk-severity.json file.
+Framework mappings come from registry.json.
+
+CheckId format: {COLLECTOR}-{AREA}-{NNN}.{N}
+  - Base CheckId (without .N): key into risk-severity.json and registry.json
+  - Collector prefix: first segment before first hyphen -> category
+
+Verified against source code and sample output.
+"""
+
+import re
+
+from gxassessms.core.domain.enums import Category, FindingStatus, Severity
+
+# ---------------------------------------------------------------------------
+# Status mapping: CSV Status column (title case) -> FindingStatus
+# 6 values confirmed from source (SecurityConfigHelper.ps1) and sample output.
+# ---------------------------------------------------------------------------
+
+STATUS_MAP: dict[str, FindingStatus] = {
+    "Pass": FindingStatus.PASS,
+    "Fail": FindingStatus.FAIL,
+    "Warning": FindingStatus.WARNING,
+    "Review": FindingStatus.MANUAL,  # Requires manual assessment
+    "Info": FindingStatus.NOT_APPLICABLE,  # Informational, not actionable
+    "Unknown": FindingStatus.ERROR,  # Fallback from SecurityConfigHelper
+}
+
+# ---------------------------------------------------------------------------
+# Severity mapping: risk-severity.json value -> Severity
+# ---------------------------------------------------------------------------
+
+SEVERITY_MAP: dict[str, Severity] = {
+    "Critical": Severity.CRITICAL,
+    "High": Severity.HIGH,
+    "Medium": Severity.MEDIUM,
+    "Low": Severity.LOW,
+    "Info": Severity.INFO,
+}
+
+# ---------------------------------------------------------------------------
+# Category mapping: CheckId collector prefix -> Category
+# The collector prefix is the first segment of the CheckId before the
+# first hyphen (e.g., "ENTRA" from "ENTRA-ADMIN-001").
+# ---------------------------------------------------------------------------
+
+CATEGORY_MAP: dict[str, Category] = {
+    "ENTRA": Category.IDENTITY_ACCESS,
+    "CA": Category.IDENTITY_ACCESS,
+    "EntApp": Category.IDENTITY_ACCESS,
+    "EXO": Category.EMAIL_COLLABORATION,
+    "DNS": Category.EMAIL_COLLABORATION,
+    "DEFENDER": Category.EMAIL_COLLABORATION,
+    "SPO": Category.DATA_PROTECTION,
+    "TEAMS": Category.EMAIL_COLLABORATION,
+    "FORMS": Category.EMAIL_COLLABORATION,
+    "INTUNE": Category.DEVICE_MANAGEMENT,
+    "COMPLIANCE": Category.COMPLIANCE,
+    "PURVIEW": Category.COMPLIANCE,
+    "POWERBI": Category.DATA_PROTECTION,
+}
+
+# ---------------------------------------------------------------------------
+# Dedup key rules: base CheckId -> canonical cross-reference ID
+# Maps M365-Assess checks to CIS benchmark control IDs where known.
+# Populated from registry.json framework mappings at implementation time.
+# ---------------------------------------------------------------------------
+
+DEDUP_KEY_RULES: dict[str, str] = {}
+
+# Regex to strip .N sub-numbering from CheckId
+_SUB_NUMBER_PATTERN = re.compile(r"\.\d+$")
+
+
+def extract_base_check_id(check_id: str) -> str:
+    """Strip .N sub-numbering suffix from a CheckId.
+
+    'ENTRA-ADMIN-001.1' -> 'ENTRA-ADMIN-001'
+    'ENTRA-ADMIN-001' -> 'ENTRA-ADMIN-001' (unchanged)
+    """
+    return _SUB_NUMBER_PATTERN.sub("", check_id)
+
+
+def extract_collector_prefix(check_id: str) -> str:
+    """Extract the collector prefix from a CheckId.
+
+    'ENTRA-ADMIN-001.1' -> 'ENTRA'
+    'CA-MFA-ADMIN-001.1' -> 'CA'
+    """
+    return check_id.split("-")[0]
