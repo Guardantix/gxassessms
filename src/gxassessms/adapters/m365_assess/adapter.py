@@ -1,8 +1,11 @@
 """M365-Assess adapter -- CSV-based multi-framework M365 security assessment.
 
-M365-Assess is a standalone PowerShell *script* (not a PSGallery module), so
-collection uses ``run_powershell()`` (non-verified) rather than the module
-provenance pipeline.
+M365-Assess ships as a standalone PowerShell script (not a PSGallery module).
+Collection uses ``run_powershell()`` directly rather than ``run_verified_powershell``
+because there is no module provenance hash to verify.  Argument allowlist validation
+and ``shell=False`` still apply; the distinction is that the script file itself is
+not hash-checked at runtime -- integrity depends on the operator controlling the
+``script_dir`` path.
 """
 
 from __future__ import annotations

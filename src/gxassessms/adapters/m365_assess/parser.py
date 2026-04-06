@@ -89,7 +89,19 @@ def parse_security_config_csv(
 
             # Severity string from risk-severity.json; stored raw so the
             # normalization layer can resolve it via the adapter severity_map.
-            sev_str = severity_lookup.get(base_id, "Medium")
+            sev_str = severity_lookup.get(base_id)
+            if sev_str is None:
+                if severity_lookup:
+                    # risk-severity.json was loaded but this specific check is absent from it.
+                    # This typically means the check was added to M365-Assess after the controls
+                    # snapshot was taken. Update risk-severity.json to include it.
+                    logger.warning(
+                        "No severity entry for check_id=%r in risk-severity.json (source: %s); "
+                        "defaulting to Medium",
+                        base_id,
+                        csv_path.name,
+                    )
+                sev_str = "Medium"
 
             # Category hint for normalization layer (stored in raw_data)
             category_hint = CATEGORY_MAP.get(collector.lower(), Category.COMPLIANCE)

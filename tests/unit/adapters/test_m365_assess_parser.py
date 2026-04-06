@@ -177,6 +177,26 @@ class TestParseSecurityConfigCsv:
         assert len(cloud_admin) == 1
         assert "soc2:CC6.3" in cloud_admin[0].benchmark_refs
 
+    def test_severity_warning_logged_for_unknown_check_id(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A check_id absent from a non-empty severity_lookup must emit a WARNING log."""
+        import logging
+
+        # Provide a non-empty lookup that doesn't contain any entra check IDs
+        sparse_lookup = {"COMPLETELY-DIFFERENT-001": "High"}
+        csv_path = FIXTURE_DIR / "entra_security_config.csv"
+        with caplog.at_level(logging.WARNING, logger="gxassessms.adapters.m365_assess.parser"):
+            observations = parse_security_config_csv(csv_path, sparse_lookup, registry_lookup={})
+        assert len(observations) > 0
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("No severity entry" in msg for msg in warning_messages), (
+            f"Expected a severity WARNING log, got: {warning_messages}"
+        )
+        # All observations should still default to Medium
+        for obs in observations:
+            assert obs.native_severity == "Medium"
+
     def test_severity_defaults_to_medium_when_lookup_empty(self) -> None:
         """Empty severity_lookup must produce native_severity='Medium' for all rows."""
         csv_path = FIXTURE_DIR / "entra_security_config.csv"
