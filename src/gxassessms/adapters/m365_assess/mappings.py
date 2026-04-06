@@ -69,6 +69,17 @@ SEVERITY_MAP: dict[tuple[str, str], Severity] = {
     for status in _ACTIONABLE_STATUSES
 }
 
+# Guard: _ACTIONABLE_STATUSES must stay in sync with the non-passing FindingStatus members.
+# If FindingStatus gains a new non-passing status, add it here too.
+_EXPECTED_ACTIONABLE: frozenset[FindingStatus] = frozenset(
+    {FindingStatus.FAIL, FindingStatus.WARNING, FindingStatus.MANUAL, FindingStatus.ERROR}
+)
+if frozenset(_ACTIONABLE_STATUSES) != _EXPECTED_ACTIONABLE:
+    raise ValueError(
+        "SEVERITY_MAP: _ACTIONABLE_STATUSES is out of sync with FindingStatus non-passing members. "
+        "Update _ACTIONABLE_STATUSES when adding new non-passing FindingStatus values."
+    )
+
 # ---------------------------------------------------------------------------
 # Category mapping: CheckId collector prefix -> Category
 # The collector prefix is the first segment of the CheckId before the

@@ -11,7 +11,6 @@ import csv
 import logging
 import time
 from pathlib import Path
-from typing import Any
 
 from gxassessms.adapters._base import (
     parse_extra_args,
@@ -36,7 +35,7 @@ from gxassessms.core.contracts.errors import (
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
-from gxassessms.core.domain.enums import CoverageStatus, ToolSource
+from gxassessms.core.domain.enums import Category, CoverageStatus, Severity, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
     CollectedArtifact,
@@ -363,12 +362,12 @@ class M365AssessAdapter:
         return records
 
     @property
-    def severity_map(self) -> dict[tuple[str, str], Any]:
+    def severity_map(self) -> dict[tuple[str, str], Severity]:
         """(native_severity_str, canonical_status) -> Severity for NormalizationPolicy."""
         return SEVERITY_MAP
 
     @property
-    def category_map(self) -> dict[str, Any]:
+    def category_map(self) -> dict[str, Category]:
         """Collector prefix -> Category for NormalizationPolicy."""
         return CATEGORY_MAP
 
