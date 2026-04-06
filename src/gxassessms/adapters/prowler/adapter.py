@@ -40,6 +40,7 @@ from gxassessms.core.contracts.errors import (
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
+from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
@@ -76,7 +77,7 @@ class ProwlerAdapter:
     tool_name: str = "Prowler"
     storage_slug: str = "prowler"
     tool_source: ToolSource = ToolSource.PROWLER
-    capabilities: frozenset[str] = frozenset(
+    capabilities: frozenset[AdapterCapability] = frozenset(
         {
             "collect",
             "parse",
@@ -164,7 +165,7 @@ class ProwlerAdapter:
         extra_args = tc.extra_args or []
 
         auth_flags = _AUTH_METHOD_MAP.get(config.auth.method)
-        if auth_flags:
+        if auth_flags is not None:
             cmd.extend(auth_flags)
         elif not extra_args:
             raise CollectionError(
@@ -361,6 +362,10 @@ class ProwlerAdapter:
         Prowler coverage is derived from the findings themselves.
         Each unique check ID (metadata.event_code) represents a control that
         was assessed. MANUAL status maps to PARTIALLY_ASSESSED.
+
+        Raises:
+            ParseError: If the underlying parse() call fails.
+            RawOutputValidationError: If the manifest fails structural validation.
         """
         observations = self.parse(raw)
 
