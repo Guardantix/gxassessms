@@ -468,6 +468,146 @@ class TestCollectExitCodes:
 
 
 # ---------------------------------------------------------------------------
+# collect -- error paths (timeout, OSError, missing output)
+# ---------------------------------------------------------------------------
+
+
+class TestCollectErrorPaths:
+    """Verify collect() error handling for subprocess exceptions and missing output."""
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_collect_timeout_raises_collection_error(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """subprocess.TimeoutExpired during collect() must raise CollectionError."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        config = _make_config(output_dir=str(tmp_path))
+        adapter = ProwlerAdapter()
+        with (
+            patch("subprocess.run", side_effect=subprocess.TimeoutExpired("prowler", 1800)),
+            pytest.raises(CollectionError, match="timed out"),
+        ):
+            adapter.collect(config, None)
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_collect_oserror_raises_collection_error(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """OSError (binary not accessible) during collect() must raise CollectionError."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        config = _make_config(output_dir=str(tmp_path))
+        adapter = ProwlerAdapter()
+        with (
+            patch("subprocess.run", side_effect=OSError("Permission denied")),
+            pytest.raises(CollectionError, match="not accessible"),
+        ):
+            adapter.collect(config, None)
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_collect_no_output_file_raises_collection_error(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """Prowler exit 0 but no .ocsf.json file produced must raise CollectionError."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        config = _make_config(output_dir=str(tmp_path))
+        adapter = ProwlerAdapter()
+        with (
+            patch("subprocess.run", return_value=MagicMock(returncode=0, stdout=b"", stderr=b"")),
+            pytest.raises(CollectionError, match="No Prowler OCSF output found"),
+        ):
+            adapter.collect(config, None)
+
+
+# ---------------------------------------------------------------------------
+# collect -- auth method behavior
+# ---------------------------------------------------------------------------
+
+
+class TestCollectAuthMethods:
+    """Verify auth method handling in collect()."""
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_device_code_auth_injects_tenant_id(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """device_code auth must inject --tenant-id into the Prowler command."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
+        ocsf_file.write_text('[{"finding_info": {}}]')
+        config = _make_config(auth_method="device_code", output_dir=str(tmp_path))
+        adapter = ProwlerAdapter()
+        captured_cmd: list[str] = []
+
+        def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
+            captured_cmd.extend(cmd)
+            return MagicMock(returncode=0, stdout=b"", stderr=b"")
+
+        with patch("subprocess.run", side_effect=capture):
+            adapter.collect(config, None)
+        assert "--tenant-id" in captured_cmd
+        idx = captured_cmd.index("--tenant-id")
+        assert captured_cmd[idx + 1] != ""
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_device_code_auth_without_tenant_id_raises(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """device_code auth without tenant_id in config must raise CollectionError."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        config = EngagementConfig(
+            client_name="test-client",
+            tenant_id="",
+            auth=AuthConfig(method="device_code", tenant_id="", client_id=""),
+            tools={"prowler": ToolConfig(output_dir=str(tmp_path))},
+        )
+        adapter = ProwlerAdapter()
+        with pytest.raises(CollectionError, match="tenant_id"):
+            adapter.collect(config, None)
+
+
+# ---------------------------------------------------------------------------
+# collect -- modules / --checks injection
+# ---------------------------------------------------------------------------
+
+
+class TestCollectModules:
+    """Verify modules list is passed as --checks to Prowler."""
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_modules_list_injects_checks_flag(self, mock_shutil: MagicMock, tmp_path: Path) -> None:
+        """Specifying modules in tool config must pass --checks to Prowler."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
+        ocsf_file.write_text('[{"finding_info": {}}]')
+        config = EngagementConfig(
+            client_name="test-client",
+            tenant_id="test-tenant",
+            auth=AuthConfig(
+                method="client_credential",
+                tenant_id="test-tenant",
+                client_id="test-client-id",
+            ),
+            tools={
+                "prowler": ToolConfig(
+                    output_dir=str(tmp_path),
+                    modules=["defender_ensure_defender_for_app_services_is_on"],
+                )
+            },
+        )
+        adapter = ProwlerAdapter()
+        captured_cmd: list[str] = []
+
+        def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
+            captured_cmd.extend(cmd)
+            return MagicMock(returncode=0, stdout=b"", stderr=b"")
+
+        with patch("subprocess.run", side_effect=capture):
+            adapter.collect(config, None)
+        assert "--checks" in captured_cmd
+        assert "defender_ensure_defender_for_app_services_is_on" in captured_cmd
+
+
+# ---------------------------------------------------------------------------
 # extra_args validation -- allowlist enforcement
 # ---------------------------------------------------------------------------
 
