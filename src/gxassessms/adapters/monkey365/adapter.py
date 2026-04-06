@@ -310,6 +310,14 @@ class Monkey365Adapter:
                     f"Finding [{i}] findingInfo.id is missing or empty",
                     adapter_name=self.tool_name,
                 )
+            for text_field in ("title", "description"):
+                val = cast(dict[str, Any], finding["findingInfo"]).get(text_field)
+                if val is not None and not isinstance(val, str):
+                    raise RawOutputValidationError(
+                        f"Finding [{i}] findingInfo.{text_field} must be a string or absent, "
+                        f"got {type(val).__name__}",
+                        adapter_name=self.tool_name,
+                    )
             if "severity" not in finding:
                 raise RawOutputValidationError(
                     f"Finding [{i}] missing 'severity' field",

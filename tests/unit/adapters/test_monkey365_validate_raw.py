@@ -179,6 +179,21 @@ class TestValidateRaw:
         with pytest.raises(self.RawOutputValidationError, match="'statusCode' must be a string"):
             self.adapter.validate_raw(raw)
 
+    @pytest.mark.parametrize("field", ["title", "description"])
+    @patch("gxassessms.adapters.monkey365.adapter.load_json_file")
+    def test_finding_info_text_field_non_string_raises(self, mock_load: Any, field: str) -> None:
+        finding = {
+            **_COMPLETE_FINDING,
+            "findingInfo": {**_COMPLETE_FINDING["findingInfo"], field: {"bad": 1}},
+        }
+        mock_load.return_value = [finding]
+        raw = _make_raw_output(file_manifest={"/fake/monkey365_report.json": _ar()})
+        with pytest.raises(
+            self.RawOutputValidationError,
+            match=rf"findingInfo\.{field} must be a string or absent",
+        ):
+            self.adapter.validate_raw(raw)
+
     @patch("gxassessms.adapters.monkey365.adapter.load_json_file")
     def test_valid_fixture_passes(self, mock_load: Any) -> None:
         import json
