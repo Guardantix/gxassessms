@@ -34,7 +34,15 @@
       "Name": "CIS.M365.1.1.1: Ensure Administrative accounts are cloud-only",
       "HelpUrl": "",
       "Severity": "High",
-      "Tag": ["CIS.M365.1.1.1", "L1", "CIS E3 Level 1", "CIS E3", "CIS", "Security", "CIS M365 v5.0.0"],
+      "Tag": [
+        "CIS.M365.1.1.1",
+        "L1",
+        "CIS E3 Level 1",
+        "CIS E3",
+        "CIS",
+        "Security",
+        "CIS M365 v5.0.0"
+      ],
       "Result": "Passed",
       "ScriptBlock": "",
       "ScriptBlockFile": "",
@@ -59,11 +67,25 @@
       "Name": "CIS.M365.1.2.1: Ensure that only organizationally managed/approved public groups exist",
       "HelpUrl": "",
       "Severity": "Medium",
-      "Tag": ["CIS.M365.1.2.1", "L2", "CIS E3 Level 2", "CIS E3", "CIS", "Security", "CIS M365 v5.0.0"],
+      "Tag": [
+        "CIS.M365.1.2.1",
+        "L2",
+        "CIS E3 Level 2",
+        "CIS E3",
+        "CIS",
+        "Security",
+        "CIS M365 v5.0.0"
+      ],
       "Result": "Failed",
       "ScriptBlock": "",
       "ScriptBlockFile": "",
-      "ErrorRecord": [{"Exception": {"Message": "Expected $true, because 365 groups are private, but got $false."}}],
+      "ErrorRecord": [
+        {
+          "Exception": {
+            "Message": "Expected $true, because 365 groups are private, but got $false."
+          }
+        }
+      ],
       "Block": "CIS",
       "Duration": "00:00:00",
       "ResultDetail": {
@@ -80,15 +102,27 @@
     {
       "Index": 3,
       "Id": "CISA.MS.AAD.3.1",
-      "Title": "MFA SHALL be required for all users",
-      "Name": "CISA.MS.AAD.3.1: MFA SHALL be required for all users",
+      "Title": "Phishing-resistant MFA SHALL be enforced for all users.",
+      "Name": "CISA.MS.AAD.3.1: Phishing-resistant MFA SHALL be enforced for all users.",
       "HelpUrl": "",
       "Severity": "Critical",
-      "Tag": ["CISA.MS.AAD.3.1", "CISA", "Security", "All", "Entra"],
+      "Tag": [
+        "CISA.MS.AAD.3.1",
+        "CISA",
+        "Security",
+        "All",
+        "Entra"
+      ],
       "Result": "Failed",
       "ScriptBlock": "",
       "ScriptBlockFile": "",
-      "ErrorRecord": [{"Exception": {"Message": "Expected $true, because MFA is required for all users, but got $false."}}],
+      "ErrorRecord": [
+        {
+          "Exception": {
+            "Message": "Expected $true, because MFA is required for all users, but got $false."
+          }
+        }
+      ],
       "Block": "CISA",
       "Duration": "00:00:01",
       "ResultDetail": {
@@ -105,15 +139,27 @@
     {
       "Index": 4,
       "Id": "CISA.MS.EXO.4.1",
-      "Title": "A DKIM policy SHALL be enabled for all domains",
-      "Name": "CISA.MS.EXO.4.1: A DKIM policy SHALL be enabled for all domains",
+      "Title": "A DMARC policy SHALL be published for every second-level domain.",
+      "Name": "CISA.MS.EXO.4.1: A DMARC policy SHALL be published for every second-level domain.",
       "HelpUrl": "",
       "Severity": "High",
-      "Tag": ["CISA.MS.EXO.4.1", "CISA", "Security", "All", "EXO"],
+      "Tag": [
+        "CISA.MS.EXO.4.1",
+        "CISA",
+        "Security",
+        "All",
+        "EXO"
+      ],
       "Result": "Failed",
       "ScriptBlock": "",
       "ScriptBlockFile": "",
-      "ErrorRecord": [{"Exception": {"Message": "Expected $true, because DKIM is enabled, but got $false."}}],
+      "ErrorRecord": [
+        {
+          "Exception": {
+            "Message": "Expected $true, because DKIM is enabled, but got $false."
+          }
+        }
+      ],
       "Block": "CISA",
       "Duration": "00:00:03",
       "ResultDetail": {
@@ -134,7 +180,11 @@
       "Name": "EIDSCA.AF01: Authentication Method - FIDO2 security key - State",
       "HelpUrl": "",
       "Severity": "Medium",
-      "Tag": ["EIDSCA.AF01", "EIDSCA", "Security"],
+      "Tag": [
+        "EIDSCA.AF01",
+        "EIDSCA",
+        "Security"
+      ],
       "Result": "Passed",
       "ScriptBlock": "",
       "ScriptBlockFile": "",
@@ -159,7 +209,11 @@
       "Name": "EIDSCA.AP04: Default Authorization Settings - Enabled Self service password reset for administrators",
       "HelpUrl": "",
       "Severity": "Medium",
-      "Tag": ["EIDSCA.AP04", "EIDSCA", "Security"],
+      "Tag": [
+        "EIDSCA.AP04",
+        "EIDSCA",
+        "Security"
+      ],
       "Result": "Skipped",
       "ScriptBlock": "",
       "ScriptBlockFile": "",
@@ -184,7 +238,11 @@
       "Name": "MT.1001: At least one Conditional Access policy SHALL be configured",
       "HelpUrl": "",
       "Severity": "High",
-      "Tag": ["MT.1001", "CA", "Entra"],
+      "Tag": [
+        "MT.1001",
+        "CA",
+        "Entra"
+      ],
       "Result": "Passed",
       "ScriptBlock": "",
       "ScriptBlockFile": "",
@@ -209,11 +267,22 @@
       "Name": "MT.1005: All Conditional Access policies are configured to exclude at least one emergency/break glass account",
       "HelpUrl": "",
       "Severity": "High",
-      "Tag": ["MT.1005", "CA", "Entra", "Privilege"],
+      "Tag": [
+        "MT.1005",
+        "CA",
+        "Entra",
+        "Privilege"
+      ],
       "Result": "Failed",
       "ScriptBlock": "",
       "ScriptBlockFile": "",
-      "ErrorRecord": [{"Exception": {"Message": "Expected $true, because all CA policies exclude emergency accounts, but got $false."}}],
+      "ErrorRecord": [
+        {
+          "Exception": {
+            "Message": "Expected $true, because all CA policies exclude emergency accounts, but got $false."
+          }
+        }
+      ],
       "Block": "Maester/Entra",
       "Duration": "00:00:00",
       "ResultDetail": {
@@ -234,7 +303,11 @@
       "Name": "ORCA.118: Safe Links Policies are tracking when users click through to URLs",
       "HelpUrl": "",
       "Severity": "Medium",
-      "Tag": ["ORCA.118", "ORCA", "Security"],
+      "Tag": [
+        "ORCA.118",
+        "ORCA",
+        "Security"
+      ],
       "Result": "Passed",
       "ScriptBlock": "",
       "ScriptBlockFile": "",
@@ -259,11 +332,21 @@
       "Name": "MT.1033.0: Conditional Access policy - Block legacy authentication",
       "HelpUrl": "",
       "Severity": "High",
-      "Tag": ["MT.1033.0", "CA", "Entra"],
+      "Tag": [
+        "MT.1033.0",
+        "CA",
+        "Entra"
+      ],
       "Result": "Error",
       "ScriptBlock": "",
       "ScriptBlockFile": "",
-      "ErrorRecord": [{"Exception": {"Message": "Insufficient privileges to complete the operation."}}],
+      "ErrorRecord": [
+        {
+          "Exception": {
+            "Message": "Insufficient privileges to complete the operation."
+          }
+        }
+      ],
       "Block": "Maester/Entra",
       "Duration": "00:00:00",
       "ResultDetail": {
@@ -280,11 +363,19 @@
     {
       "Index": 11,
       "Id": "CIS.M365.2.1.9",
-      "Title": "Ensure the connection filter safe list is empty",
-      "Name": "CIS.M365.2.1.9: Ensure the connection filter safe list is empty",
+      "Title": "Ensure that DKIM is enabled for all Exchange Online Domains",
+      "Name": "CIS.M365.2.1.9: Ensure that DKIM is enabled for all Exchange Online Domains",
       "HelpUrl": "",
       "Severity": "Low",
-      "Tag": ["CIS.M365.2.1.9", "L1", "CIS E3 Level 1", "CIS E3", "CIS", "Security", "CIS M365 v5.0.0"],
+      "Tag": [
+        "CIS.M365.2.1.9",
+        "L1",
+        "CIS E3 Level 1",
+        "CIS E3",
+        "CIS",
+        "Security",
+        "CIS M365 v5.0.0"
+      ],
       "Result": "Skipped",
       "ScriptBlock": "",
       "ScriptBlockFile": "",
@@ -309,11 +400,21 @@
       "Name": "ORCA.223: Zero-hour auto purge (ZAP) for phishing is enabled",
       "HelpUrl": "",
       "Severity": "Info",
-      "Tag": ["ORCA.223", "ORCA", "Security"],
+      "Tag": [
+        "ORCA.223",
+        "ORCA",
+        "Security"
+      ],
       "Result": "Error",
       "ScriptBlock": "",
       "ScriptBlockFile": "",
-      "ErrorRecord": [{"Exception": {"Message": "Exchange Online module not connected."}}],
+      "ErrorRecord": [
+        {
+          "Exception": {
+            "Message": "Exchange Online module not connected."
+          }
+        }
+      ],
       "Block": "ORCA",
       "Duration": "00:00:00",
       "ResultDetail": {
@@ -334,11 +435,25 @@
       "Name": "CIS.M365.8.6.1: Ensure users can report security concerns in Teams",
       "HelpUrl": "",
       "Severity": "Medium",
-      "Tag": ["CIS.M365.8.6.1", "L1", "CIS E3 Level 1", "CIS E3", "CIS", "Security", "CIS M365 v5.0.0"],
+      "Tag": [
+        "CIS.M365.8.6.1",
+        "L1",
+        "CIS E3 Level 1",
+        "CIS E3",
+        "CIS",
+        "Security",
+        "CIS M365 v5.0.0"
+      ],
       "Result": "Failed",
       "ScriptBlock": "",
       "ScriptBlockFile": "",
-      "ErrorRecord": [{"Exception": {"Message": "Expected $true, because users can report security concerns, but got $false."}}],
+      "ErrorRecord": [
+        {
+          "Exception": {
+            "Message": "Expected $true, because users can report security concerns, but got $false."
+          }
+        }
+      ],
       "Block": "CIS",
       "Duration": "00:00:01",
       "ResultDetail": {
@@ -359,7 +474,13 @@
       "Name": "CISA.MS.SHAREPOINT.1.1: External sharing for SharePoint SHALL be limited",
       "HelpUrl": "",
       "Severity": "High",
-      "Tag": ["CISA.MS.SHAREPOINT.1.1", "CISA", "Security", "All", "SharePoint"],
+      "Tag": [
+        "CISA.MS.SHAREPOINT.1.1",
+        "CISA",
+        "Security",
+        "All",
+        "SharePoint"
+      ],
       "Result": "NotRun",
       "ScriptBlock": "",
       "ScriptBlockFile": "",

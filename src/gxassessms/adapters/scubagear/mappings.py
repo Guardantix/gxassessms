@@ -92,9 +92,11 @@ DEDUP_KEY_RULES: dict[str, str] = {
     "MS.AAD.7.1v1": "cis:m365:1.1.3",  # Global admin count (CISA: 2-8, CIS: 2-4)
     # --- Section 2.1: Email Security (Defender/EXO) ---
     "MS.DEFENDER.3.1v1": "cis:m365:2.1.5",  # Safe Attachments for SPO/ODB/Teams
-    "MS.EXO.2.2v3": "cis:m365:2.1.8",  # SPF policy published for each domain
+    "MS.EXO.2.2v2": "cis:m365:2.1.8",  # SPF -- ScubaGear <= 1.7.x
+    "MS.EXO.2.2v3": "cis:m365:2.1.8",  # SPF -- ScubaGear >= 1.8.x
     "MS.EXO.3.1v1": "cis:m365:2.1.9",  # DKIM enabled for all domains
     "MS.EXO.4.1v1": "cis:m365:2.1.10",  # DMARC record published for each domain
+    "MS.EXO.4.2v1": "cis:m365:2.1.10",  # DMARC p=reject (same CIS control)
     # --- Section 5.2.2: Conditional Access ---
     "MS.AAD.3.6v1": "cis:m365:5.2.2.1",  # MFA for admin roles
     "MS.AAD.3.2v2": "cis:m365:5.2.2.2",  # MFA for all users

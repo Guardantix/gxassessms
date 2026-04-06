@@ -269,6 +269,9 @@ class TestDedupKeyRules:
     def test_ms_exo_1_1v2_block_forwarding(self) -> None:
         assert self.rules["MS.EXO.1.1v2"] == "cis:m365:6.2.1"
 
+    def test_ms_exo_2_2v2_spf_legacy(self) -> None:
+        assert self.rules["MS.EXO.2.2v2"] == "cis:m365:2.1.8"
+
     def test_ms_exo_2_2v3_spf(self) -> None:
         assert self.rules["MS.EXO.2.2v3"] == "cis:m365:2.1.8"
 
@@ -278,8 +281,11 @@ class TestDedupKeyRules:
     def test_ms_exo_4_1v1_dmarc(self) -> None:
         assert self.rules["MS.EXO.4.1v1"] == "cis:m365:2.1.10"
 
+    def test_ms_exo_4_2v1_dmarc_preject(self) -> None:
+        assert self.rules["MS.EXO.4.2v1"] == "cis:m365:2.1.10"
+
     def test_ms_defender_3_1v1_safe_attachments(self) -> None:
         assert self.rules["MS.DEFENDER.3.1v1"] == "cis:m365:2.1.5"
 
-    def test_has_at_least_thirteen_entries(self) -> None:
-        assert len(self.rules) >= 13
+    def test_has_at_least_fifteen_entries(self) -> None:
+        assert len(self.rules) >= 15
