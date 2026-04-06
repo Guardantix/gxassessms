@@ -1,7 +1,9 @@
 """Unit tests for SecureScoreAdapter guards that don't require network calls."""
 
+import sys
 from datetime import timedelta
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from pydantic import SecretStr
@@ -54,6 +56,85 @@ class TestAdapterProperties:
         adapter = SecureScoreAdapter()
         # tool_name = "SecureScore", tool_name.lower() = "securescore"
         assert adapter.tool_name.lower() == "securescore"
+
+
+def _mock_azure_identity(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, MagicMock]:
+    """Inject mock azure.identity and azure.core.exceptions into sys.modules.
+
+    Returns (ClientSecretCredential mock, DefaultAzureCredential mock).
+    """
+    fake_token = SimpleNamespace(token="tok", expires_on=9_999_999_999)
+
+    sp_cred = MagicMock()
+    sp_cred.get_token.return_value = fake_token
+    ClientSecretCredential = MagicMock(return_value=sp_cred)
+
+    dac_cred = MagicMock()
+    dac_cred.get_token.return_value = fake_token
+    DefaultAzureCredential = MagicMock(return_value=dac_cred)
+
+    mock_identity = ModuleType("azure.identity")
+    mock_identity.ClientSecretCredential = ClientSecretCredential  # type: ignore[attr-defined]
+    mock_identity.DefaultAzureCredential = DefaultAzureCredential  # type: ignore[attr-defined]
+
+    mock_azure_core = ModuleType("azure.core.exceptions")
+    mock_azure_core.AzureError = Exception  # type: ignore[attr-defined]
+
+    monkeypatch.setitem(sys.modules, "azure.identity", mock_identity)
+    monkeypatch.setitem(sys.modules, "azure.core.exceptions", mock_azure_core)
+
+    return ClientSecretCredential, DefaultAzureCredential
+
+
+def _auth_config(*, client_secret_env: str = "") -> SimpleNamespace:
+    return SimpleNamespace(
+        auth=SimpleNamespace(
+            client_id="app-id",
+            client_secret_env=client_secret_env,
+            tenant_id="tenant-id",
+        )
+    )
+
+
+class TestAuthenticate:
+    def test_uses_default_credential_when_no_secret_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """authenticate() uses DefaultAzureCredential when client_secret_env is empty.
+
+        Regression: auth config requires client_id (always set), so the old
+        ``elif client_id and not client_secret_env`` guard always fired for
+        non-SP users, blocking DefaultAzureCredential entirely.
+        """
+        _, DefaultAzureCredential = _mock_azure_identity(monkeypatch)
+        adapter = SecureScoreAdapter()
+        result = adapter.authenticate(_auth_config(client_secret_env=""))  # type: ignore[arg-type]
+        assert result is not None
+        DefaultAzureCredential.assert_called_once()
+
+    def test_uses_client_secret_credential_when_secret_env_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """authenticate() uses ClientSecretCredential when client_secret_env is set."""
+        ClientSecretCredential, DefaultAzureCredential = _mock_azure_identity(monkeypatch)
+        monkeypatch.setenv("GX_TEST_SECRET", "s3cr3t")
+        adapter = SecureScoreAdapter()
+        result = adapter.authenticate(  # type: ignore[arg-type]
+            _auth_config(client_secret_env="GX_TEST_SECRET")  # pragma: allowlist secret
+        )
+        assert result is not None
+        ClientSecretCredential.assert_called_once()
+        DefaultAzureCredential.assert_not_called()
+
+    def test_raises_if_secret_env_set_but_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """authenticate() raises CollectionError when secret env var is set but empty."""
+        _mock_azure_identity(monkeypatch)
+        monkeypatch.delenv("GX_MISSING_SECRET", raising=False)
+        adapter = SecureScoreAdapter()
+        with pytest.raises(CollectionError, match="not set or empty"):
+            adapter.authenticate(  # type: ignore[arg-type]
+                _auth_config(client_secret_env="GX_MISSING_SECRET")  # pragma: allowlist secret
+            )
 
 
 class TestCollectGuards:

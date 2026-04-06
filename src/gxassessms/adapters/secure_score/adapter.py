@@ -130,7 +130,7 @@ class SecureScoreAdapter:
         client_secret_env = config.auth.client_secret_env
 
         try:
-            if client_id and client_secret_env:
+            if client_secret_env:
                 client_secret = os.environ.get(client_secret_env, "")
                 if not client_secret:
                     raise CollectionError(
@@ -146,20 +146,6 @@ class SecureScoreAdapter:
                     tenant_id=config.auth.tenant_id,
                     client_id=client_id,
                     client_secret=client_secret,
-                )
-            elif client_id and not client_secret_env:
-                raise CollectionError(
-                    "'client_id' is configured but 'client_secret_env' is absent. "
-                    "Provide both for service principal auth, or remove 'client_id' "
-                    "to use DefaultAzureCredential.",
-                    adapter_name=self.tool_name,
-                )
-            elif not client_id and client_secret_env:
-                raise CollectionError(
-                    "'client_secret_env' is configured but 'client_id' is absent. "
-                    "Provide both for service principal auth, or remove 'client_secret_env' "
-                    "to use DefaultAzureCredential.",
-                    adapter_name=self.tool_name,
                 )
             else:
                 logger.info("Authenticating Secure Score via DefaultAzureCredential")
