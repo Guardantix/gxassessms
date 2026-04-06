@@ -75,6 +75,27 @@ class TestGetLatestControlState:
         """None items in controlStateUpdates must not crash -- return 'Default'."""
         assert get_latest_control_state([None]) == "Default"
 
+    def test_mixed_iso_formats_selects_chronologically_latest(self) -> None:
+        """Fractional-second precision must not break chronological ordering.
+
+        Raw string sort puts '2026-01-01T00:00:00Z' after
+        '2026-01-01T00:00:00.1000000Z' because 'Z' > '.', but the
+        fractional-second timestamp is actually later.
+        """
+        updates = [
+            {"state": "Default", "updatedDateTime": "2026-01-01T00:00:00Z"},
+            {"state": "thirdParty", "updatedDateTime": "2026-01-01T00:00:00.1000000Z"},
+        ]
+        assert get_latest_control_state(updates) == "thirdParty"
+
+    def test_mixed_tz_offset_formats(self) -> None:
+        """'+00:00' vs 'Z' suffix must not affect ordering."""
+        updates = [
+            {"state": "Default", "updatedDateTime": "2026-06-01T12:00:00+00:00"},
+            {"state": "ignored", "updatedDateTime": "2026-07-01T12:00:00Z"},
+        ]
+        assert get_latest_control_state(updates) == "ignored"
+
 
 class TestDeriveStatus:
     def test_third_party_with_full_score_is_not_applicable(self) -> None:
@@ -186,7 +207,14 @@ class TestParseSecureScore:
                 }
             ]
         }
-        scores = {"value": [{"controlScores": [{"controlName": "IgnoredControl", "score": 0.0}]}]}
+        scores = {
+            "value": [
+                {
+                    "createdDateTime": "2026-01-15T00:00:00Z",
+                    "controlScores": [{"controlName": "IgnoredControl", "score": 0.0}],
+                }
+            ]
+        }
         observations = parse_secure_score(profiles, scores)
         assert len(observations) == 1
         assert observations[0].native_status == FindingStatus.NOT_APPLICABLE
@@ -284,7 +312,14 @@ class TestParseSecureScore:
                 }
             ]
         }
-        scores = {"value": [{"controlScores": [{"controlName": "NoMaxScore", "score": 5.0}]}]}
+        scores = {
+            "value": [
+                {
+                    "createdDateTime": "2026-01-01T00:00:00Z",
+                    "controlScores": [{"controlName": "NoMaxScore", "score": 5.0}],
+                }
+            ]
+        }
         observations = parse_secure_score(profiles, scores)
         assert len(observations) == 1
         assert observations[0].native_status == FindingStatus.MANUAL
@@ -343,6 +378,39 @@ class TestParseSecureScore:
         with caplog.at_level(logging.WARNING, logger="gxassessms.adapters.secure_score.parser"):
             parse_secure_score(empty, {"value": []})
         assert "empty list" in caplog.text.lower()
+
+    def test_multiple_snapshots_uses_newest_by_created_date(self) -> None:
+        """When multiple score snapshots are present, the newest by createdDateTime wins."""
+        profiles = {
+            "value": [
+                {
+                    "id": "TestControl",
+                    "title": "Test Control",
+                    "deprecated": False,
+                    "rank": 10,
+                    "tier": "Core",
+                    "controlCategory": "Identity",
+                    "maxScore": 10.0,
+                    "controlStateUpdates": [],
+                }
+            ]
+        }
+        # Older snapshot listed first (score=0, FAIL), newer snapshot second (score=10, PASS)
+        scores = {
+            "value": [
+                {
+                    "createdDateTime": "2026-01-01T00:00:00Z",
+                    "controlScores": [{"controlName": "TestControl", "score": 0.0}],
+                },
+                {
+                    "createdDateTime": "2026-03-01T00:00:00Z",
+                    "controlScores": [{"controlName": "TestControl", "score": 10.0}],
+                },
+            ]
+        }
+        observations = parse_secure_score(profiles, scores)
+        assert len(observations) == 1
+        assert observations[0].native_status == FindingStatus.PASS
 
     def test_empty_scores_logs_warning(
         self, caplog: pytest.LogCaptureFixture, profiles_data: dict

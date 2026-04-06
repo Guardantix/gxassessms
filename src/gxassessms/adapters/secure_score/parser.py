@@ -13,6 +13,7 @@ from gxassessms.adapters.secure_score.mappings import (
     CONTROL_STATE_PASS_THROUGH,
     derive_severity,
 )
+from gxassessms.core.config.datetime_utils import parse_utc
 from gxassessms.core.domain.enums import (
     FindingStatus,
     Severity,
@@ -41,11 +42,11 @@ def get_latest_control_state(
     try:
         sorted_updates = sorted(
             control_state_updates,
-            key=lambda u: u.get("updatedDateTime", ""),
+            key=lambda u: parse_utc(u.get("updatedDateTime", "")),
             reverse=True,
         )
         return sorted_updates[0].get("state", "Default")
-    except (TypeError, IndexError, KeyError, AttributeError) as exc:
+    except (TypeError, IndexError, KeyError, AttributeError, ValueError) as exc:
         logger.warning(
             "Failed to parse controlStateUpdates; defaulting to 'Default': %s",
             exc,
@@ -106,7 +107,8 @@ def parse_secure_score(
         profiles_response: Full JSON from
             ``GET /security/secureScoreControlProfiles``.
         scores_response: Full JSON from
-            ``GET /security/secureScores?$top=1``.
+            ``GET /security/secureScores``. When multiple snapshots are
+            present, the most recent by ``createdDateTime`` is used.
 
     Returns:
         List of :class:`ToolObservation` instances, one per non-deprecated
@@ -128,7 +130,10 @@ def parse_secure_score(
             "Verify SecurityEvents.Read.All is granted and Secure Score is enabled."
         )
     else:
-        latest_snapshot = scores_list[0]
+        latest_snapshot = max(
+            scores_list,
+            key=lambda s: parse_utc(s.get("createdDateTime", "")),
+        )
         for cs in latest_snapshot.get("controlScores", []):
             control_name = cs.get("controlName", "")
             if control_name:
