@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from gxassessms.adapters.secure_score.parser import (
+    _derive_status,
     get_latest_control_state,
     parse_secure_score,
 )
@@ -64,6 +65,47 @@ class TestGetLatestControlState:
 
     def test_returns_default_for_none(self) -> None:
         assert get_latest_control_state(None) == "Default"
+
+    def test_returns_default_for_non_dict_entry(self) -> None:
+        """Non-dict items in controlStateUpdates must not crash -- return 'Default'."""
+        assert get_latest_control_state(["not_a_dict"]) == "Default"
+
+    def test_returns_default_for_none_value_in_list(self) -> None:
+        """None items in controlStateUpdates must not crash -- return 'Default'."""
+        assert get_latest_control_state([None]) == "Default"
+
+
+class TestDeriveStatus:
+    def test_third_party_with_full_score_is_not_applicable(self) -> None:
+        """thirdParty state overrides full score -- result is NOT_APPLICABLE, not PASS."""
+        result = _derive_status(score=10.0, max_score=10.0, latest_state="thirdParty")
+        assert result == FindingStatus.NOT_APPLICABLE
+
+    def test_ignored_with_full_score_is_not_applicable(self) -> None:
+        """ignored state overrides full score -- result is NOT_APPLICABLE, not PASS."""
+        result = _derive_status(score=10.0, max_score=10.0, latest_state="ignored")
+        assert result == FindingStatus.NOT_APPLICABLE
+
+    def test_default_state_with_full_score_is_pass(self) -> None:
+        """Default state with full score -> PASS (state check doesn't fire)."""
+        result = _derive_status(score=10.0, max_score=10.0, latest_state="Default")
+        assert result == FindingStatus.PASS
+
+    def test_none_score_is_always_manual(self) -> None:
+        """None score -> MANUAL regardless of state."""
+        assert (
+            _derive_status(score=None, max_score=10.0, latest_state="thirdParty")
+            == FindingStatus.MANUAL
+        )
+        assert (
+            _derive_status(score=None, max_score=10.0, latest_state="Default")
+            == FindingStatus.MANUAL
+        )
+
+    def test_none_max_score_is_manual(self) -> None:
+        """None maxScore -> MANUAL even when score data exists."""
+        result = _derive_status(score=5.0, max_score=None, latest_state="Default")
+        assert result == FindingStatus.MANUAL
 
 
 class TestParseSecureScore:
@@ -184,3 +226,43 @@ class TestParseSecureScore:
         assert dlp.native_category == "Data"
         tp = next(o for o in observations if o.native_check_id == "ThirdPartyIgnored")
         assert tp.native_category == "Device"
+
+    def test_missing_max_score_produces_manual(self) -> None:
+        """Profile with no maxScore field produces MANUAL even when score data exists."""
+        profiles = {
+            "value": [
+                {
+                    "id": "NoMaxScore",
+                    "title": "Control Without MaxScore",
+                    "deprecated": False,
+                    "rank": 10,
+                    "tier": "Core",
+                    "controlCategory": "Identity",
+                    "controlStateUpdates": [],
+                    # intentionally omitting "maxScore"
+                }
+            ]
+        }
+        scores = {"value": [{"controlScores": [{"controlName": "NoMaxScore", "score": 5.0}]}]}
+        observations = parse_secure_score(profiles, scores)
+        assert len(observations) == 1
+        assert observations[0].native_status == FindingStatus.MANUAL
+
+    def test_empty_profiles_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Empty profiles array emits a warning log."""
+        import logging
+
+        empty = {"value": []}
+        with caplog.at_level(logging.WARNING, logger="gxassessms.adapters.secure_score.parser"):
+            parse_secure_score(empty, {"value": []})
+        assert "empty list" in caplog.text.lower() or "empty" in caplog.text.lower()
+
+    def test_empty_scores_logs_warning(
+        self, caplog: pytest.LogCaptureFixture, profiles_data: dict
+    ) -> None:
+        """Empty scores response emits a warning log."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="gxassessms.adapters.secure_score.parser"):
+            parse_secure_score(profiles_data, {"value": []})
+        assert "no records" in caplog.text.lower() or "manual" in caplog.text.lower()
