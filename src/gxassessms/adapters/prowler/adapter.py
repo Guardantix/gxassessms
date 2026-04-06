@@ -24,7 +24,10 @@ import logging
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from gxassessms.core.domain.constants import AdapterCapability
 
 from gxassessms.adapters._base import load_json_file
 from gxassessms.adapters.prowler.mappings import (
@@ -40,7 +43,6 @@ from gxassessms.core.contracts.errors import (
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
-from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
@@ -120,7 +122,7 @@ class ProwlerAdapter:
 
     def authenticate(
         self,
-        config: EngagementConfig,
+        _config: EngagementConfig,
     ) -> AuthContext | None:
         """Prowler manages its own Azure auth. Return None."""
         return None
@@ -128,7 +130,7 @@ class ProwlerAdapter:
     def collect(
         self,
         config: EngagementConfig,
-        auth: AuthContext | None,
+        _auth: AuthContext | None,
     ) -> CollectionOutput:
         """Run Prowler and capture OCSF JSON output.
 

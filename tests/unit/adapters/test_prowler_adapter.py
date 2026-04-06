@@ -153,7 +153,7 @@ class TestCollectExtraArgs:
         ocsf_file.write_text('[{"test": true}]')
 
         with patch("gxassessms.core.hashing.sha256_file", return_value="a" * 64):
-            adapter.collect(config, auth=None)
+            adapter.collect(config, None)
 
         cmd = mock_run.call_args[0][0]
         assert "--az-cli-auth" in cmd
@@ -186,7 +186,7 @@ class TestCollectExtraArgs:
             ),
             patch("gxassessms.core.hashing.sha256_file", return_value="a" * 64),
         ):
-            adapter.collect(config, auth=None)
+            adapter.collect(config, None)
 
         cmd = mock_run.call_args[0][0]
         assert "--managed-identity-auth" in cmd
@@ -204,7 +204,7 @@ class TestCollectExtraArgs:
             ),
             pytest.raises(CollectionError, match="extra_args"),
         ):
-            adapter.collect(config, auth=None)
+            adapter.collect(config, None)
 
 
 # ---------------------------------------------------------------------------
