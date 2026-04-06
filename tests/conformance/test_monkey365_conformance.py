@@ -18,6 +18,7 @@ from gxassessms.adapters.monkey365 import Monkey365Adapter
 from gxassessms.core.domain.enums import ToolSource
 from gxassessms.core.domain.models import (
     ArtifactRecord,
+    CoverageRecord,
     ResolvedManifest,
     ToolObservation,
 )
@@ -174,6 +175,14 @@ class TestMonkey365Conformance(AdapterConformanceSuite):
         statuses = {obs.native_status for obs in observations}
         expected = {"pass", "fail", "manual"}
         assert statuses == expected, f"Fixture should cover all 3 statuses, found: {statuses}"
+
+    def test_coverage_includes_not_assessed(
+        self, coverage_records: list[CoverageRecord] | None
+    ) -> None:
+        """Fixture includes manual checks mapped to not_assessed."""
+        assert coverage_records is not None
+        statuses = {r.status for r in coverage_records}
+        assert "not_assessed" in statuses
 
     def test_multiple_categories_in_fixture(
         self,

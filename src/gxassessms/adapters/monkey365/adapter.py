@@ -26,6 +26,7 @@ from gxassessms.adapters.monkey365.mappings import (
     CATEGORY_MAP,
     DEDUP_KEY_RULES,
     SEVERITY_MAP,
+    STATUS_MAP,
 )
 from gxassessms.adapters.monkey365.parser import parse_monkey365_findings
 from gxassessms.core.config.config import EngagementConfig
@@ -35,7 +36,7 @@ from gxassessms.core.contracts.errors import (
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
 from gxassessms.core.domain.constants import AdapterCapability
-from gxassessms.core.domain.enums import CoverageStatus, ToolSource
+from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
     CollectedArtifact,
@@ -215,7 +216,10 @@ class Monkey365Adapter:
         return observations
 
     def coverage(self, raw: ResolvedManifest) -> list[CoverageRecord]:
-        """Report coverage based on parsed findings."""
+        """Report coverage based on parsed findings.
+
+        FindingStatus.MANUAL -> NOT_ASSESSED, all others -> ASSESSED.
+        """
         _, findings = self._validate_and_load_findings(raw)
         observations = parse_monkey365_findings(findings)
 
@@ -225,12 +229,21 @@ class Monkey365Adapter:
         for obs in observations:
             if obs.native_check_id not in seen_checks:
                 seen_checks.add(obs.native_check_id)
+
+                mapped = STATUS_MAP.get(obs.native_status)
+                if mapped is FindingStatus.MANUAL:
+                    status = CoverageStatus.NOT_ASSESSED
+                    reason: str | None = "Manual check requires human review"
+                else:
+                    status = CoverageStatus.ASSESSED
+                    reason = None
+
                 records.append(
                     CoverageRecord(
                         control_id=obs.native_check_id,
                         tool=ToolSource.MONKEY365,
-                        status=CoverageStatus.ASSESSED,
-                        reason=None,
+                        status=status,
+                        reason=reason,
                     )
                 )
 
