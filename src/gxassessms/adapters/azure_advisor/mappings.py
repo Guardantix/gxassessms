@@ -12,7 +12,7 @@ subscription. Key fields:
 Verified against Azure Advisor REST API docs and real API sample output.
 """
 
-from gxassessms.core.domain.enums import Category, FindingStatus, Severity
+from gxassessms.core.domain.enums import Category, Severity
 
 # ---------------------------------------------------------------------------
 # Impact -> Severity mapping
@@ -24,20 +24,6 @@ IMPACT_TO_SEVERITY_MAP: dict[str, Severity] = {
     "High": Severity.HIGH,
     "Medium": Severity.MEDIUM,
     "Low": Severity.LOW,
-}
-
-# ---------------------------------------------------------------------------
-# Severity map for NormalizationPolicy
-# Maps (native_severity, canonicalized_status) -> domain Severity.
-# The parser sets native_severity to Severity enum values (HIGH/MEDIUM/LOW)
-# and native_status to FAIL for all recommendations. Without this map,
-# normalization falls through to fallback_severity (MEDIUM) for everything.
-# ---------------------------------------------------------------------------
-
-SEVERITY_MAP: dict[tuple[str, str], Severity] = {
-    (Severity.HIGH, FindingStatus.FAIL): Severity.HIGH,
-    (Severity.MEDIUM, FindingStatus.FAIL): Severity.MEDIUM,
-    (Severity.LOW, FindingStatus.FAIL): Severity.LOW,
 }
 
 # ---------------------------------------------------------------------------

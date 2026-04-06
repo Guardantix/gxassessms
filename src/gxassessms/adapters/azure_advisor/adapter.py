@@ -16,27 +16,31 @@ from __future__ import annotations
 import json
 import logging
 import re
-from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
-import httpx
 from pydantic import SecretStr
 
 from gxassessms.adapters._base import load_json_file, parse_extra_args, validate_extra_args
+from gxassessms.adapters._http import (
+    check_python_packages,
+    fetch_paginated_json,
+    validate_auth_context,
+)
 from gxassessms.adapters.azure_advisor.mappings import (
     CATEGORY_MAP,
     DEDUP_KEY_RULES,
-    SEVERITY_MAP,
 )
 from gxassessms.adapters.azure_advisor.parser import parse_advisor_recommendations
 from gxassessms.core.config.config import EngagementConfig
+from gxassessms.core.config.datetime_utils import from_epoch
 from gxassessms.core.contracts.errors import (
     CollectionError,
     PrerequisiteError,
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
+from gxassessms.core.domain.constants import SEVERITY_IDENTITY_MAP
 from gxassessms.core.domain.enums import CoverageStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
@@ -82,24 +86,9 @@ class AzureAdvisorAdapter:
 
         httpx is a declared package dependency and assumed present.
         """
-        missing: list[str] = []
-        try:
-            import azure.identity  # noqa: F401  # pyright: ignore[reportMissingImports]
-        except ImportError:
-            missing.append("azure-identity")
-
-        if missing:
-            return PrerequisiteResult(
-                satisfied=False,
-                message=(
-                    f"Missing required packages: {', '.join(missing)}. "
-                    f"Install with: pip install {' '.join(missing)}"
-                ),
-            )
-
-        return PrerequisiteResult(
-            satisfied=True,
-            message="Azure Advisor prerequisites satisfied",
+        return check_python_packages(
+            [("azure.identity", "azure-identity")],
+            adapter_name=self.tool_name,
         )
 
     def authenticate(
@@ -137,7 +126,7 @@ class AzureAdvisorAdapter:
         return AuthContext(
             token=SecretStr(token.token),  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
             extra={"scope": _MANAGEMENT_SCOPE},
-            expires_at=datetime.fromtimestamp(token.expires_on, tz=UTC),  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+            expires_at=from_epoch(token.expires_on),  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
         )
 
     def collect(
@@ -153,11 +142,7 @@ class AzureAdvisorAdapter:
         from gxassessms.core.config.datetime_utils import utc_now
         from gxassessms.core.hashing import sha256_file
 
-        if auth is None or auth.token is None:
-            raise CollectionError(
-                "Azure Advisor requires authentication. Call authenticate() first.",
-                adapter_name=self.tool_name,
-            )
+        validate_auth_context(auth, adapter_name=self.tool_name)
 
         tc = config.tools.get(self.tool_name.lower())
         if tc is None or not tc.output_dir:
@@ -197,76 +182,20 @@ class AzureAdvisorAdapter:
             if "Filter" in named_args:
                 params["$filter"] = named_args["Filter"]
 
-        headers = {
-            "Authorization": f"Bearer {auth.token.get_secret_value()}",
-        }
+        # validate_auth_context() raised above if auth or token is None
+        bearer = auth.token.get_secret_value()  # type: ignore[union-attr]
+        headers = {"Authorization": f"Bearer {bearer}"}
 
-        all_recommendations: list[dict[str, Any]] = []
-        seen_urls: set[str] = set()
-        page_count = 0
-        next_url: str | None = url
-
-        try:
-            with httpx.Client(timeout=timeout) as client:
-                while next_url is not None:
-                    if next_url in seen_urls:
-                        raise CollectionError(
-                            f"Azure Advisor pagination cycle detected at {next_url!r}",
-                            adapter_name=self.tool_name,
-                        )
-                    if page_count >= _MAX_PAGES:
-                        raise CollectionError(
-                            f"Azure Advisor pagination exceeded {_MAX_PAGES} pages; "
-                            f"aborting to prevent runaway collection",
-                            adapter_name=self.tool_name,
-                        )
-                    seen_urls.add(next_url)
-                    page_count += 1
-
-                    response = client.get(
-                        next_url,
-                        headers=headers,
-                        params=params if next_url == url else None,
-                    )
-                    response.raise_for_status()
-                    raw_data: Any = response.json()
-
-                    if not isinstance(raw_data, dict):
-                        raise CollectionError(
-                            f"Azure Advisor API returned unexpected response type "
-                            f"{type(raw_data).__name__!r} (expected JSON object)",
-                            adapter_name=self.tool_name,
-                        )
-
-                    page = cast(dict[str, Any], raw_data)
-                    raw_value = page.get("value", [])
-                    if not isinstance(raw_value, list):
-                        raise CollectionError(
-                            f"Azure Advisor API 'value' is not a list "
-                            f"(got {type(raw_value).__name__!r})",
-                            adapter_name=self.tool_name,
-                        )
-
-                    all_recommendations.extend(cast(list[dict[str, Any]], raw_value))
-                    raw_next = page.get("nextLink")
-                    next_url = str(raw_next) if raw_next else None
-        except httpx.HTTPStatusError as exc:
-            raise CollectionError(
-                f"Azure Advisor API returned HTTP "
-                f"{exc.response.status_code}: "
-                f"{exc.response.text[:500]}",
-                adapter_name=self.tool_name,
-            ) from exc
-        except json.JSONDecodeError as exc:
-            raise CollectionError(
-                f"Azure Advisor API returned non-JSON response: {exc}",
-                adapter_name=self.tool_name,
-            ) from exc
-        except httpx.RequestError as exc:
-            raise CollectionError(
-                f"Azure Advisor API request failed: {exc}",
-                adapter_name=self.tool_name,
-            ) from exc
+        all_recommendations = fetch_paginated_json(
+            url=url,
+            headers=headers,
+            params=params,
+            pagination_key="nextLink",
+            max_pages=_MAX_PAGES,
+            timeout=timeout,
+            label="Azure Advisor recommendations",
+            adapter_name=self.tool_name,
+        )
 
         output_file = output_dir / _OUTPUT_FILENAME
         output_data: dict[str, Any] = {"value": all_recommendations}
@@ -423,8 +352,8 @@ class AzureAdvisorAdapter:
 
     @property
     def severity_map(self) -> dict[tuple[str, str], Any]:
-        """(impact_severity, status) -> Severity for NormalizationPolicy."""
-        return SEVERITY_MAP
+        """(Severity, FindingStatus) -> Severity passthrough for NormalizationPolicy."""
+        return SEVERITY_IDENTITY_MAP  # type: ignore[return-value]  # StrEnum keys satisfy str
 
     @property
     def category_map(self) -> dict[str, Any]:

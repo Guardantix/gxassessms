@@ -83,7 +83,7 @@ class TestCheckPrerequisites:
         with patch.dict(sys.modules, {"azure": MagicMock(), "azure.identity": MagicMock()}):
             result = adapter.check_prerequisites()
         assert result["satisfied"] is True
-        assert "satisfied" in result["message"]
+        assert "all packages available" in result["message"]
 
     def test_not_satisfied_when_azure_identity_missing(self) -> None:
         adapter = AzureAdvisorAdapter()
@@ -118,7 +118,7 @@ class TestAuthenticate:
 
 
 class TestCollectHTTPErrors:
-    @patch("gxassessms.adapters.azure_advisor.adapter.httpx.Client")
+    @patch("httpx.Client")
     def test_raises_collection_error_on_http_status_error(
         self, MockClient: MagicMock, tmp_path: Path
     ) -> None:
@@ -138,7 +138,7 @@ class TestCollectHTTPErrors:
         with pytest.raises(CollectionError, match="403"):
             adapter.collect(config, _make_auth())
 
-    @patch("gxassessms.adapters.azure_advisor.adapter.httpx.Client")
+    @patch("httpx.Client")
     def test_raises_collection_error_on_request_error(
         self, MockClient: MagicMock, tmp_path: Path
     ) -> None:
@@ -155,7 +155,7 @@ class TestCollectHTTPErrors:
         with pytest.raises(CollectionError, match="request failed"):
             adapter.collect(config, _make_auth())
 
-    @patch("gxassessms.adapters.azure_advisor.adapter.httpx.Client")
+    @patch("httpx.Client")
     def test_raises_collection_error_on_non_dict_response(
         self, MockClient: MagicMock, tmp_path: Path
     ) -> None:
@@ -167,10 +167,10 @@ class TestCollectHTTPErrors:
         MockClient.return_value.__enter__.return_value = mock_client
         MockClient.return_value.__exit__.return_value = False
 
-        with pytest.raises(CollectionError, match="unexpected response type"):
+        with pytest.raises(CollectionError, match="expected JSON object"):
             adapter.collect(config, _make_auth())
 
-    @patch("gxassessms.adapters.azure_advisor.adapter.httpx.Client")
+    @patch("httpx.Client")
     def test_raises_collection_error_on_null_value_key(
         self, MockClient: MagicMock, tmp_path: Path
     ) -> None:
@@ -182,7 +182,7 @@ class TestCollectHTTPErrors:
         MockClient.return_value.__enter__.return_value = mock_client
         MockClient.return_value.__exit__.return_value = False
 
-        with pytest.raises(CollectionError, match="'value' is not a list"):
+        with pytest.raises(CollectionError, match="missing or invalid 'value' array"):
             adapter.collect(config, _make_auth())
 
 
@@ -192,7 +192,7 @@ class TestCollectHTTPErrors:
 
 
 class TestCollectPagination:
-    @patch("gxassessms.adapters.azure_advisor.adapter.httpx.Client")
+    @patch("httpx.Client")
     def test_accumulates_recommendations_across_pages(
         self, MockClient: MagicMock, tmp_path: Path
     ) -> None:
@@ -233,7 +233,7 @@ class TestCollectPagination:
         saved = _json.loads(output_file.read_text())
         assert len(saved["value"]) == 2
 
-    @patch("gxassessms.adapters.azure_advisor.adapter.httpx.Client")
+    @patch("httpx.Client")
     def test_raises_on_pagination_cycle(self, MockClient: MagicMock, tmp_path: Path) -> None:
         """Cyclic nextLink must raise CollectionError instead of looping forever."""
         adapter = AzureAdvisorAdapter()
@@ -251,7 +251,7 @@ class TestCollectPagination:
         with pytest.raises(CollectionError, match="cycle"):
             adapter.collect(config, _make_auth())
 
-    @patch("gxassessms.adapters.azure_advisor.adapter.httpx.Client")
+    @patch("httpx.Client")
     def test_single_page_returns_correct_collection_output(
         self, MockClient: MagicMock, tmp_path: Path
     ) -> None:
@@ -294,7 +294,7 @@ class TestCollectGuards:
         adapter = AzureAdvisorAdapter()
         config = _make_config(output_dir=str(tmp_path))
 
-        with pytest.raises(CollectionError, match="requires authentication"):
+        with pytest.raises(CollectionError, match="no auth context provided"):
             adapter.collect(config, None)
 
     def test_raises_when_auth_token_is_none(self, tmp_path: Path) -> None:
@@ -302,7 +302,7 @@ class TestCollectGuards:
         config = _make_config(output_dir=str(tmp_path))
         auth = AuthContext()  # token=None by default
 
-        with pytest.raises(CollectionError, match="requires authentication"):
+        with pytest.raises(CollectionError, match="auth context has no token"):
             adapter.collect(config, auth)
 
     def test_raises_when_output_dir_not_configured(self) -> None:
