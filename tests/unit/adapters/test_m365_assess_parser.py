@@ -47,6 +47,17 @@ class TestLoadRiskSeverity:
         assert result["ENTRA-ADMIN-001"] == "High"
         assert result["ENTRA-PERUSER-001"] == "Critical"
 
+    def test_raises_on_non_dict_checks(self, tmp_path: Path) -> None:
+        """risk-severity.json with 'checks' as a non-dict must raise RawOutputValidationError."""
+        import json
+
+        from gxassessms.core.contracts.errors import RawOutputValidationError
+
+        bad_severity = tmp_path / "bad_severity.json"
+        bad_severity.write_text(json.dumps({"checks": ["ENTRA-ADMIN-001", "High"]}))
+        with pytest.raises(RawOutputValidationError, match="must be a mapping"):
+            load_risk_severity(bad_severity)
+
 
 class TestLoadRegistry:
     def test_returns_dict_keyed_by_check_id(self) -> None:
@@ -58,6 +69,17 @@ class TestLoadRegistry:
         entry = result["ENTRA-CLOUDADMIN-001"]
         assert "frameworks" in entry
         assert "cis-m365-v6" in entry["frameworks"]
+
+    def test_raises_on_non_list_checks(self, tmp_path: Path) -> None:
+        """registry.json with 'checks' as a non-list must raise RawOutputValidationError."""
+        import json
+
+        from gxassessms.core.contracts.errors import RawOutputValidationError
+
+        bad_registry = tmp_path / "bad_registry.json"
+        bad_registry.write_text(json.dumps({"schemaVersion": "1.0.0", "checks": "not-a-list"}))
+        with pytest.raises(RawOutputValidationError, match="must be a list"):
+            load_registry(bad_registry)
 
     def test_raises_on_missing_check_id(self, tmp_path: Path) -> None:
         """Registry entry missing checkId must raise RawOutputValidationError, not KeyError."""

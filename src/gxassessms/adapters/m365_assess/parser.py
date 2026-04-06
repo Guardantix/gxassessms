@@ -14,7 +14,7 @@ from __future__ import annotations
 import csv
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from gxassessms.adapters._base import load_json_file
 from gxassessms.adapters.m365_assess.mappings import (
@@ -33,7 +33,13 @@ logger = logging.getLogger(__name__)
 def load_risk_severity(path: Path) -> dict[str, str]:
     """Load risk-severity.json. Returns {base_check_id: severity_string}."""
     data: dict[str, Any] = load_json_file(path, adapter_name="M365Assess")
-    return data.get("checks", {})
+    raw: Any = data.get("checks", {})
+    if not isinstance(raw, dict):
+        raise RawOutputValidationError(
+            f"risk-severity.json 'checks' must be a mapping, got {type(raw).__name__}",
+            adapter_name="M365Assess",
+        )
+    return cast(dict[str, str], raw)
 
 
 def load_registry(path: Path) -> dict[str, dict[str, Any]]:
@@ -44,8 +50,14 @@ def load_registry(path: Path) -> dict[str, dict[str, Any]]:
     Raises RawOutputValidationError if any entry is missing the 'checkId' field.
     """
     data: dict[str, Any] = load_json_file(path, adapter_name="M365Assess")
+    raw: Any = data.get("checks", [])
+    if not isinstance(raw, list):
+        raise RawOutputValidationError(
+            f"registry.json 'checks' must be a list, got {type(raw).__name__}",
+            adapter_name="M365Assess",
+        )
     result: dict[str, dict[str, Any]] = {}
-    for i, entry in enumerate(data.get("checks", [])):
+    for i, entry in enumerate(cast(list[dict[str, Any]], raw)):
         check_id = entry.get("checkId")
         if not check_id:
             raise RawOutputValidationError(
