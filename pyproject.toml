@@ -22,6 +22,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+securescore = [
+    "azure-identity>=1.15",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=6.0",
@@ -37,6 +40,7 @@ mseco = "gxassessms.cli.main:main"
 [project.entry-points."gxassessms.adapters"]
 scubagear = "gxassessms.adapters.scubagear:ScubaGearAdapter"
 maester = "gxassessms.adapters.maester:MaesterAdapter"
+securescore = "gxassessms.adapters.secure_score:SecureScoreAdapter"
 
 [project.entry-points."gxassessms.credentials"]
 env_var = "gxassessms.core.contracts.credentials:EnvVarProvider"

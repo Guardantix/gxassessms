@@ -961,3 +961,94 @@ class TestDefaultNormalizationPolicy:
                 adapter_category_map={},
                 adapter_dedup_keys={},
             )
+
+    def test_category_from_native_category_via_adapter_map(self, sample_rules: dict) -> None:
+        """native_category resolves through adapter_category_map when
+        prefix/check_id lookups miss (Secure Score pattern)."""
+        obs = ToolObservation(
+            observation_id="secure_score:MFARegistrationV2",
+            tool=ToolSource.SECURE_SCORE,
+            native_check_id="MFARegistrationV2",
+            title="MFA Registration",
+            native_severity="CRITICAL",
+            native_status="PASS",
+            description="Test.",
+            native_category="Identity",
+        )
+        policy = DefaultNormalizationPolicy(rules=sample_rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={"Identity": "IDENTITY_ACCESS"},
+            adapter_dedup_keys={},
+        )
+        assert findings[0].category == Category.IDENTITY_ACCESS
+
+    def test_category_prefix_takes_priority_over_native_category(self, sample_rules: dict) -> None:
+        """Prefix-based lookup beats native_category (prefix is more specific)."""
+        obs = ToolObservation(
+            observation_id="scubagear:MS.AAD.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.AAD.1.1v1",
+            title="Test",
+            native_severity="Shall",
+            native_status="Fail",
+            description="Test.",
+            native_category="SomeCategory",
+        )
+        policy = DefaultNormalizationPolicy(rules=sample_rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={
+                "aad": "IDENTITY_ACCESS",
+                "SomeCategory": "DATA_PROTECTION",
+            },
+            adapter_dedup_keys={},
+        )
+        assert findings[0].category == Category.IDENTITY_ACCESS
+
+    def test_category_native_category_none_skips_lookup(self, sample_rules: dict) -> None:
+        """When native_category is None, skip straight to default rules."""
+        obs = ToolObservation(
+            observation_id="scubagear:MS.UNKNOWN.1.1v1",
+            tool=ToolSource.SCUBAGEAR,
+            native_check_id="MS.UNKNOWN.1.1v1",
+            title="Test",
+            native_severity="Shall",
+            native_status="Fail",
+            description="Test.",
+        )
+        rules = {**sample_rules, "default_category_map": {"unknown": "DATA_PROTECTION"}}
+        policy = DefaultNormalizationPolicy(rules=rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={"WontMatch": "IDENTITY_ACCESS"},
+            adapter_dedup_keys={},
+        )
+        assert findings[0].category == Category.DATA_PROTECTION
+
+    def test_category_native_category_falls_through_to_default_rules(
+        self, sample_rules: dict
+    ) -> None:
+        """native_category in adapter map misses -> default rules still apply."""
+        obs = ToolObservation(
+            observation_id="secure_score:TestControl",
+            tool=ToolSource.SECURE_SCORE,
+            native_check_id="TestControl",
+            title="Test",
+            native_severity="MEDIUM",
+            native_status="FAIL",
+            description="Test.",
+            native_category="UnknownCategory",
+        )
+        rules = {**sample_rules, "fallback_category": "COMPLIANCE"}
+        policy = DefaultNormalizationPolicy(rules=rules)
+        findings = policy.normalize(
+            observations=[obs],
+            adapter_severity_map={},
+            adapter_category_map={},
+            adapter_dedup_keys={},
+        )
+        assert findings[0].category == Category.COMPLIANCE
