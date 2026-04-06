@@ -156,3 +156,50 @@ class TestParseSecurityConfigCsv:
             assert obs.raw_data["category_hint"] == Category.IDENTITY_ACCESS, (
                 f"Expected IDENTITY_ACCESS for ENTRA collector, got {obs.raw_data['category_hint']}"
             )
+
+    def test_benchmark_refs_include_nist_multi_control(self, severity_map, registry) -> None:
+        """NIST semicolon-separated controls must each become a separate ref."""
+        csv_path = FIXTURE_DIR / "entra_security_config.csv"
+        observations = parse_security_config_csv(csv_path, severity_map, registry)
+        cloud_admin = [o for o in observations if "ENTRA-CLOUDADMIN-001" in o.native_check_id]
+        assert len(cloud_admin) == 1
+        refs = cloud_admin[0].benchmark_refs
+        assert "nist:800-53:AC-6(5)" in refs
+        assert "nist:800-53:AC-2" in refs
+        # Ensure they are split, not joined
+        assert not any(";" in r for r in refs)
+
+    def test_benchmark_refs_include_soc2(self, severity_map, registry) -> None:
+        """SOC2 framework entries must appear in benchmark_refs."""
+        csv_path = FIXTURE_DIR / "entra_security_config.csv"
+        observations = parse_security_config_csv(csv_path, severity_map, registry)
+        cloud_admin = [o for o in observations if "ENTRA-CLOUDADMIN-001" in o.native_check_id]
+        assert len(cloud_admin) == 1
+        assert "soc2:CC6.3" in cloud_admin[0].benchmark_refs
+
+    def test_severity_defaults_to_medium_when_lookup_empty(self) -> None:
+        """Empty severity_lookup must produce native_severity='Medium' for all rows."""
+        csv_path = FIXTURE_DIR / "entra_security_config.csv"
+        observations = parse_security_config_csv(csv_path, severity_lookup={}, registry_lookup={})
+        assert len(observations) > 0
+        for obs in observations:
+            assert obs.native_severity == "Medium", (
+                f"Expected 'Medium' default severity, got {obs.native_severity!r}"
+            )
+
+    def test_category_hint_defaults_to_compliance_when_collector_unknown(
+        self, tmp_path: Path
+    ) -> None:
+        """Unknown collector prefix must produce category_hint=COMPLIANCE."""
+        from gxassessms.core.domain.enums import Category
+
+        unknown_csv = tmp_path / "Unknown-Security-Config.csv"
+        unknown_csv.write_text(
+            "Category,Setting,CurrentValue,RecommendedValue,Status,CheckId,Remediation\n"
+            "Test,Test Setting,Current,Recommended,Fail,ZZUNKNOWN-TEST-001.1,Fix it\n"
+        )
+        observations = parse_security_config_csv(
+            unknown_csv, severity_lookup={}, registry_lookup={}
+        )
+        assert len(observations) == 1
+        assert observations[0].raw_data["category_hint"] == Category.COMPLIANCE

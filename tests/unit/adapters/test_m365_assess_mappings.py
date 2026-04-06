@@ -94,6 +94,24 @@ class TestCategoryMap:
     def test_compliance_prefix(self) -> None:
         assert CATEGORY_MAP["compliance"] == Category.COMPLIANCE
 
+    def test_entapp_prefix(self) -> None:
+        assert CATEGORY_MAP["entapp"] == Category.IDENTITY_ACCESS
+
+    def test_dns_prefix(self) -> None:
+        assert CATEGORY_MAP["dns"] == Category.EMAIL_COLLABORATION
+
+    def test_intune_prefix(self) -> None:
+        assert CATEGORY_MAP["intune"] == Category.DEVICE_MANAGEMENT
+
+    def test_purview_prefix(self) -> None:
+        assert CATEGORY_MAP["purview"] == Category.COMPLIANCE
+
+    def test_powerbi_prefix(self) -> None:
+        assert CATEGORY_MAP["powerbi"] == Category.DATA_PROTECTION
+
+    def test_forms_prefix(self) -> None:
+        assert CATEGORY_MAP["forms"] == Category.EMAIL_COLLABORATION
+
 
 class TestExtractBaseCheckId:
     """Strip .N sub-numbering from CheckId."""

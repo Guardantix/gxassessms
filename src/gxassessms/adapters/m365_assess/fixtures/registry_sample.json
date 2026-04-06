@@ -8,7 +8,8 @@
       "collector": "Entra",
       "frameworks": {
         "cis-m365-v6": { "controlId": "1.1.1", "title": "Ensure Administrative accounts are cloud-only", "profiles": ["E3-L1", "E5-L1"] },
-        "nist-800-53": { "controlId": "AC-6(5);AC-2" }
+        "nist-800-53": { "controlId": "AC-6(5);AC-2" },
+        "soc2": { "controlId": "CC6.3" }
       }
     },
     {
