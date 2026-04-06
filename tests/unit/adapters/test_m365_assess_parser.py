@@ -59,6 +59,26 @@ class TestLoadRegistry:
         assert "frameworks" in entry
         assert "cis-m365-v6" in entry["frameworks"]
 
+    def test_raises_on_missing_check_id(self, tmp_path: Path) -> None:
+        """Registry entry missing checkId must raise RawOutputValidationError, not KeyError."""
+        import json
+
+        from gxassessms.core.contracts.errors import RawOutputValidationError
+
+        bad_registry = tmp_path / "bad_registry.json"
+        bad_registry.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": "1.0.0",
+                    "checks": [
+                        {"name": "Missing checkId field", "frameworks": {}},  # no checkId
+                    ],
+                }
+            )
+        )
+        with pytest.raises(RawOutputValidationError, match="missing 'checkId'"):
+            load_registry(bad_registry)
+
 
 class TestParseSecurityConfigCsv:
     def test_returns_tool_observations(self, severity_map, registry) -> None:

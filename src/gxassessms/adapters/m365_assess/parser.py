@@ -23,6 +23,7 @@ from gxassessms.adapters.m365_assess.mappings import (
     extract_base_check_id,
     extract_collector_prefix,
 )
+from gxassessms.core.contracts.errors import RawOutputValidationError
 from gxassessms.core.domain.enums import Category, FindingStatus, ToolSource
 from gxassessms.core.domain.models import ToolObservation
 
@@ -36,9 +37,23 @@ def load_risk_severity(path: Path) -> dict[str, str]:
 
 
 def load_registry(path: Path) -> dict[str, dict[str, Any]]:
-    """Load registry.json. Returns {check_id: entry_dict}."""
+    """Load registry.json.
+
+    Expects ``{"checks": [{"checkId": str, ...}, ...]}``.
+    Returns ``{check_id: entry_dict}`` keyed by ``checkId``.
+    Raises RawOutputValidationError if any entry is missing the 'checkId' field.
+    """
     data: dict[str, Any] = load_json_file(path, adapter_name="M365Assess")
-    return {entry["checkId"]: entry for entry in data.get("checks", [])}
+    result: dict[str, dict[str, Any]] = {}
+    for i, entry in enumerate(data.get("checks", [])):
+        check_id = entry.get("checkId")
+        if not check_id:
+            raise RawOutputValidationError(
+                f"registry.json entry at index {i} is missing 'checkId' field: {entry!r}",
+                adapter_name="M365Assess",
+            )
+        result[check_id] = entry
+    return result
 
 
 def parse_security_config_csv(

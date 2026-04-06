@@ -294,7 +294,7 @@ class M365AssessAdapter:
         try:
             severity_lookup = load_risk_severity(severity_path) if severity_path.exists() else {}
             registry_lookup = load_registry(registry_path) if registry_path.exists() else {}
-        except (RawOutputValidationError, KeyError) as exc:
+        except RawOutputValidationError as exc:
             raise ParseError(
                 f"Failed to load M365-Assess metadata: {exc}",
                 adapter_name=self.tool_name,
