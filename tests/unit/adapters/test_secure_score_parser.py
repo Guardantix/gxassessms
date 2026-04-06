@@ -289,8 +289,10 @@ class TestParseSecureScore:
         assert len(observations) == 1
         assert observations[0].native_status == FindingStatus.MANUAL
 
-    def test_missing_rank_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Profile with no 'rank' field emits a warning log."""
+    def test_missing_rank_logs_warning_and_produces_info_severity(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Profile with no 'rank' field emits a warning and yields INFO severity."""
         profiles = {
             "value": [
                 {
@@ -306,11 +308,15 @@ class TestParseSecureScore:
             ]
         }
         with caplog.at_level(logging.WARNING, logger="gxassessms.adapters.secure_score.parser"):
-            parse_secure_score(profiles, {"value": []})
+            observations = parse_secure_score(profiles, {"value": []})
         assert "rank" in caplog.text.lower()
+        assert len(observations) == 1
+        assert observations[0].native_severity == Severity.INFO
 
-    def test_missing_tier_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Profile with no 'tier' field emits a warning log."""
+    def test_missing_tier_logs_warning_and_produces_info_severity(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Profile with no 'tier' field emits a warning and yields INFO severity."""
         profiles = {
             "value": [
                 {
@@ -326,8 +332,10 @@ class TestParseSecureScore:
             ]
         }
         with caplog.at_level(logging.WARNING, logger="gxassessms.adapters.secure_score.parser"):
-            parse_secure_score(profiles, {"value": []})
+            observations = parse_secure_score(profiles, {"value": []})
         assert "tier" in caplog.text.lower()
+        assert len(observations) == 1
+        assert observations[0].native_severity == Severity.INFO
 
     def test_empty_profiles_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """Empty profiles array emits a warning log."""

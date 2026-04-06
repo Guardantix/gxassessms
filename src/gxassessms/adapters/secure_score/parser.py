@@ -15,6 +15,7 @@ from gxassessms.adapters.secure_score.mappings import (
 )
 from gxassessms.core.domain.enums import (
     FindingStatus,
+    Severity,
     ToolSource,
 )
 from gxassessms.core.domain.models import ToolObservation
@@ -162,7 +163,6 @@ def parse_secure_score(
                 "Control '%s' missing 'rank' field; severity will be INFO",
                 control_id,
             )
-        rank: int = rank_raw if rank_raw is not None else 999
 
         tier_raw = profile.get("tier")
         if tier_raw is None:
@@ -170,9 +170,11 @@ def parse_secure_score(
                 "Control '%s' missing 'tier' field; severity will be INFO",
                 control_id,
             )
-        tier: str = tier_raw if tier_raw is not None else ""
 
-        severity = derive_severity(rank=rank, tier=tier)
+        if rank_raw is None or tier_raw is None:
+            severity = Severity.INFO
+        else:
+            severity = derive_severity(rank=rank_raw, tier=tier_raw)
         latest_state = get_latest_control_state(
             profile.get("controlStateUpdates"),
         )
