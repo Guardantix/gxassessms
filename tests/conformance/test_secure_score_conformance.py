@@ -293,7 +293,19 @@ class TestSecureScoreConformance(AdapterConformanceSuite):
         assert len(records) > 0
         for r in records:
             assert r.tool == ToolSource.SECURE_SCORE
-            assert r.status == CoverageStatus.ASSESSED
+            assert r.status in {CoverageStatus.ASSESSED, CoverageStatus.NOT_ASSESSED}
+
+    def test_coverage_not_applicable_is_not_assessed(
+        self,
+        adapter: SecureScoreAdapter,
+        resolved_manifest: ResolvedManifest,
+    ) -> None:
+        """ThirdPartyIgnored (NOT_APPLICABLE) should be NOT_ASSESSED in coverage."""
+        records = adapter.coverage(resolved_manifest)
+        by_id = {r.control_id: r for r in records}
+        tp = by_id["ThirdPartyIgnored"]
+        assert tp.status == CoverageStatus.NOT_ASSESSED
+        assert tp.reason is not None
 
     def test_coverage_records_unique_by_control(
         self,

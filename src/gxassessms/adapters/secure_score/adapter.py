@@ -337,9 +337,11 @@ class SecureScoreAdapter:
     def coverage(self, raw: ResolvedManifest) -> list[CoverageRecord]:
         """Extract per-control coverage records from Secure Score output.
 
-        All non-deprecated controls that produce an observation are reported
-        as ASSESSED. Deduplicates by native_check_id.
+        NOT_APPLICABLE (thirdParty/ignored) and MANUAL (no score data) controls
+        are reported as NOT_ASSESSED. All others are ASSESSED.
+        Deduplicates by native_check_id.
         """
+        _not_assessed_statuses = {FindingStatus.NOT_APPLICABLE, FindingStatus.MANUAL}
         observations = self.parse(raw)
 
         seen: set[str] = set()
@@ -350,12 +352,19 @@ class SecureScoreAdapter:
                 continue
             seen.add(obs.native_check_id)
 
+            if obs.native_status in _not_assessed_statuses:
+                cov_status = CoverageStatus.NOT_ASSESSED
+                reason: str | None = f"Control status: {obs.native_status}"
+            else:
+                cov_status = CoverageStatus.ASSESSED
+                reason = None
+
             records.append(
                 CoverageRecord(
                     control_id=obs.native_check_id,
                     tool=ToolSource.SECURE_SCORE,
-                    status=CoverageStatus.ASSESSED,
-                    reason=None,
+                    status=cov_status,
+                    reason=reason,
                 )
             )
 
@@ -472,7 +481,20 @@ class SecureScoreAdapter:
                         adapter_name=self.tool_name,
                     )
 
-                all_items.extend(data.get("value", []))  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+                page_value = data.get("value")  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
+                if page_value is None:
+                    raise CollectionError(
+                        f"Graph API response missing 'value' key for {label} "
+                        f"(page={page_count}); possible error response body",
+                        adapter_name=self.tool_name,
+                    )
+                if not isinstance(page_value, list):
+                    raise CollectionError(
+                        f"Graph API 'value' is not a list for {label} "
+                        f"(page={page_count}, got {type(page_value).__name__})",  # pyright: ignore[reportUnknownArgumentType]
+                        adapter_name=self.tool_name,
+                    )
+                all_items.extend(page_value)  # pyright: ignore[reportUnknownArgumentType]
 
                 # Explicit max_pages: stop cleanly after the requested pages.
                 # Default _MAX_PAGES cap: let the top-of-loop guard error on
