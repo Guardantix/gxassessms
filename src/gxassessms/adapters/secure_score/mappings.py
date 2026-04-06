@@ -7,9 +7,13 @@ NOT from score gap.
 
 from __future__ import annotations
 
+import logging
+
 from gxassessms.core.domain.enums import Category, Severity
 
-CATEGORY_MAP: dict[str, Category] = {
+logger = logging.getLogger(__name__)
+
+CATEGORY_MAP: dict[str, str] = {
     "Identity": Category.IDENTITY_ACCESS,
     "Data": Category.DATA_PROTECTION,
     "Device": Category.DEVICE_MANAGEMENT,
@@ -57,6 +61,12 @@ def derive_severity(rank: int, tier: str) -> Severity:
     """
     thresholds = _TIER_THRESHOLDS.get(tier)
     if thresholds is None:
+        logger.warning(
+            "Unknown Secure Score tier %r (rank=%d); falling back to INFO severity. "
+            "Update _TIER_THRESHOLDS if Microsoft has added a new tier.",
+            tier,
+            rank,
+        )
         return Severity.INFO
 
     for threshold, severity in thresholds:

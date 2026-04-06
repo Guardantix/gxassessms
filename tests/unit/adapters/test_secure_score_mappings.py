@@ -107,6 +107,15 @@ class TestDeriveSeverity:
     def test_unknown_tier_is_info(self) -> None:
         assert derive_severity(rank=1, tier="UnknownTier") == Severity.INFO
 
+    def test_unknown_tier_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Unknown tier emits a warning log before returning INFO."""
+        import logging
+
+        with caplog.at_level(logging.WARNING, logger="gxassessms.adapters.secure_score.mappings"):
+            result = derive_severity(rank=1, tier="NewUnknownTier")
+        assert result == Severity.INFO
+        assert "NewUnknownTier" in caplog.text
+
     def test_fixture_profiles_produce_valid_severities(
         self,
         profiles_data: list[dict],
