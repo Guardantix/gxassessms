@@ -8,7 +8,7 @@ Invocation: Import-Module monkey365; Invoke-Monkey365 -Instance 'Microsoft365'
 Output: JSON array of OCSF Detection Finding objects.
 Auth: Managed internally by Monkey365 (DeviceCode, SP, certificate, etc.)
 
-Verified against Monkey365 source at /home/guardantix/ToolInspection/monkey365/.
+Verified against Monkey365 source.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ from gxassessms.core.contracts.errors import (
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
+from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import CoverageStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
@@ -57,7 +58,7 @@ class Monkey365Adapter:
     tool_name: str = "Monkey365"
     storage_slug: str = "monkey365"
     tool_source: ToolSource = ToolSource.MONKEY365
-    capabilities: frozenset[str] = frozenset(
+    capabilities: frozenset[AdapterCapability] = frozenset(
         {
             "collect",
             "parse",
@@ -180,7 +181,6 @@ class Monkey365Adapter:
             timestamp=utc_now(),
             artifacts=artifacts,
             execution_metadata={
-                "output_dir": str(output_dir),
                 "module_provenance": verification_result.to_json_dict(),
             },
         )
@@ -287,6 +287,18 @@ class Monkey365Adapter:
                 raise RawOutputValidationError(
                     f"Finding [{i}] 'findingInfo' must be an object, "
                     f"got {type(finding['findingInfo']).__name__}",
+                    adapter_name=self.tool_name,
+                )
+            fi_id = cast(dict[str, Any], finding["findingInfo"]).get("id")
+            if not isinstance(fi_id, str) or not fi_id.strip():
+                # isinstance check short-circuits before .strip() when fi_id is None
+                raise RawOutputValidationError(
+                    f"Finding [{i}] findingInfo.id is missing or empty",
+                    adapter_name=self.tool_name,
+                )
+            if "severity" not in finding:
+                raise RawOutputValidationError(
+                    f"Finding [{i}] missing 'severity' field",
                     adapter_name=self.tool_name,
                 )
             if "statusCode" not in finding:

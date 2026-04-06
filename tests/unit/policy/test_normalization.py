@@ -961,3 +961,34 @@ class TestDefaultNormalizationPolicy:
                 adapter_category_map={},
                 adapter_dedup_keys={},
             )
+
+
+# ---------------------------------------------------------------------------
+# TestExtractModulePrefixMonkey365
+# ---------------------------------------------------------------------------
+
+
+class TestExtractModulePrefixMonkey365:
+    def test_aad_prefix(self) -> None:
+        result = DefaultNormalizationPolicy._extract_module_prefix("aad_lack_cloud_only_accounts")
+        assert result == "aad"
+
+    def test_eid_prefix(self) -> None:
+        result = DefaultNormalizationPolicy._extract_module_prefix("eid_lack_emergency_account")
+        assert result == "eid"
+
+    def test_m365_exo_prefix(self) -> None:
+        assert (
+            DefaultNormalizationPolicy._extract_module_prefix(
+                "m365_exo_transport_rules_forwarding_external"
+            )
+            == "exo"
+        )
+
+    def test_m365_spo_prefix(self) -> None:
+        assert (
+            DefaultNormalizationPolicy._extract_module_prefix(
+                "m365_spo_external_sharing_restricted"
+            )
+            == "spo"
+        )

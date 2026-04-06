@@ -272,6 +272,8 @@ class DefaultNormalizationPolicy:
                 return parts[1].lower()
 
         # Generic dot-separated: first segment for other formats (Maester, etc.)
+        # NOTE: Pure-underscore IDs (no dots) produce len(parts)==1 from split(".")
+        # and fall through this block to the underscore branches below.
         parts = native_check_id.split(".")
         if len(parts) >= 2:
             return parts[0].lower()

@@ -80,16 +80,18 @@ class TestParseMonkey365Findings:
     def test_native_severity_is_raw_string(self, fixture_data: list[dict[str, Any]]) -> None:
         """Parser stores raw OCSF severity strings; normalization maps later."""
         observations = parse_monkey365_findings(fixture_data)
-        assert observations[0].native_severity == "Unknown"
-        assert observations[3].native_severity == "High"
-        assert observations[4].native_severity == "Critical"
+        obs_map = {obs.native_check_id: obs for obs in observations}
+        assert obs_map["aad_lack_cloud_only_accounts"].native_severity == "Unknown"
+        assert obs_map["aad_privileged_users_with_mfa_disabled"].native_severity == "High"
+        assert obs_map["m365_exo_transport_rules_forwarding_external"].native_severity == "Critical"
 
     def test_native_status_is_raw_string(self, fixture_data: list[dict[str, Any]]) -> None:
         """Parser stores raw OCSF statusCode; normalization maps later."""
         observations = parse_monkey365_findings(fixture_data)
-        assert observations[0].native_status == "pass"
-        assert observations[1].native_status == "manual"
-        assert observations[3].native_status == "fail"
+        obs_map = {obs.native_check_id: obs for obs in observations}
+        assert obs_map["aad_lack_cloud_only_accounts"].native_status == "pass"
+        assert obs_map["eid_lack_emergency_account"].native_status == "manual"
+        assert obs_map["aad_privileged_users_with_mfa_disabled"].native_status == "fail"
 
     def test_title_from_finding_info(self, fixture_data: list[dict[str, Any]]) -> None:
         observations = parse_monkey365_findings(fixture_data)

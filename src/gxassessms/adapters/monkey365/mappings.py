@@ -1,7 +1,8 @@
 """Monkey365 declarative mappings -- data, not logic.
 
 Maps Monkey365 OCSF output values to domain enums and dedup keys.
-These dicts are consumed by the parser and by NormalizationPolicy.
+SEVERITY_MAP, CATEGORY_MAP, and DEDUP_KEY_RULES are consumed by the adapter and
+NormalizationPolicy. STATUS_MAP is a reference constant for tests.
 
 Monkey365 uses the OCSF Detection Finding schema. Key fields:
 - severity: Title case string (e.g., "High", "Informational")
@@ -9,8 +10,7 @@ Monkey365 uses the OCSF Detection Finding schema. Key fields:
 - resources.group.name: Functional domain (e.g., "Entra Identity Governance")
 - findingInfo.id: Contains idSuffix for check identity
 
-Verified against source code at /home/guardantix/ToolInspection/monkey365/
-and sample output at /home/guardantix/ToolInspection/SampleReports/monkey365-reports/.
+Verified against Monkey365 source and sample OCSF output.
 """
 
 from gxassessms.core.domain.enums import Category, FindingStatus, Severity
@@ -88,6 +88,7 @@ DEDUP_KEY_RULES: dict[str, str] = {
     "aad_lack_cloud_only_accounts": "cis:m365:1.1.1",
     "eid_lack_emergency_account": "cis:m365:1.1.2",
     "eid_excessive_global_admins": "cis:m365:1.1.3",
+    "eid_privileged_users_reduced_application_footprint_license": "cis:m365:1.1.4",
     # CIS Azure MFA controls
     "aad_privileged_users_with_mfa_disabled": "cis:azure:2.1.2",
     "aad_users_with_mfa_disabled": "cis:azure:2.1.3",

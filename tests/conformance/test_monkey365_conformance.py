@@ -183,8 +183,14 @@ class TestMonkey365Conformance(AdapterConformanceSuite):
         from gxassessms.core.domain.enums import Category
 
         categories = {f.category for f in normalized_findings}
-        assert len(categories) >= 2, (
-            f"Fixture should cover at least 2 categories, found: {categories}"
+        expected_categories = {
+            Category.IDENTITY_ACCESS,
+            Category.EMAIL_COLLABORATION,
+            Category.DATA_PROTECTION,
+        }
+        assert categories >= expected_categories, (
+            "Expected IDENTITY_ACCESS, EMAIL_COLLABORATION, DATA_PROTECTION "
+            f"in fixture; found: {categories}"
         )
         for cat in categories:
             assert isinstance(cat, Category), f"Expected Category enum, got {type(cat)}"

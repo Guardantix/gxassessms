@@ -24,6 +24,7 @@ import logging
 import re
 from typing import Any
 
+from gxassessms.core.contracts.errors import RawOutputValidationError
 from gxassessms.core.domain.enums import ToolSource
 from gxassessms.core.domain.models import ToolObservation
 
@@ -64,6 +65,11 @@ def parse_monkey365_findings(
 ) -> list[ToolObservation]:
     """Parse a list of Monkey365 OCSF Detection Finding dicts into ToolObservations.
 
+    Precondition: findings must be pre-validated by
+    ``Monkey365Adapter._validate_and_load_findings``. That method guarantees
+    each finding has ``findingInfo`` (dict), ``findingInfo.id`` (non-empty str),
+    ``severity``, and ``statusCode`` keys.
+
     Args:
         findings: List of OCSF Detection Finding objects (from JSON array).
 
@@ -73,24 +79,24 @@ def parse_monkey365_findings(
     observations: list[ToolObservation] = []
 
     for finding in findings:
-        finding_info = finding.get("findingInfo", {})
+        finding_info = finding["findingInfo"]
         finding_id = finding_info.get("id", "")
         id_suffix = extract_id_suffix(finding_id)
 
         if id_suffix is None:
-            logger.warning(
-                "Could not extract idSuffix from findingInfo.id: %s",
-                finding_id,
+            raise RawOutputValidationError(
+                f"findingInfo.id {finding_id!r} does not match expected Monkey365 format "
+                "(Monkey365-{idSuffix}-{32hexGuid}-{hash})",
+                adapter_name="Monkey365",
             )
-            id_suffix = finding_id  # Fallback: use raw ID
 
         observation = ToolObservation(
             observation_id=f"monkey365:{id_suffix}",
             tool=ToolSource.MONKEY365,
             native_check_id=id_suffix,
             title=finding_info.get("title", ""),
-            native_severity=finding.get("severity", "Unknown"),
-            native_status=finding.get("statusCode", "fail"),
+            native_severity=finding["severity"],  # validator guarantees this key
+            native_status=finding["statusCode"],  # validator guarantees this key
             description=finding_info.get("description", ""),
             raw_data=finding,
         )
