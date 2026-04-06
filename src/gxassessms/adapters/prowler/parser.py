@@ -1,0 +1,144 @@
+"""Prowler OCSF Detection Finding parser.
+
+Transforms Prowler JSON output (OCSF Detection Finding schema, snake_case keys)
+into ToolObservation instances. Prowler output is a JSON array of OCSF
+Detection Finding objects.
+
+Key OCSF fields used:
+- metadata.event_code: Check ID (e.g., "defender_ensure_defender_for_app_services_is_on")
+  This is the CHECK identifier. NOT finding_info.uid which is per-finding unique.
+- severity: Title case string ("Critical", "High", "Medium", "Low", "Informational", "Unknown")
+- status_code: UPPERCASE string ("PASS", "FAIL", "MANUAL") -- the assessment result
+  NOT status which is OCSF lifecycle ("New"/"Suppressed")
+- finding_info.title: Check title
+- finding_info.desc: Check description (NOT "description")
+- finding_info.uid: Per-finding unique ID (used for observation_id dedup, NOT check ID)
+- remediation.desc + remediation.references: Remediation guidance
+- resources[0].group.name: Service name for category mapping
+- unmapped.compliance: Dict of framework -> control_id arrays for benchmark_refs
+- cloud.provider: "azure"
+
+Verified against Prowler source code at /home/guardantix/ToolInspection/prowler/.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import logging
+from typing import Any, cast
+
+from gxassessms.core.domain.enums import ToolSource
+from gxassessms.core.domain.models import ToolObservation
+
+logger = logging.getLogger(__name__)
+
+
+def parse_prowler_findings(
+    findings: list[dict[str, Any]],
+) -> list[ToolObservation]:
+    """Parse a list of Prowler OCSF Detection Finding dicts into ToolObservations.
+
+    Prowler produces one finding per resource per check. Multiple findings may
+    share the same check ID (metadata.event_code) but refer to different resources.
+    Each finding becomes a separate ToolObservation with a unique observation_id.
+
+    Args:
+        findings: List of OCSF Detection Finding objects (from JSON array).
+
+    Returns:
+        List of ToolObservation instances, one per finding.
+    """
+    observations: list[ToolObservation] = []
+
+    for finding in findings:
+        raw_metadata: Any = finding.get("metadata")
+        metadata: dict[str, Any] = (
+            cast(dict[str, Any], raw_metadata) if isinstance(raw_metadata, dict) else {}
+        )
+
+        raw_finding_info: Any = finding.get("finding_info")
+        finding_info: dict[str, Any] = (
+            cast(dict[str, Any], raw_finding_info) if isinstance(raw_finding_info, dict) else {}
+        )
+
+        # Check ID is in metadata.event_code (NOT finding_info.uid)
+        raw_check_id: Any = metadata.get("event_code", "")
+        check_id: str = str(raw_check_id) if raw_check_id else ""
+        if not check_id:
+            raw_uid: Any = finding_info.get("uid", "<unknown>")
+            logger.warning(
+                "Finding missing metadata.event_code, using finding_info.uid: %s",
+                raw_uid,
+            )
+            raw_fallback: Any = finding_info.get("uid", "unknown")
+            check_id = str(raw_fallback) if raw_fallback else "unknown"
+
+        # Severity: title-case OCSF string, preserved as-is for normalization layer
+        raw_severity: Any = finding.get("severity", "Unknown")
+        severity_str: str = str(raw_severity) if raw_severity else "Unknown"
+
+        # Status: from status_code (UPPERCASE), NOT from status ("New"/"Suppressed")
+        raw_status: Any = finding.get("status_code", "FAIL")
+        status_code: str = str(raw_status) if raw_status else "FAIL"
+
+        # Title and description from finding_info
+        raw_title: Any = finding_info.get("title", "")
+        title: str = str(raw_title) if raw_title else ""
+
+        raw_desc: Any = finding_info.get("desc", "")  # "desc", not "description"
+        description: str = str(raw_desc) if raw_desc else ""
+
+        # Build benchmark_refs from unmapped.compliance
+        benchmark_refs = _extract_benchmark_refs(finding)
+
+        # Build unique observation_id: prowler:{check_id}:{uid_hash}
+        # Since Prowler produces per-resource findings, we need the finding_info.uid
+        # to differentiate observations for the same check across resources.
+        raw_finding_uid: Any = finding_info.get("uid", "")
+        finding_uid: str = str(raw_finding_uid) if raw_finding_uid else ""
+        uid_hash = hashlib.sha256(finding_uid.encode()).hexdigest()[:12]
+        observation_id = f"prowler:{check_id}:{uid_hash}"
+
+        observation = ToolObservation(
+            observation_id=observation_id,
+            tool=ToolSource.PROWLER,
+            native_check_id=check_id,
+            title=title,
+            native_severity=severity_str,
+            native_status=status_code,
+            description=description,
+            raw_data=finding,
+            benchmark_refs=benchmark_refs,
+        )
+        observations.append(observation)
+
+    return observations
+
+
+def _extract_benchmark_refs(finding: dict[str, Any]) -> list[str]:
+    """Extract benchmark references from unmapped.compliance.
+
+    Prowler puts compliance data in unmapped.compliance as a dict:
+        {"CIS-2.1": ["5.3.1"], "CIS-3.0": ["6.3.1"]}
+
+    Returns a list of formatted strings like ["CIS-2.1:5.3.1", "CIS-3.0:6.3.1"].
+    """
+    refs: list[str] = []
+
+    raw_unmapped: Any = finding.get("unmapped")
+    unmapped: dict[str, Any] = (
+        cast(dict[str, Any], raw_unmapped) if isinstance(raw_unmapped, dict) else {}
+    )
+
+    raw_compliance: Any = unmapped.get("compliance")
+    compliance: dict[str, Any] = (
+        cast(dict[str, Any], raw_compliance) if isinstance(raw_compliance, dict) else {}
+    )
+
+    for framework, control_ids in compliance.items():
+        if isinstance(control_ids, list):
+            typed_ids: list[Any] = cast(list[Any], control_ids)
+            for control_id in typed_ids:
+                refs.append(f"{framework}:{control_id!s}")
+
+    return sorted(refs)
