@@ -52,6 +52,7 @@ _SCORES_FILENAME = "secureScores.json"
 
 _SCHEMA_VERSION = "1.0.0"
 _DEFAULT_TIMEOUT_SECONDS = 120
+_MAX_PAGES = 50  # Guard against runaway Graph API pagination
 
 
 class SecureScoreAdapter:
@@ -370,6 +371,12 @@ class SecureScoreAdapter:
         with httpx.Client(timeout=timeout) as client:
             while next_url is not None:
                 page_count += 1
+                if page_count > _MAX_PAGES:
+                    raise CollectionError(
+                        f"Graph API pagination exceeded {_MAX_PAGES} pages for {label}; "
+                        "possible runaway pagination or server error",
+                        adapter_name=self.tool_name,
+                    )
                 try:
                     response = client.get(next_url, headers=headers)  # pyright: ignore[reportUnknownArgumentType]
                     response.raise_for_status()
@@ -405,7 +412,14 @@ class SecureScoreAdapter:
                     )
 
                 all_items.extend(data.get("value", []))  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
-                next_url = data.get("@odata.nextLink")  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
+                raw_next = data.get("@odata.nextLink")  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
+                if raw_next is not None and not isinstance(raw_next, str):
+                    raise CollectionError(
+                        f"Graph API returned non-string @odata.nextLink for {label} "
+                        f"(page={page_count}, got {type(raw_next).__name__})",  # pyright: ignore[reportUnknownArgumentType]
+                        adapter_name=self.tool_name,
+                    )
+                next_url = raw_next
 
         logger.info(
             "Fetched %s: %d items across %d page(s)",
