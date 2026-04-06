@@ -234,6 +234,56 @@ class TestSecureScoreConformance(AdapterConformanceSuite):
         with pytest.raises(RawOutputValidationError, match="Missing in Secure Score manifest"):
             adapter.validate_raw(raw)
 
+    def test_validate_raw_rejects_empty_manifest(
+        self,
+        adapter: SecureScoreAdapter,
+    ) -> None:
+        """An empty file_manifest should fail validation."""
+        from gxassessms.core.contracts.errors import RawOutputValidationError
+
+        raw = ResolvedManifest(
+            tool=ToolSource.SECURE_SCORE,
+            tool_slug="secure-score",
+            schema_version="1.0.0",
+            manifest_version="1.0.0",
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            file_manifest={},
+            execution_metadata={},
+        )
+        with pytest.raises(RawOutputValidationError, match="file manifest is empty"):
+            adapter.validate_raw(raw)
+
+    def test_validate_raw_rejects_non_list_value(
+        self,
+        adapter: SecureScoreAdapter,
+        tmp_path: Path,
+    ) -> None:
+        """A file with 'value' as a dict (not a list) should fail validation."""
+        from gxassessms.core.contracts.errors import RawOutputValidationError
+
+        bad_file = tmp_path / _PROFILES_BASENAME
+        bad_file.write_text('{"value": {"error": "not a list"}}')
+        scores_file = tmp_path / _SCORES_BASENAME
+        scores_file.write_text('{"value": []}')
+
+        sha_bad = hashlib.sha256(bad_file.read_bytes()).hexdigest()
+        sha_scores = hashlib.sha256(scores_file.read_bytes()).hexdigest()
+
+        raw = ResolvedManifest(
+            tool=ToolSource.SECURE_SCORE,
+            tool_slug="secure-score",
+            schema_version="1.0.0",
+            manifest_version="1.0.0",
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            file_manifest={
+                str(bad_file): ArtifactRecord(encoding="utf-8", sha256=sha_bad),
+                str(scores_file): ArtifactRecord(encoding="utf-8", sha256=sha_scores),
+            },
+            execution_metadata={},
+        )
+        with pytest.raises(RawOutputValidationError, match="'value' is not a list"):
+            adapter.validate_raw(raw)
+
     def test_coverage_returns_records(
         self,
         adapter: SecureScoreAdapter,

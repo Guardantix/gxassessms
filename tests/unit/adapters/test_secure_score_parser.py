@@ -163,6 +163,29 @@ class TestParseSecureScore:
         tp = next(o for o in observations if o.native_check_id == "ThirdPartyIgnored")
         assert tp.native_status == FindingStatus.NOT_APPLICABLE
 
+    def test_ignored_state_produces_not_applicable(self) -> None:
+        """Control with 'ignored' state -> NOT_APPLICABLE."""
+        profiles = {
+            "value": [
+                {
+                    "id": "IgnoredControl",
+                    "title": "Ignored Control",
+                    "deprecated": False,
+                    "rank": 20,
+                    "tier": "Core",
+                    "controlCategory": "Identity",
+                    "maxScore": 5.0,
+                    "controlStateUpdates": [
+                        {"state": "ignored", "updatedDateTime": "2026-01-15T10:00:00Z"}
+                    ],
+                }
+            ]
+        }
+        scores = {"value": [{"controlScores": [{"controlName": "IgnoredControl", "score": 0.0}]}]}
+        observations = parse_secure_score(profiles, scores)
+        assert len(observations) == 1
+        assert observations[0].native_status == FindingStatus.NOT_APPLICABLE
+
     def test_severity_from_rank_and_tier(self, profiles_data: dict, snapshot_data: dict) -> None:
         observations = parse_secure_score(profiles_data, snapshot_data)
         mfa = next(o for o in observations if o.native_check_id == "MFARegistrationV2")
@@ -211,11 +234,15 @@ class TestParseSecureScore:
         assert parse_secure_score(empty, snapshot_data) == []
 
     def test_empty_scores(self, profiles_data: dict) -> None:
-        """Profiles with no scores -> all get MANUAL status."""
+        """Profiles with no scores -> all observations get MANUAL status.
+
+        The parser excludes deprecated controls before returning, so all
+        returned observations are non-deprecated.
+        """
         empty = {"value": []}
         observations = parse_secure_score(profiles_data, empty)
-        non_deprecated = [o for o in observations if o.native_check_id != "DeprecatedControl"]
-        for obs in non_deprecated:
+        assert len(observations) > 0
+        for obs in observations:
             assert obs.native_status == FindingStatus.MANUAL
 
     def test_pass_full_score_nonowner(self, profiles_data: dict, snapshot_data: dict) -> None:
