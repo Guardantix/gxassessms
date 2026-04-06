@@ -252,9 +252,7 @@ class AzureAdvisorAdapter:
             timestamp=utc_now(),
             artifacts=artifacts,
             execution_metadata={
-                "subscription_id": subscription_id,
                 "recommendation_count": len(all_recommendations),
-                "output_file": str(output_file),
             },
         )
 
@@ -310,6 +308,14 @@ class AzureAdvisorAdapter:
                             f"Recommendation [{i}] missing '{required_field}' in {path}",
                             adapter_name=self.tool_name,
                         )
+
+                short_desc = rec.get("shortDescription")  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
+                if not isinstance(short_desc, dict):
+                    raise RawOutputValidationError(
+                        f"Recommendation [{i}] 'shortDescription' must be a dict, "
+                        f"got {type(short_desc).__name__!r} in {path}",  # pyright: ignore[reportUnknownArgumentType]
+                        adapter_name=self.tool_name,
+                    )
 
     def parse(self, raw: ResolvedManifest) -> list[ToolObservation]:
         """Parse Azure Advisor output into ToolObservations."""

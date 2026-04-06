@@ -167,3 +167,22 @@ class TestAzureAdvisorConformance(AdapterConformanceSuite):
         observations = adapter.parse(resolved_manifest)
         categories = {obs.raw_data["category"] for obs in observations}
         assert len(categories) >= 3, f"Expected at least 3 categories, got {categories}"
+
+    def test_validate_raw_rejects_null_short_description(
+        self,
+        adapter: AzureAdvisorAdapter,
+        tmp_path: Path,
+    ) -> None:
+        """shortDescription=null passes the key-existence check but crashes the parser."""
+        bad_file = tmp_path / "null_desc.json"
+        bad_file.write_text(
+            '{"value": [{"recommendationTypeId": "abc", "category": "Security", '
+            '"impact": "High", "shortDescription": null}]}'
+        )
+        raw = _make_manifest(bad_file)
+
+        with pytest.raises(
+            RawOutputValidationError,
+            match="shortDescription",
+        ):
+            adapter.validate_raw(raw)
