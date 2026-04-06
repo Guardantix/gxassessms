@@ -185,7 +185,7 @@ class SecureScoreAdapter:
         """Fetch Secure Score data from the Microsoft Graph API.
 
         Reads ``output_dir`` and ``timeout`` from
-        ``config.tools["securescore"]``.
+        ``config.tools["secure_score"]`` (note underscore).
 
         Raises:
             CollectionError: If the API call fails or output_dir is missing.
@@ -284,7 +284,7 @@ class SecureScoreAdapter:
         )
 
     def validate_raw(self, raw: ResolvedManifest) -> None:
-        """Validate both JSON files exist, parse, and contain "value" arrays.
+        """Validate both JSON files exist, parse as dicts, and contain "value" lists.
 
         Raises:
             RawOutputValidationError: If any structural check fails.
@@ -337,7 +337,11 @@ class SecureScoreAdapter:
 
     @property
     def category_map(self) -> dict[str, Any]:
-        """Microsoft service name -> Category for NormalizationPolicy."""
+        """Graph API controlCategory value -> Category for NormalizationPolicy.
+
+        Keys are Microsoft's controlCategory strings: "Identity", "Data",
+        "Device", "Apps", "Infrastructure".
+        """
         return CATEGORY_MAP
 
     @property
