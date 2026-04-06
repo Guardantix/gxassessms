@@ -153,6 +153,13 @@ class SecureScoreAdapter:
                     "to use DefaultAzureCredential.",
                     adapter_name=self.tool_name,
                 )
+            elif not client_id and client_secret_env:
+                raise CollectionError(
+                    "'client_secret_env' is configured but 'client_id' is absent. "
+                    "Provide both for service principal auth, or remove 'client_secret_env' "
+                    "to use DefaultAzureCredential.",
+                    adapter_name=self.tool_name,
+                )
             else:
                 logger.info("Authenticating Secure Score via DefaultAzureCredential")
                 credential = DefaultAzureCredential()  # pyright: ignore[reportUnknownVariableType]
