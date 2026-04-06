@@ -29,6 +29,7 @@ from typing import Any, cast
 
 from gxassessms.adapters._base import load_json_file
 from gxassessms.adapters.prowler.mappings import (
+    AUTH_METHOD_MAP,
     CATEGORY_MAP,
     DEDUP_KEY_RULES,
     SEVERITY_MAP,
@@ -64,18 +65,6 @@ _OCSF_EXTENSION = ".ocsf.json"
 #   1 = configuration/infrastructure error
 #   3 = success WITH FAIL findings (normal for real assessments)
 _PROWLER_SUCCESS_CODES: frozenset[int] = frozenset({0, 3})
-
-# Engagement config AuthMethod -> Prowler CLI auth flag.
-#   client_credential -> --sp-env-auth (service principal via env vars)
-#   device_code       -> --browser-auth (closest Prowler equivalent)
-#   interactive       -> --browser-auth
-# For Prowler-specific methods (az_cli, managed_identity), the operator
-# overrides via extra_args: ["--az-cli-auth"] or ["--managed-identity-auth"].
-_AUTH_METHOD_MAP: dict[str, list[str]] = {
-    "client_credential": ["--sp-env-auth"],
-    "device_code": ["--browser-auth"],
-    "interactive": ["--browser-auth"],
-}
 
 # Allowlist of permitted Prowler CLI flags for extra_args.
 _PROWLER_ALLOWED_FLAGS: frozenset[str] = frozenset(
@@ -228,7 +217,7 @@ class ProwlerAdapter:
 
         extra_args = _validate_prowler_extra_args(tc.extra_args or [], self.tool_name)
 
-        auth_flags = _AUTH_METHOD_MAP.get(config.auth.method)
+        auth_flags = AUTH_METHOD_MAP.get(config.auth.method)
         if auth_flags is not None:
             cmd.extend(auth_flags)
         elif not extra_args:

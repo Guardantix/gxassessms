@@ -140,3 +140,21 @@ DEDUP_KEY_RULES: dict[str, str] = {
     "storage_infrastructure_encryption_is_enabled": "cis:azure:3.3",
     "storage_secure_transfer_required_is_enabled": "cis:azure:3.1",
 }
+
+# ---------------------------------------------------------------------------
+# Auth method mapping: Engagement config AuthMethod -> Prowler CLI auth flags
+#
+# Maps client-provided auth methods to Prowler command-line flags:
+#   client_credential -> --sp-env-auth (service principal via env vars)
+#   device_code       -> --browser-auth (closest Prowler equivalent)
+#   interactive       -> --browser-auth
+#
+# For Prowler-specific methods (az_cli, managed_identity), the operator
+# overrides via extra_args: ["--az-cli-auth"] or ["--managed-identity-auth"].
+# ---------------------------------------------------------------------------
+
+AUTH_METHOD_MAP: dict[str, list[str]] = {
+    "client_credential": ["--sp-env-auth"],
+    "device_code": ["--browser-auth"],
+    "interactive": ["--browser-auth"],
+}

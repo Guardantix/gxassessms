@@ -184,7 +184,7 @@ class TestCollectExtraArgs:
 
         with (
             patch.dict(
-                "gxassessms.adapters.prowler.adapter._AUTH_METHOD_MAP",
+                "gxassessms.adapters.prowler.adapter.AUTH_METHOD_MAP",
                 {"client_credential": None},
             ),
             patch("gxassessms.core.hashing.sha256_file", return_value="a" * 64),
@@ -203,7 +203,7 @@ class TestCollectExtraArgs:
 
         with (
             patch.dict(
-                "gxassessms.adapters.prowler.adapter._AUTH_METHOD_MAP",
+                "gxassessms.adapters.prowler.adapter.AUTH_METHOD_MAP",
                 {"client_credential": None},
             ),
             pytest.raises(CollectionError, match="extra_args"),
