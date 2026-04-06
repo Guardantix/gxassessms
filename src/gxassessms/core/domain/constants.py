@@ -6,7 +6,7 @@ literals for these values outside this module.
 
 from typing import Literal
 
-from gxassessms.core.domain.enums import Category, Severity
+from gxassessms.core.domain.enums import Category, FindingStatus, Severity
 
 # ---------------------------------------------------------------------------
 # Severity
@@ -22,6 +22,21 @@ SEVERITY_ORDER: dict[str, int] = {
     "MEDIUM": 2,
     "HIGH": 3,
     "CRITICAL": 4,
+}
+
+# Identity severity map for adapters that pre-compute domain-level severity
+# in the parser (e.g., SecureScore rank+tier, Azure Advisor impact mapping).
+# Maps every (Severity, non-passing-status) pair back to the same severity.
+# PASS and NOT_APPLICABLE short-circuit to INFO before this map is consulted.
+SEVERITY_IDENTITY_MAP: dict[tuple[Severity, FindingStatus], Severity] = {
+    (severity, status): severity
+    for severity in Severity
+    for status in (
+        FindingStatus.FAIL,
+        FindingStatus.WARNING,
+        FindingStatus.ERROR,
+        FindingStatus.MANUAL,
+    )
 }
 
 SEVERITY_COLORS: dict[str, str] = {
@@ -151,6 +166,11 @@ EXECUTION_METADATA_ALLOWLIST: dict[str, dict[str, frozenset[str]]] = {
     "1.0.0": {
         "scubagear": frozenset({"modules", "module_provenance"}),
         "maester": frozenset({"module_provenance"}),
+        "monkey365": frozenset({"module_provenance"}),
+        "m365-assess": frozenset({"script", "tenant_id", "controls_dir"}),
+        "prowler": frozenset({"output_dir", "auth_method", "checks"}),
+        "azure-advisor": frozenset({"recommendation_count"}),
+        "secure-score": frozenset({"profiles_count", "scores_count"}),
     },
 }
 

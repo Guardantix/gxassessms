@@ -57,3 +57,16 @@ def ensure_utc(v: datetime) -> datetime:
     if v.tzinfo is None:
         raise ValueError("timestamp must be timezone-aware (use UTC)")
     return v.astimezone(UTC)
+
+
+def from_epoch(epoch_seconds: int | float) -> datetime:
+    """Convert Unix epoch seconds to UTC datetime.
+
+    Azure APIs return token expiry as epoch seconds. Use this instead of
+    bare datetime.fromtimestamp() to guarantee UTC and satisfy convention tests.
+
+    Raises ValueError if the value is negative.
+    """
+    if epoch_seconds < 0:
+        raise ValueError(f"epoch_seconds must be non-negative, got {epoch_seconds}")
+    return datetime.fromtimestamp(epoch_seconds, tz=UTC)

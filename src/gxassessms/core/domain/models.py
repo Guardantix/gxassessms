@@ -97,6 +97,7 @@ class ToolObservation(BaseModel):
     title: str
     native_severity: str
     native_status: str
+    native_category: str | None = None
     description: str
     raw_data: dict[str, Any] = Field(default_factory=dict)
     benchmark_refs: list[str] = Field(default_factory=list)

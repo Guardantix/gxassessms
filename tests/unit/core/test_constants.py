@@ -111,7 +111,57 @@ class TestManifestConstants:
         )
         assert EXECUTION_METADATA_ALLOWLIST["1.0.0"]["maester"] == frozenset({"module_provenance"})
 
+    def test_execution_metadata_allowlist_has_all_adapters(self) -> None:
+        from gxassessms.core.domain.constants import EXECUTION_METADATA_ALLOWLIST
+
+        expected_slugs = {
+            "scubagear",
+            "maester",
+            "monkey365",
+            "m365-assess",
+            "prowler",
+            "azure-advisor",
+            "secure-score",
+        }
+        assert set(EXECUTION_METADATA_ALLOWLIST["1.0.0"].keys()) == expected_slugs
+
     def test_recognized_manifest_versions(self) -> None:
         from gxassessms.core.domain.constants import RECOGNIZED_MANIFEST_VERSIONS
 
         assert "1.0.0" in RECOGNIZED_MANIFEST_VERSIONS
+
+
+class TestSeverityIdentityMap:
+    def test_covers_all_severity_x_non_passing_status_combos(self) -> None:
+        from gxassessms.core.domain.constants import SEVERITY_IDENTITY_MAP
+        from gxassessms.core.domain.enums import FindingStatus, Severity
+
+        non_passing = {
+            FindingStatus.FAIL,
+            FindingStatus.WARNING,
+            FindingStatus.ERROR,
+            FindingStatus.MANUAL,
+        }
+        for sev in Severity:
+            for status in non_passing:
+                assert (sev, status) in SEVERITY_IDENTITY_MAP
+
+    def test_identity_property(self) -> None:
+        from gxassessms.core.domain.constants import SEVERITY_IDENTITY_MAP
+
+        for (severity, _status), mapped in SEVERITY_IDENTITY_MAP.items():
+            assert mapped == severity
+
+    def test_pass_not_in_map(self) -> None:
+        from gxassessms.core.domain.constants import SEVERITY_IDENTITY_MAP
+        from gxassessms.core.domain.enums import FindingStatus, Severity
+
+        for sev in Severity:
+            assert (sev, FindingStatus.PASS) not in SEVERITY_IDENTITY_MAP
+
+    def test_not_applicable_not_in_map(self) -> None:
+        from gxassessms.core.domain.constants import SEVERITY_IDENTITY_MAP
+        from gxassessms.core.domain.enums import FindingStatus, Severity
+
+        for sev in Severity:
+            assert (sev, FindingStatus.NOT_APPLICABLE) not in SEVERITY_IDENTITY_MAP

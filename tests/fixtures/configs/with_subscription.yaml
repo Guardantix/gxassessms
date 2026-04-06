@@ -1,0 +1,14 @@
+client:
+  name: "Azure Sub Client"
+  tenant_id: "00000000-0000-0000-0000-000000000001"
+  subscription_id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
+
+auth:
+  method: "client_credential"
+  tenant_id: "00000000-0000-0000-0000-000000000001"
+  client_id: "00000000-0000-0000-0000-000000000002"
+  client_secret_env: "GX_CLIENT_SECRET"  # pragma: allowlist secret
+
+tools:
+  scubagear:
+    enabled: true
