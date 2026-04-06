@@ -329,25 +329,31 @@ class M365AssessAdapter:
         csv_paths = [p for p in raw.file_manifest if p.endswith(_CSV_SUFFIX)]
 
         for csv_path in csv_paths:
-            with open(csv_path, newline="", encoding="utf-8-sig") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    check_id = row.get("CheckId", "").strip()
-                    if not check_id:
-                        continue
-                    base_id = extract_base_check_id(check_id)
-                    if base_id in seen_base_ids:
-                        continue
-                    seen_base_ids.add(base_id)
+            try:
+                with open(csv_path, newline="", encoding="utf-8-sig") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        check_id = row.get("CheckId", "").strip()
+                        if not check_id:
+                            continue
+                        base_id = extract_base_check_id(check_id)
+                        if base_id in seen_base_ids:
+                            continue
+                        seen_base_ids.add(base_id)
 
-                    records.append(
-                        CoverageRecord(
-                            control_id=base_id,
-                            tool=ToolSource.M365_ASSESS,
-                            status=CoverageStatus.ASSESSED,
-                            reason=None,
+                        records.append(
+                            CoverageRecord(
+                                control_id=base_id,
+                                tool=ToolSource.M365_ASSESS,
+                                status=CoverageStatus.ASSESSED,
+                                reason=None,
+                            )
                         )
-                    )
+            except (OSError, UnicodeDecodeError, csv.Error) as exc:
+                raise ParseError(
+                    f"Failed to read coverage data from {Path(csv_path).name}: {exc}",
+                    adapter_name=self.tool_name,
+                ) from exc
 
         logger.info("M365-Assess coverage export: %d records", len(records))
         return records
