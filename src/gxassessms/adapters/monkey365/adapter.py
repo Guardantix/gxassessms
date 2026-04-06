@@ -301,9 +301,19 @@ class Monkey365Adapter:
                     f"Finding [{i}] missing 'severity' field",
                     adapter_name=self.tool_name,
                 )
+            if not isinstance(finding["severity"], str):
+                raise RawOutputValidationError(
+                    f"Finding [{i}] 'severity' must be a string",
+                    adapter_name=self.tool_name,
+                )
             if "statusCode" not in finding:
                 raise RawOutputValidationError(
                     f"Finding [{i}] missing 'statusCode' field",
+                    adapter_name=self.tool_name,
+                )
+            if not isinstance(finding["statusCode"], str):
+                raise RawOutputValidationError(
+                    f"Finding [{i}] 'statusCode' must be a string",
                     adapter_name=self.tool_name,
                 )
 

@@ -164,6 +164,22 @@ class TestValidateRaw:
             self.adapter.validate_raw(raw)
 
     @patch("gxassessms.adapters.monkey365.adapter.load_json_file")
+    def test_severity_not_string_raises(self, mock_load: Any) -> None:
+        finding = {**_COMPLETE_FINDING, "severity": None}
+        mock_load.return_value = [finding]
+        raw = _make_raw_output(file_manifest={"/fake/monkey365_report.json": _ar()})
+        with pytest.raises(self.RawOutputValidationError, match="'severity' must be a string"):
+            self.adapter.validate_raw(raw)
+
+    @patch("gxassessms.adapters.monkey365.adapter.load_json_file")
+    def test_status_code_not_string_raises(self, mock_load: Any) -> None:
+        finding = {**_COMPLETE_FINDING, "statusCode": None}
+        mock_load.return_value = [finding]
+        raw = _make_raw_output(file_manifest={"/fake/monkey365_report.json": _ar()})
+        with pytest.raises(self.RawOutputValidationError, match="'statusCode' must be a string"):
+            self.adapter.validate_raw(raw)
+
+    @patch("gxassessms.adapters.monkey365.adapter.load_json_file")
     def test_valid_fixture_passes(self, mock_load: Any) -> None:
         import json
 
