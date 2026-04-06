@@ -86,6 +86,11 @@ def fetch_paginated_json(
 
     Returns a flat list of all items across all pages.  Raises
     ``CollectionError`` on HTTP errors, timeouts, or malformed responses.
+
+    SSRF safety: captures the initial URL's origin (scheme + netloc) and
+    validates every pagination link against it. Cross-origin nextLinks are
+    rejected to prevent attacker-controlled API responses from redirecting
+    to internal infrastructure or cloud metadata endpoints.
     """
     import httpx  # function-scoped: heavy third-party dep
 
