@@ -122,7 +122,7 @@ class AzureAdvisorAdapter:
 
         return AuthContext(
             token=SecretStr(token.token),  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
-            credential_refs={"scope": _MANAGEMENT_SCOPE},
+            extra={"scope": _MANAGEMENT_SCOPE},
             expires_at=datetime.fromtimestamp(token.expires_on, tz=UTC),  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
         )
 
