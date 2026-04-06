@@ -24,6 +24,7 @@ from gxassessms.core.domain.enums import (
 from gxassessms.core.domain.models import (
     ArtifactRecord,
     CoverageRecord,
+    Finding,
     ResolvedManifest,
     ToolObservation,
 )
@@ -252,3 +253,28 @@ class TestSecureScoreConformance(AdapterConformanceSuite):
         assert coverage_records is not None
         control_ids = [r.control_id for r in coverage_records]
         assert len(control_ids) == len(set(control_ids))
+
+    def test_normalized_categories_match_control_category(
+        self,
+        normalized_findings: list[Finding],
+    ) -> None:
+        """Normalized findings get correct categories from CATEGORY_MAP,
+        not the COMPLIANCE fallback. This is the end-to-end regression test
+        for the native_category fix."""
+        from gxassessms.core.domain.enums import Category
+
+        category_by_id = {f.native_check_id: f.category for f in normalized_findings}
+
+        # Identity controls -> IDENTITY_ACCESS
+        assert category_by_id["MFARegistrationV2"] == Category.IDENTITY_ACCESS
+        assert category_by_id["AdminMFAV2"] == Category.IDENTITY_ACCESS
+        assert category_by_id["BlockLegacyAuthentication"] == Category.IDENTITY_ACCESS
+        assert category_by_id["OneAdmin"] == Category.IDENTITY_ACCESS
+        assert category_by_id["RoleOverlap"] == Category.IDENTITY_ACCESS
+
+        # Data controls -> DATA_PROTECTION
+        assert category_by_id["DLPEnabled"] == Category.DATA_PROTECTION
+        assert category_by_id["NonOwnerAccess"] == Category.DATA_PROTECTION
+
+        # Device controls -> DEVICE_MANAGEMENT
+        assert category_by_id["ThirdPartyIgnored"] == Category.DEVICE_MANAGEMENT
