@@ -282,3 +282,39 @@ class TestCollectPagination:
         assert output_file.exists()
         saved = _json.loads(output_file.read_text())
         assert len(saved["value"]) == 1
+
+
+# ---------------------------------------------------------------------------
+# collect() -- guard conditions
+# ---------------------------------------------------------------------------
+
+
+class TestCollectGuards:
+    def test_raises_when_auth_is_none(self, tmp_path: Path) -> None:
+        adapter = AzureAdvisorAdapter()
+        config = _make_config(output_dir=str(tmp_path))
+
+        with pytest.raises(CollectionError, match="requires authentication"):
+            adapter.collect(config, None)
+
+    def test_raises_when_auth_token_is_none(self, tmp_path: Path) -> None:
+        adapter = AzureAdvisorAdapter()
+        config = _make_config(output_dir=str(tmp_path))
+        auth = AuthContext()  # token=None by default
+
+        with pytest.raises(CollectionError, match="requires authentication"):
+            adapter.collect(config, auth)
+
+    def test_raises_when_output_dir_not_configured(self) -> None:
+        adapter = AzureAdvisorAdapter()
+        config = _make_config(output_dir="")  # empty output_dir
+
+        with pytest.raises(CollectionError, match="output_dir"):
+            adapter.collect(config, _make_auth())
+
+    def test_raises_when_subscription_id_missing(self, tmp_path: Path) -> None:
+        adapter = AzureAdvisorAdapter()
+        config = _make_config(output_dir=str(tmp_path), subscription_id="")
+
+        with pytest.raises(CollectionError, match="subscription_id"):
+            adapter.collect(config, _make_auth())
