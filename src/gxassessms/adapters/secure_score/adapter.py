@@ -110,6 +110,9 @@ class SecureScoreAdapter:
         from pydantic import SecretStr
 
         try:
+            from azure.core.exceptions import (  # pyright: ignore[reportMissingImports]
+                AzureError,  # pyright: ignore[reportUnknownVariableType]
+            )
             from azure.identity import (  # pyright: ignore[reportMissingImports]
                 ClientSecretCredential,  # pyright: ignore[reportUnknownVariableType]
                 DefaultAzureCredential,  # pyright: ignore[reportUnknownVariableType]
@@ -144,7 +147,7 @@ class SecureScoreAdapter:
             token_result = credential.get_token(_GRAPH_SCOPE)  # pyright: ignore[reportUnknownVariableType,reportUnknownMemberType]
         except CollectionError:
             raise
-        except Exception as exc:
+        except (AzureError, ValueError, OSError) as exc:  # pyright: ignore[reportUnknownVariableType]
             raise CollectionError(
                 f"Failed to acquire Graph API token: {exc}",
                 adapter_name=self.tool_name,
