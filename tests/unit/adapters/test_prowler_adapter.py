@@ -212,6 +212,73 @@ class TestCollectExtraArgs:
 
 
 # ---------------------------------------------------------------------------
+# _validate_and_load -- foundational validation (manifest, elements, fields)
+# ---------------------------------------------------------------------------
+
+
+class TestValidateAndLoadFoundational:
+    def test_validate_raw_rejects_empty_manifest(self) -> None:
+        """Empty file_manifest must raise RawOutputValidationError immediately."""
+        from gxassessms.core.domain.models import ResolvedManifest
+
+        raw = ResolvedManifest(
+            tool=ToolSource.PROWLER,
+            tool_slug="prowler",
+            schema_version="1.0.0",
+            manifest_version="1.0.0",
+            timestamp=datetime(2026, 4, 1, 12, 0, 0, tzinfo=UTC),
+            file_manifest={},
+            execution_metadata={},
+        )
+        adapter = ProwlerAdapter()
+        with pytest.raises(RawOutputValidationError, match=r"[Ee]mpty"):
+            adapter.validate_raw(raw)
+
+    def test_validate_raw_rejects_missing_status_code(self, tmp_path: Path) -> None:
+        """Findings missing 'status_code' must be rejected."""
+        import json
+
+        finding = {
+            "finding_info": {"uid": "test-uid", "title": "Test"},
+            # status_code intentionally omitted
+            "metadata": {"event_code": "some_check"},
+        }
+        manifest_file = tmp_path / "bad.ocsf.json"
+        manifest_file.write_text(json.dumps([finding]))
+        raw = ResolvedManifest(
+            tool=ToolSource.PROWLER,
+            tool_slug="prowler",
+            schema_version="1.0.0",
+            manifest_version="1.0.0",
+            timestamp=datetime(2026, 4, 1, 12, 0, 0, tzinfo=UTC),
+            file_manifest={str(manifest_file): ArtifactRecord(encoding="utf-8", sha256="a" * 64)},
+            execution_metadata={},
+        )
+        adapter = ProwlerAdapter()
+        with pytest.raises(RawOutputValidationError, match="status_code"):
+            adapter.validate_raw(raw)
+
+    def test_validate_raw_rejects_non_dict_element(self, tmp_path: Path) -> None:
+        """A non-dict element in the findings array must be rejected."""
+        import json
+
+        manifest_file = tmp_path / "bad.ocsf.json"
+        manifest_file.write_text(json.dumps([None, {"finding_info": {}}]))
+        raw = ResolvedManifest(
+            tool=ToolSource.PROWLER,
+            tool_slug="prowler",
+            schema_version="1.0.0",
+            manifest_version="1.0.0",
+            timestamp=datetime(2026, 4, 1, 12, 0, 0, tzinfo=UTC),
+            file_manifest={str(manifest_file): ArtifactRecord(encoding="utf-8", sha256="a" * 64)},
+            execution_metadata={},
+        )
+        adapter = ProwlerAdapter()
+        with pytest.raises(RawOutputValidationError, match=r"NoneType|expected object"):
+            adapter.validate_raw(raw)
+
+
+# ---------------------------------------------------------------------------
 # _validate_and_load -- event_code
 # ---------------------------------------------------------------------------
 
