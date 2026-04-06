@@ -24,10 +24,7 @@ import logging
 import shutil
 import subprocess
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
-
-if TYPE_CHECKING:
-    from gxassessms.core.domain.constants import AdapterCapability
+from typing import Any, cast
 
 from gxassessms.adapters._base import load_json_file
 from gxassessms.adapters.prowler.mappings import (
@@ -43,6 +40,7 @@ from gxassessms.core.contracts.errors import (
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
+from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,

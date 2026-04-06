@@ -14,6 +14,7 @@ import pytest
 from gxassessms.adapters.prowler.adapter import ProwlerAdapter
 from gxassessms.core.config.config import AuthConfig, EngagementConfig, ToolConfig
 from gxassessms.core.contracts.errors import CollectionError, RawOutputValidationError
+from gxassessms.core.domain.constants import AuthMethod
 from gxassessms.core.domain.enums import CoverageStatus, ToolSource
 from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
 
@@ -23,7 +24,7 @@ from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
 
 
 def _make_config(
-    auth_method: str = "client_credential",
+    auth_method: AuthMethod = "client_credential",
     extra_args: list[str] | None = None,
     output_dir: str = "/tmp/prowler-test",  # noqa: S108
 ) -> EngagementConfig:
@@ -136,10 +137,7 @@ class TestCheckPrerequisites:
 
 class TestCollectExtraArgs:
     @patch("subprocess.run")
-    @patch("gxassessms.core.security.permissions.secure_mkdir")
-    def test_extra_args_appended_to_command(
-        self, mock_mkdir: MagicMock, mock_run: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_extra_args_appended_to_command(self, mock_run: MagicMock, tmp_path: Path) -> None:
         """extra_args from tool config should appear in the subprocess command."""
         mock_run.return_value = MagicMock(returncode=0, stderr=b"")
         config = _make_config(
@@ -161,10 +159,7 @@ class TestCollectExtraArgs:
         assert "check1" in cmd
 
     @patch("subprocess.run")
-    @patch("gxassessms.core.security.permissions.secure_mkdir")
-    def test_extra_args_satisfy_auth_requirement(
-        self, mock_mkdir: MagicMock, mock_run: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_extra_args_satisfy_auth_requirement(self, mock_run: MagicMock, tmp_path: Path) -> None:
         """When auth method has no mapping, extra_args should prevent the error."""
         mock_run.return_value = MagicMock(returncode=0, stderr=b"")
 
@@ -191,8 +186,7 @@ class TestCollectExtraArgs:
         cmd = mock_run.call_args[0][0]
         assert "--managed-identity-auth" in cmd
 
-    @patch("gxassessms.core.security.permissions.secure_mkdir")
-    def test_no_auth_mapping_and_no_extra_args_raises(self, mock_mkdir: MagicMock) -> None:
+    def test_no_auth_mapping_and_no_extra_args_raises(self) -> None:
         """No auth mapping + no extra_args = CollectionError."""
         config = _make_config(extra_args=[])
         adapter = ProwlerAdapter()
