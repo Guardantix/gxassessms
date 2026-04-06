@@ -40,7 +40,7 @@ from gxassessms.core.contracts.errors import (
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
-from gxassessms.core.domain.enums import CoverageStatus, ToolSource
+from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
     CollectedArtifact,
@@ -333,7 +333,7 @@ class ProwlerAdapter:
                 all_observations.extend(observations)
             except RawOutputValidationError:
                 raise
-            except Exception as exc:
+            except (KeyError, TypeError, ValueError) as exc:
                 raise ParseError(
                     f"Failed to parse Prowler output from {file_path}: {exc}",
                     adapter_name=self.tool_name,
@@ -361,7 +361,7 @@ class ProwlerAdapter:
             if obs.native_check_id not in seen_checks:
                 seen_checks.add(obs.native_check_id)
 
-                if obs.native_status == "MANUAL":
+                if obs.native_status == FindingStatus.MANUAL:
                     status = CoverageStatus.PARTIALLY_ASSESSED
                     reason: str | None = "Requires manual verification"
                 else:

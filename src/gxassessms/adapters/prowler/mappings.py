@@ -41,9 +41,9 @@ SEVERITY_MAP: dict[str, Severity] = {
 # ---------------------------------------------------------------------------
 
 STATUS_MAP: dict[str, FindingStatus] = {
-    "PASS": FindingStatus.PASS,
-    "FAIL": FindingStatus.FAIL,
-    "MANUAL": FindingStatus.MANUAL,
+    FindingStatus.PASS: FindingStatus.PASS,
+    FindingStatus.FAIL: FindingStatus.FAIL,
+    FindingStatus.MANUAL: FindingStatus.MANUAL,
 }
 
 # ---------------------------------------------------------------------------

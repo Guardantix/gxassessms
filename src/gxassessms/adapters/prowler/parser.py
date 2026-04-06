@@ -27,7 +27,7 @@ import hashlib
 import logging
 from typing import Any, cast
 
-from gxassessms.core.domain.enums import ToolSource
+from gxassessms.core.domain.enums import FindingStatus, ToolSource
 from gxassessms.core.domain.models import ToolObservation
 
 logger = logging.getLogger(__name__)
@@ -78,8 +78,8 @@ def parse_prowler_findings(
         severity_str: str = str(raw_severity) if raw_severity else "Unknown"
 
         # Status: from status_code (UPPERCASE), NOT from status ("New"/"Suppressed")
-        raw_status: Any = finding.get("status_code", "FAIL")
-        status_code: str = str(raw_status) if raw_status else "FAIL"
+        raw_status: Any = finding.get("status_code", FindingStatus.FAIL)
+        status_code: str = str(raw_status) if raw_status else FindingStatus.FAIL
 
         # Title and description from finding_info
         raw_title: Any = finding_info.get("title", "")
