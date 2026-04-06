@@ -103,17 +103,23 @@ class AzureAdvisorAdapter:
         managed identity, Azure CLI, Azure PowerShell, interactive browser.
         No custom env vars needed.
         """
-        from azure.core.exceptions import (  # pyright: ignore[reportMissingImports]
-            AzureError,  # pyright: ignore[reportUnknownVariableType]
-        )
-        from azure.identity import (  # pyright: ignore[reportMissingImports]
-            DefaultAzureCredential,  # pyright: ignore[reportUnknownVariableType]
-        )
-
         try:
+            from azure.core.exceptions import (  # pyright: ignore[reportMissingImports]
+                AzureError,  # pyright: ignore[reportUnknownVariableType]
+            )
+            from azure.identity import (  # pyright: ignore[reportMissingImports]
+                DefaultAzureCredential,  # pyright: ignore[reportUnknownVariableType]
+            )
+
             credential = DefaultAzureCredential()  # pyright: ignore[reportUnknownVariableType]
             token = credential.get_token(_MANAGEMENT_SCOPE)  # pyright: ignore[reportUnknownVariableType,reportUnknownMemberType]
-        except AzureError as exc:  # pyright: ignore[reportUnknownVariableType]
+        except ImportError as exc:
+            raise PrerequisiteError(
+                f"Azure authentication dependencies not importable: {exc}. "
+                f"Install with: pip install azure-identity",
+                adapter_name=self.tool_name,
+            ) from exc
+        except AzureError as exc:  # pyright: ignore[reportUnknownVariableType,reportPossiblyUnboundVariable]
             raise PrerequisiteError(
                 f"Azure authentication failed: {exc}",
                 adapter_name=self.tool_name,
