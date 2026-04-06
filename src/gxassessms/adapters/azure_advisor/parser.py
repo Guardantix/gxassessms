@@ -97,9 +97,9 @@ def parse_advisor_recommendations(
                     recommendation_type_id,
                 )
 
-        # Prefix native_check_id with Advisor category so normalization's
-        # _extract_module_prefix can resolve it via the category_map.
-        # e.g. "Security.242639fd-..." -> prefix "security" -> INFRASTRUCTURE_SECURITY
+        # Prefix native_check_id with the Advisor category so the category_map lookup
+        # in _resolve_category can match on the lowercased first dot-segment.
+        # e.g. "Security.242639fd-..." -> prefix "security" -> CATEGORY_MAP["security"]
         check_id = f"{category}.{recommendation_type_id}" if category else recommendation_type_id
 
         short_desc: dict[str, Any] = rec.get("shortDescription", {})

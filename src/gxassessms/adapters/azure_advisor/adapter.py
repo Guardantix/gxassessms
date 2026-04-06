@@ -73,7 +73,10 @@ class AzureAdvisorAdapter:
     )
 
     def check_prerequisites(self) -> PrerequisiteResult:
-        """Verify azure-identity is importable (httpx is a hard dependency)."""
+        """Verify azure-identity is importable.
+
+        httpx is a declared package dependency and assumed present.
+        """
         missing: list[str] = []
         try:
             import azure.identity  # noqa: F401  # pyright: ignore[reportMissingImports]
@@ -419,5 +422,8 @@ class AzureAdvisorAdapter:
 
     @property
     def dedup_key_rules(self) -> dict[str, str]:
-        """recommendationTypeId -> canonical cross-reference ID."""
+        """Category-prefixed native_check_id -> canonical cross-reference ID.
+
+        Keys use the format 'Category.<guid>', e.g. 'HighAvailability.<guid>'.
+        """
         return DEDUP_KEY_RULES
