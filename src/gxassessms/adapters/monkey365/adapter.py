@@ -271,6 +271,13 @@ class Monkey365Adapter:
             )
 
         for i, finding in enumerate(findings):
+            # Runtime validation: cast above asserts type for pyright but
+            # malformed JSON can contain non-dict elements (int, null, etc.).
+            if not isinstance(finding, dict):  # pyright: ignore[reportUnnecessaryIsInstance]
+                raise RawOutputValidationError(
+                    f"Finding [{i}] must be an object, got {type(finding).__name__}",
+                    adapter_name=self.tool_name,
+                )
             if "findingInfo" not in finding:
                 raise RawOutputValidationError(
                     f"Finding [{i}] missing 'findingInfo' field",
