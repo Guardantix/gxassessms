@@ -103,6 +103,7 @@ class ProwlerAdapter:
                 [prowler_path, "--version"],
                 capture_output=True,
                 timeout=30,
+                check=True,
             )
             version = (result.stdout or b"").decode(errors="replace").strip()
             logger.info("Prowler prerequisites satisfied (version: %s)", version)
@@ -110,7 +111,7 @@ class ProwlerAdapter:
                 satisfied=True,
                 message=f"Prowler prerequisites satisfied (version: {version})",
             )
-        except (subprocess.TimeoutExpired, OSError) as exc:
+        except (subprocess.TimeoutExpired, OSError, subprocess.CalledProcessError) as exc:
             return PrerequisiteResult(
                 satisfied=False,
                 message=f"Prowler found but not executable: {exc}",
@@ -160,15 +161,18 @@ class ProwlerAdapter:
             "azure",  # POSITIONAL provider (not --provider)
         ]
 
+        extra_args = tc.extra_args or []
+
         auth_flags = _AUTH_METHOD_MAP.get(config.auth.method)
-        if auth_flags is None:
+        if auth_flags:
+            cmd.extend(auth_flags)
+        elif not extra_args:
             raise CollectionError(
                 f"No Prowler auth mapping for method: {config.auth.method!r}. "
                 f"Use extra_args to pass a Prowler-specific auth flag "
                 f"(e.g., ['--az-cli-auth'] or ['--managed-identity-auth'])",
                 adapter_name=self.tool_name,
             )
-        cmd.extend(auth_flags)
 
         # Browser auth requires --tenant-id
         if config.auth.method in ("device_code", "interactive"):
@@ -188,6 +192,9 @@ class ProwlerAdapter:
         checks = tc.modules if tc.modules else []
         if checks:
             cmd.extend(["--checks", *list(checks)])
+
+        if extra_args:
+            cmd.extend(extra_args)
 
         logger.info("[Prowler] Running: %s", " ".join(cmd))
 
@@ -333,9 +340,9 @@ class ProwlerAdapter:
                         f"Finding [{i}] missing 'status_code' field in {path}",
                         adapter_name=self.tool_name,
                     )
-                if "metadata" not in finding:
+                if "metadata" not in finding or "event_code" not in finding["metadata"]:
                     raise RawOutputValidationError(
-                        f"Finding [{i}] missing 'metadata' field in {path}",
+                        f"Finding [{i}] missing 'metadata.event_code' field in {path}",
                         adapter_name=self.tool_name,
                     )
 
@@ -351,28 +358,31 @@ class ProwlerAdapter:
         was assessed. MANUAL status maps to PARTIALLY_ASSESSED.
         """
         observations = self.parse(raw)
-        records: list[CoverageRecord] = []
-        seen_checks: set[str] = set()
 
+        # Collect all statuses per check before deciding coverage.
+        # Prowler emits one finding per resource -- a check with mixed
+        # statuses (e.g., PASS + MANUAL) must be PARTIALLY_ASSESSED.
+        check_statuses: dict[str, set[str]] = {}
         for obs in observations:
-            if obs.native_check_id not in seen_checks:
-                seen_checks.add(obs.native_check_id)
+            check_statuses.setdefault(obs.native_check_id, set()).add(obs.native_status)
 
-                if obs.native_status == FindingStatus.MANUAL:
-                    status = CoverageStatus.PARTIALLY_ASSESSED
-                    reason: str | None = "Requires manual verification"
-                else:
-                    status = CoverageStatus.ASSESSED
-                    reason = None
+        records: list[CoverageRecord] = []
+        for check_id, statuses in check_statuses.items():
+            if FindingStatus.MANUAL in statuses:
+                status = CoverageStatus.PARTIALLY_ASSESSED
+                reason: str | None = "Requires manual verification"
+            else:
+                status = CoverageStatus.ASSESSED
+                reason = None
 
-                records.append(
-                    CoverageRecord(
-                        control_id=obs.native_check_id,
-                        tool=ToolSource.PROWLER,
-                        status=status,
-                        reason=reason,
-                    )
+            records.append(
+                CoverageRecord(
+                    control_id=check_id,
+                    tool=ToolSource.PROWLER,
+                    status=status,
+                    reason=reason,
                 )
+            )
 
         return records
 
