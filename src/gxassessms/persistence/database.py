@@ -17,6 +17,7 @@ from pathlib import Path
 
 from gxassessms.core.config.datetime_utils import format_utc, utc_now
 from gxassessms.core.contracts.errors import MigrationError
+from gxassessms.core.security.permissions import secure_mkdir
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,7 @@ class DatabaseManager:
 
     def initialize(self) -> None:
         """Create DB, enable WAL mode, and run pending migrations."""
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        secure_mkdir(self._db_path.parent, parents=True, exist_ok=True)
         with self.connect() as conn:
             self._ensure_migration_table(conn)
             self._run_pending_migrations(conn)

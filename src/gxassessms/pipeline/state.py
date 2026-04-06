@@ -117,8 +117,10 @@ class EngagementLock:
                 f"Lock already held for engagement {engagement_id} in this process"
             )
 
+        from gxassessms.core.security.permissions import secure_mkdir
+
         lock_path = self._lock_path(engagement_id)  # validates ID format first
-        lock_path.parent.mkdir(parents=True, exist_ok=True)  # creates .locks/ dir
+        secure_mkdir(lock_path.parent, parents=True, exist_ok=True)  # creates .locks/ dir
         lock = FileLock(str(lock_path))
         try:
             lock.acquire(timeout=timeout)

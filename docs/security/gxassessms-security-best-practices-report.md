@@ -101,11 +101,34 @@ CIS Controls v8.1 emphasizes software inventory, authorized software, library al
 
 ### SBP-003: Sensitive artifacts depend on ambient filesystem permissions and default report output lands in the working directory
 
-**Impact:** On shared hosts, permissive workspaces, or weak backup policies, customer-sensitive findings, reports, archives, and config snapshots can be exposed to other local users or processes.
+**Status: REMEDIATED** (branch `security/lifecycle-guardrails`)
+
+**Original impact:** On shared hosts, permissive workspaces, or weak backup policies, customer-sensitive findings, reports, archives, and config snapshots can be exposed to other local users or processes.
 
 **Why this matters**
 
 OWASP cryptographic storage guidance stresses layered protection for data at rest. This repo stores sensitive assessment data locally but does not harden directory permissions, warn on broad access, or keep rendered output inside the main protected data root by default.
+
+**Remediation implemented**
+
+All four recommended mitigations are now in place:
+
+1. **Restrictive directory permissions:** All directory creation now goes through `secure_mkdir()` in `src/gxassessms/core/security/permissions.py`, which enforces `0o700` on POSIX systems after creation. On Windows, NTFS ACL inheritance is relied upon. A convention test (`tests/conventions/test_mkdir_conventions.py`) bans bare `mkdir()` calls in source code.
+
+2. **Engagement-rooted report output:** The default report output path changed from `Path("output")` (current working directory) to `<engagement_dir>/reports/`, which lives under the protected engagement data root. Operators can still override with an explicit `output_dir`.
+
+3. **Permission warnings:** The CLI warns at runtime when the engagement data root or engagement directories have group- or world-accessible bits set. Warnings appear before archive, restore, purge, and export operations and during pipeline initialization.
+
+4. **Lifecycle audit enrichment:** All lifecycle operations (archive, restore, purge) now write JSON audit manifests capturing hostname, OS user, PID, platform, and operator. Export operations log equivalent context. See `docs/security/shared-host-deployment.md` for deployment guidance.
+
+**Test coverage:**
+- `tests/unit/core/test_permissions.py`: Permission hardening and broad-access detection
+- `tests/unit/core/test_audit_context.py`: Audit context generation with failure fallbacks
+- `tests/unit/persistence/test_artifacts.py`: Lifecycle audit manifest creation and GDPR ordering
+- `tests/conventions/test_mkdir_conventions.py`: Convention test banning bare mkdir() calls
+
+<details>
+<summary>Original analysis (now addressed)</summary>
 
 **Evidence**
 
@@ -130,6 +153,8 @@ OWASP cryptographic storage guidance stresses layered protection for data at res
 - Apply restrictive directory permissions at creation time and verify them during preflight.
 - Default report output to an engagement-specific directory under the main data root rather than `./output`.
 - Add a preflight warning when data roots or output paths resolve to shared mounts, workspace directories, or weakly permissioned locations.
+
+</details>
 
 ## Medium Severity Findings
 
@@ -181,5 +206,5 @@ OWASP input-validation and file-handling guidance recommends explicit size limit
 1. ~~Fix replay path confinement and hash binding first.~~ **DONE** (PR #47, SBP-001 remediated)
 2. ~~Pin approved PowerShell module versions and verify publisher or signature before collection runs.~~ **Addressed**: Module provenance verification implemented (version range pinning, sha256tree:v1 tree hash, Authenticode signature, TOCTOU-eliminating staging). See `src/gxassessms/adapters/_verification.py` and `docs/superpowers/specs/2026-04-03-powershell-module-provenance-design.md`. Remaining gap: transitive dependency verification (RequiredModules logged but not blocked).
 3. Add plugin and renderer allowlisting plus config-based renderer filtering.
-4. Harden artifact/report directory permissions and move default report output under the protected data root.
+4. ~~Harden artifact/report directory permissions and move default report output under the protected data root.~~ **DONE** (branch `security/lifecycle-guardrails`, SBP-003 remediated)
 5. Add artifact and payload size ceilings plus preflight checks.

@@ -21,10 +21,17 @@ BANNED_BROAD_EXCEPTIONS = {
 # - cli/commands/review.py: delegates to private package via entry points
 # - cli/commands/analytics.py: delegates to private package via entry points
 # These catch Exception because we cannot predict what external packages raise.
+# - core/security/audit_context.py: stdlib calls raise OSError, KeyError, or
+#   platform-specific types; broad catch is fail-safe for audit metadata
+# - core/security/permissions.py: warn_broad_permissions is advisory and must
+#   never block the calling operation
 BROAD_EXCEPT_ALLOWED_FILES = {
     SRC_ROOT / "cli" / "main.py",
     SRC_ROOT / "cli" / "commands" / "review.py",
     SRC_ROOT / "cli" / "commands" / "analytics.py",
+    SRC_ROOT / "core" / "security" / "audit_context.py",
+    SRC_ROOT / "core" / "security" / "permissions.py",
+    SRC_ROOT / "cli" / "commands" / "engagement.py",
 }
 
 

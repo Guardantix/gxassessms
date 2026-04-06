@@ -2,6 +2,7 @@
 
 import hashlib as _hashlib
 import json
+import sys as _sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -214,17 +215,21 @@ class TestArtifactManagerPurge:
             audit_dir=audit_dir,
         )
         eng_dir = mgr.create_engagement_dir("eng-purge", "PurgeClient")
-        (eng_dir / "raw-output" / "scubagear").mkdir(parents=True)
-        (eng_dir / "raw-output" / "scubagear" / "results.json").write_text("{}")
+        (eng_dir / "raw-output" / "scubagear").mkdir(parents=True, exist_ok=True)
+        (eng_dir / "raw-output" / "scubagear" / "results.json").write_text("{}", encoding="utf-8")
         (eng_dir / "reports" / "report.docx").write_bytes(b"fake")
-        (eng_dir / "config.yaml").write_text("client: PurgeClient")
+        (eng_dir / "config.yaml").write_text("client: PurgeClient", encoding="utf-8")
         return mgr
 
     def test_purge_writes_audit_manifest(self, purge_mgr: ArtifactManager) -> None:
         manifest = purge_mgr.purge("eng-purge", operator="rick")
         assert manifest["engagement_id"] == "eng-purge"
         assert manifest["operator"] == "rick"
-        assert "purged_at" in manifest
+        assert manifest["action"] == "purge"
+        assert "timestamp" in manifest
+        assert "hostname" in manifest
+        assert "os_user" in manifest
+        assert "pid" in manifest
         assert "files_deleted" in manifest
         assert len(manifest["files_deleted"]) > 0
 
@@ -232,8 +237,9 @@ class TestArtifactManagerPurge:
         purge_mgr.purge("eng-purge", operator="rick")
         audit_files = list(purge_mgr._audit_dir.glob("purge-eng-purge-*.json"))
         assert len(audit_files) == 1
-        manifest_data = json.loads(audit_files[0].read_text())
+        manifest_data = json.loads(audit_files[0].read_text(encoding="utf-8"))
         assert manifest_data["engagement_id"] == "eng-purge"
+        assert manifest_data["action"] == "purge"
 
     def test_purge_removes_engagement_dir(self, purge_mgr: ArtifactManager) -> None:
         purge_mgr.purge("eng-purge", operator="rick")
@@ -271,8 +277,11 @@ class TestArtifactManagerPurge:
         # Manifest must exist despite rmtree failure
         manifests = list(audit_dir.glob("purge-eng-fail-purge-*.json"))
         assert len(manifests) == 1
-        data = json.loads(manifests[0].read_text())
+        data = json.loads(manifests[0].read_text(encoding="utf-8"))
         assert "rmtree_error" in data
+        # Enriched fields should survive the rewrite
+        assert "hostname" in data
+        assert data["action"] == "purge"
 
     def test_purge_gdpr_order_manifest_written_before_deletion(
         self, purge_mgr: ArtifactManager
@@ -486,3 +495,160 @@ class TestSaveRawOutputsNew:
         assert (eng_dir / "raw-output" / "manifests").exists()
         assert (eng_dir / "raw-output" / "artifacts").exists()
         assert (eng_dir / "reports").exists()
+
+
+# ---------------------------------------------------------------------------
+# Security hardening tests (issues #40 and #36)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(_sys.platform == "win32", reason="POSIX permissions only")
+class TestPermissionHardening:
+    @pytest.fixture
+    def artifact_mgr(self, tmp_path: Path) -> ArtifactManager:
+        engagements_root = tmp_path / "engagements"
+        engagements_root.mkdir()
+        return ArtifactManager(engagements_root=engagements_root)
+
+    def test_create_engagement_dir_restrictive_permissions(
+        self, artifact_mgr: ArtifactManager
+    ) -> None:
+        eng_dir = artifact_mgr.create_engagement_dir("eng-perm", "Acme")
+        assert eng_dir.stat().st_mode & 0o777 == 0o700
+        assert (eng_dir / "raw-output").stat().st_mode & 0o777 == 0o700
+        assert (eng_dir / "reports").stat().st_mode & 0o777 == 0o700
+
+    def test_audit_dir_restrictive_permissions(self, tmp_path: Path) -> None:
+        engagements_root = tmp_path / "engagements"
+        engagements_root.mkdir()
+        audit_dir = tmp_path / "audit"
+        # Do NOT pre-create audit_dir -- purge should create it via secure_mkdir
+        mgr = ArtifactManager(engagements_root=engagements_root, audit_dir=audit_dir)
+        eng_dir = mgr.create_engagement_dir("eng-audit-perm", "Test")
+        (eng_dir / "raw-output" / "data.json").write_text("{}", encoding="utf-8")
+        mgr.purge("eng-audit-perm", operator="test")
+        assert audit_dir.stat().st_mode & 0o777 == 0o700
+
+
+class TestLifecycleAudit:
+    @pytest.fixture
+    def populated_mgr(self, tmp_path: Path) -> ArtifactManager:
+        engagements_root = tmp_path / "engagements"
+        engagements_root.mkdir()
+        audit_dir = tmp_path / "audit"
+        mgr = ArtifactManager(engagements_root=engagements_root, audit_dir=audit_dir)
+        eng_dir = mgr.create_engagement_dir("eng-lifecycle", "Acme")
+        raw_dir = eng_dir / "raw-output" / "scubagear"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        (raw_dir / "TestResults.json").write_text('{"test": true}', encoding="utf-8")
+        return mgr
+
+    def test_archive_writes_audit_manifest(self, populated_mgr: ArtifactManager) -> None:
+        populated_mgr.archive("eng-lifecycle", operator="rick")
+        audit_files = list(populated_mgr._audit_dir.glob("archive-eng-lifecycle-*.json"))
+        assert len(audit_files) == 1
+        data = json.loads(audit_files[0].read_text(encoding="utf-8"))
+        assert data["action"] == "archive"
+
+    def test_archive_audit_contains_context(self, populated_mgr: ArtifactManager) -> None:
+        populated_mgr.archive("eng-lifecycle", operator="rick")
+        audit_files = list(populated_mgr._audit_dir.glob("archive-*.json"))
+        data = json.loads(audit_files[0].read_text(encoding="utf-8"))
+        assert data["operator"] == "rick"
+        assert "hostname" in data
+        assert "os_user" in data
+        assert "pid" in data
+        assert "engagement_dir" in data
+        assert "archive_path" in data
+
+    def test_archive_audit_failure_does_not_fail_archive(
+        self, populated_mgr: ArtifactManager
+    ) -> None:
+        from unittest.mock import patch
+
+        with patch.object(
+            ArtifactManager, "_write_lifecycle_audit", side_effect=OSError("disk full")
+        ):
+            result = populated_mgr.archive("eng-lifecycle")
+        # Archive should still succeed
+        assert result.exists()
+        assert result.name == "raw-output.tar.gz"
+
+    def test_archive_audit_dir_created_if_missing(self, tmp_path: Path) -> None:
+        engagements_root = tmp_path / "engagements"
+        engagements_root.mkdir()
+        audit_dir = tmp_path / "fresh-audit"
+        mgr = ArtifactManager(engagements_root=engagements_root, audit_dir=audit_dir)
+        eng_dir = mgr.create_engagement_dir("eng-fresh", "Test")
+        raw_dir = eng_dir / "raw-output" / "tool"
+        raw_dir.mkdir(parents=True, exist_ok=True)
+        (raw_dir / "data.json").write_text("{}", encoding="utf-8")
+        mgr.archive("eng-fresh", operator="test")
+        assert audit_dir.exists()
+        assert len(list(audit_dir.glob("archive-*.json"))) == 1
+
+    def test_restore_writes_audit_manifest(self, populated_mgr: ArtifactManager) -> None:
+        populated_mgr.archive("eng-lifecycle", operator="rick")
+        populated_mgr.restore("eng-lifecycle", operator="rick")
+        audit_files = list(populated_mgr._audit_dir.glob("restore-eng-lifecycle-*.json"))
+        assert len(audit_files) == 1
+        data = json.loads(audit_files[0].read_text(encoding="utf-8"))
+        assert data["action"] == "restore"
+        assert "hostname" in data
+        assert "engagement_dir" in data
+
+    def test_purge_audit_contains_enriched_context(self, tmp_path: Path) -> None:
+        engagements_root = tmp_path / "engagements"
+        engagements_root.mkdir()
+        audit_dir = tmp_path / "audit"
+        mgr = ArtifactManager(engagements_root=engagements_root, audit_dir=audit_dir)
+        eng_dir = mgr.create_engagement_dir("eng-ctx", "Test")
+        (eng_dir / "raw-output" / "data.json").write_text("{}", encoding="utf-8")
+        manifest = mgr.purge("eng-ctx", operator="admin")
+        assert manifest["action"] == "purge"
+        assert manifest["operator"] == "admin"
+        assert "hostname" in manifest
+        assert "os_user" in manifest
+        assert "pid" in manifest
+        assert "platform" in manifest
+
+    def test_purge_audit_path_in_returned_manifest(self, tmp_path: Path) -> None:
+        engagements_root = tmp_path / "engagements"
+        engagements_root.mkdir()
+        audit_dir = tmp_path / "audit"
+        mgr = ArtifactManager(engagements_root=engagements_root, audit_dir=audit_dir)
+        eng_dir = mgr.create_engagement_dir("eng-path", "Test")
+        (eng_dir / "raw-output" / "data.json").write_text("{}", encoding="utf-8")
+        manifest = mgr.purge("eng-path", operator="test")
+        assert "audit_path" in manifest
+        assert Path(manifest["audit_path"]).exists()
+
+    @pytest.mark.skipif(_sys.platform == "win32", reason="POSIX permissions only")
+    def test_write_lifecycle_audit_manifest_has_restrictive_permissions(
+        self, tmp_path: Path
+    ) -> None:
+        """Audit manifest files should be written with 0o600 permissions."""
+        engagements_root = tmp_path / "engagements"
+        engagements_root.mkdir()
+        audit_dir = tmp_path / "audit"
+        mgr = ArtifactManager(engagements_root=engagements_root, audit_dir=audit_dir)
+        _, manifest_path = mgr._write_lifecycle_audit(
+            "archive", "eng-perm-test", "test-operator", {}
+        )
+        mode = manifest_path.stat().st_mode & 0o777
+        assert mode == 0o600, f"Expected 0o600, got {oct(mode)}"
+
+    def test_write_lifecycle_audit_rejects_crafted_engagement_id(self, tmp_path: Path) -> None:
+        """Crafted engagement_id with path separators should be blocked."""
+        engagements_root = tmp_path / "engagements"
+        engagements_root.mkdir()
+        audit_dir = tmp_path / "audit"
+        audit_dir.mkdir()
+        # Create parent dirs so resolve doesn't fail before validation
+        escape_dir = audit_dir / "purge-x"
+        escape_dir.mkdir()
+        mgr = ArtifactManager(engagements_root=engagements_root, audit_dir=audit_dir)
+        # This ID contains path separators that create subdirs and then
+        # traverse above audit_dir via ..
+        with pytest.raises(PersistenceError, match="path traversal"):
+            mgr._write_lifecycle_audit("purge", "x/../../../escape", "test", {})

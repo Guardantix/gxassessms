@@ -29,6 +29,8 @@ Design spec: `../gxassessms-guardantix/docs/specs/2026-03-25-gxassessms-architec
 - No hardcoded credentials or tenant identifiers in source
 - All datetime operations via centralized `core/config/datetime_utils.py`
 - All domain constants via `core/domain/constants.py` (Literal + frozenset pattern)
+- All directory creation via centralized `core/security/permissions.py` (`secure_mkdir`)
+- All lifecycle audit context via `core/security/audit_context.py` (`build_audit_context`)
 - Fail-closed error handling: typed exceptions, narrow catches, no silent fallbacks
 - <=400 lines per file target
 - Module provenance policy lives in `adapters/<tool>/policy.py` -- changes are security-critical and require careful PR review
