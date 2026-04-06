@@ -35,7 +35,7 @@ class TestAdapterProperties:
         """severity_map passes through all domain severities for FAIL status."""
         adapter = SecureScoreAdapter()
         smap = adapter.severity_map
-        for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
+        for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"):
             assert smap.get((sev, "FAIL")) == sev, (
                 f"severity_map missing or wrong for ({sev!r}, 'FAIL')"
             )
@@ -44,7 +44,7 @@ class TestAdapterProperties:
         """severity_map passes through all domain severities for MANUAL status."""
         adapter = SecureScoreAdapter()
         smap = adapter.severity_map
-        for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW"):
+        for sev in ("CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"):
             assert smap.get((sev, "MANUAL")) == sev
 
     def test_tool_name_lower_matches_config_key_convention(self) -> None:
@@ -58,10 +58,13 @@ class TestAdapterProperties:
         assert adapter.tool_name.lower() == "securescore"
 
 
-def _mock_azure_identity(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, MagicMock]:
+def _mock_azure_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[MagicMock, MagicMock, MagicMock]:
     """Inject mock azure.identity and azure.core.exceptions into sys.modules.
 
-    Returns (ClientSecretCredential mock, DefaultAzureCredential mock).
+    Returns (ClientSecretCredential mock, DefaultAzureCredential mock,
+             CertificateCredential mock).
     """
     fake_token = SimpleNamespace(token="tok", expires_on=9_999_999_999)
 
@@ -73,9 +76,14 @@ def _mock_azure_identity(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, Ma
     dac_cred.get_token.return_value = fake_token
     DefaultAzureCredential = MagicMock(return_value=dac_cred)
 
+    cert_cred = MagicMock()
+    cert_cred.get_token.return_value = fake_token
+    CertificateCredential = MagicMock(return_value=cert_cred)
+
     mock_identity = ModuleType("azure.identity")
     mock_identity.ClientSecretCredential = ClientSecretCredential  # type: ignore[attr-defined]
     mock_identity.DefaultAzureCredential = DefaultAzureCredential  # type: ignore[attr-defined]
+    mock_identity.CertificateCredential = CertificateCredential  # type: ignore[attr-defined]
 
     mock_azure_core = ModuleType("azure.core.exceptions")
     mock_azure_core.AzureError = Exception  # type: ignore[attr-defined]
@@ -83,14 +91,17 @@ def _mock_azure_identity(monkeypatch: pytest.MonkeyPatch) -> tuple[MagicMock, Ma
     monkeypatch.setitem(sys.modules, "azure.identity", mock_identity)
     monkeypatch.setitem(sys.modules, "azure.core.exceptions", mock_azure_core)
 
-    return ClientSecretCredential, DefaultAzureCredential
+    return ClientSecretCredential, DefaultAzureCredential, CertificateCredential
 
 
-def _auth_config(*, client_secret_env: str = "") -> SimpleNamespace:
+def _auth_config(
+    *, client_secret_env: str = "", certificate_path: str | None = None
+) -> SimpleNamespace:
     return SimpleNamespace(
         auth=SimpleNamespace(
             client_id="app-id",
             client_secret_env=client_secret_env,
+            certificate_path=certificate_path,
             tenant_id="tenant-id",
         )
     )
@@ -106,7 +117,7 @@ class TestAuthenticate:
         ``elif client_id and not client_secret_env`` guard always fired for
         non-SP users, blocking DefaultAzureCredential entirely.
         """
-        _, DefaultAzureCredential = _mock_azure_identity(monkeypatch)
+        _, DefaultAzureCredential, _ = _mock_azure_identity(monkeypatch)
         adapter = SecureScoreAdapter()
         result = adapter.authenticate(_auth_config(client_secret_env=""))  # type: ignore[arg-type]
         assert result is not None
@@ -116,7 +127,7 @@ class TestAuthenticate:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """authenticate() uses ClientSecretCredential when client_secret_env is set."""
-        ClientSecretCredential, DefaultAzureCredential = _mock_azure_identity(monkeypatch)
+        ClientSecretCredential, DefaultAzureCredential, _ = _mock_azure_identity(monkeypatch)
         monkeypatch.setenv("GX_TEST_SECRET", "s3cr3t")
         adapter = SecureScoreAdapter()
         result = adapter.authenticate(  # type: ignore[arg-type]
@@ -135,6 +146,36 @@ class TestAuthenticate:
             adapter.authenticate(  # type: ignore[arg-type]
                 _auth_config(client_secret_env="GX_MISSING_SECRET")  # pragma: allowlist secret
             )
+
+    def test_uses_certificate_credential_when_certificate_path_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """authenticate() uses CertificateCredential when certificate_path is set."""
+        _, DefaultAzureCredential, CertificateCredential = _mock_azure_identity(monkeypatch)
+        adapter = SecureScoreAdapter()
+        result = adapter.authenticate(  # type: ignore[arg-type]
+            _auth_config(certificate_path="/path/to/cert.pem")
+        )
+        assert result is not None
+        CertificateCredential.assert_called_once()
+        DefaultAzureCredential.assert_not_called()
+
+    def test_client_secret_takes_precedence_over_certificate(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """client_secret_env is preferred when both secret and certificate are configured."""
+        ClientSecretCredential, _, CertificateCredential = _mock_azure_identity(monkeypatch)
+        monkeypatch.setenv("GX_TEST_SECRET", "s3cr3t")
+        adapter = SecureScoreAdapter()
+        result = adapter.authenticate(  # type: ignore[arg-type]
+            _auth_config(
+                client_secret_env="GX_TEST_SECRET",  # pragma: allowlist secret
+                certificate_path="/path/to/cert.pem",
+            )
+        )
+        assert result is not None
+        ClientSecretCredential.assert_called_once()
+        CertificateCredential.assert_not_called()
 
 
 class TestFetchGraphEndpointPagination:

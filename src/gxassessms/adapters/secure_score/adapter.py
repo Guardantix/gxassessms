@@ -116,6 +116,7 @@ class SecureScoreAdapter:
                 AzureError,  # pyright: ignore[reportUnknownVariableType]
             )
             from azure.identity import (  # pyright: ignore[reportMissingImports]
+                CertificateCredential,  # pyright: ignore[reportUnknownVariableType]
                 ClientSecretCredential,  # pyright: ignore[reportUnknownVariableType]
                 DefaultAzureCredential,  # pyright: ignore[reportUnknownVariableType]
             )
@@ -146,6 +147,16 @@ class SecureScoreAdapter:
                     tenant_id=config.auth.tenant_id,
                     client_id=client_id,
                     client_secret=client_secret,
+                )
+            elif config.auth.certificate_path:
+                logger.info(  # nosemgrep  # client_id is a public Azure AD app GUID, not a secret
+                    "Authenticating Secure Score via CertificateCredential (SP: %s)",
+                    client_id,
+                )
+                credential = CertificateCredential(  # pyright: ignore[reportUnknownVariableType]
+                    tenant_id=config.auth.tenant_id,
+                    client_id=client_id,
+                    certificate_path=config.auth.certificate_path,
                 )
             else:
                 logger.info("Authenticating Secure Score via DefaultAzureCredential")
@@ -332,10 +343,12 @@ class SecureScoreAdapter:
             (Severity.HIGH, FindingStatus.FAIL): Severity.HIGH,
             (Severity.MEDIUM, FindingStatus.FAIL): Severity.MEDIUM,
             (Severity.LOW, FindingStatus.FAIL): Severity.LOW,
+            (Severity.INFO, FindingStatus.FAIL): Severity.INFO,
             (Severity.CRITICAL, FindingStatus.MANUAL): Severity.CRITICAL,
             (Severity.HIGH, FindingStatus.MANUAL): Severity.HIGH,
             (Severity.MEDIUM, FindingStatus.MANUAL): Severity.MEDIUM,
             (Severity.LOW, FindingStatus.MANUAL): Severity.LOW,
+            (Severity.INFO, FindingStatus.MANUAL): Severity.INFO,
         }
 
     @property

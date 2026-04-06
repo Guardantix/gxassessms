@@ -62,14 +62,14 @@ def _derive_status(
     Decision order:
         1. No score or maxScore data  -> MANUAL (needs human review)
         2. Third-party/ignored        -> NOT_APPLICABLE (state overrides score)
-        3. Full score achieved        -> PASS
+        3. Score >= maxScore           -> PASS (includes maxScore=0 non-scored controls)
         4. Otherwise                  -> FAIL
     """
     if score is None or max_score is None:
         return FindingStatus.MANUAL
     if latest_state in CONTROL_STATE_PASS_THROUGH:
         return FindingStatus.NOT_APPLICABLE
-    if max_score > 0 and score >= max_score:
+    if score >= max_score:
         return FindingStatus.PASS
     return FindingStatus.FAIL
 

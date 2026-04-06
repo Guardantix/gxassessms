@@ -116,6 +116,11 @@ class TestDeriveStatus:
         result = _derive_status(score=5.0, max_score=None, latest_state="Default")
         assert result == FindingStatus.MANUAL
 
+    def test_zero_max_score_zero_score_is_pass(self) -> None:
+        """maxScore=0, score=0 -> PASS (non-scored control, fully achieved)."""
+        result = _derive_status(score=0.0, max_score=0.0, latest_state="Default")
+        assert result == FindingStatus.PASS
+
 
 class TestParseSecureScore:
     def test_returns_list_of_tool_observations(
