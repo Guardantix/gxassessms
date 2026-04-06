@@ -308,7 +308,7 @@ class ProwlerAdapter:
             try:
                 observations = parse_prowler_findings(findings)
                 all_observations.extend(observations)
-            except (KeyError, TypeError, ValueError) as exc:
+            except (KeyError, TypeError, ValueError, IndexError, AttributeError) as exc:
                 raise ParseError(
                     f"Failed to parse Prowler output from {file_path}: {exc}",
                     adapter_name=self.tool_name,
@@ -371,6 +371,12 @@ class ProwlerAdapter:
                 if "finding_info" not in finding:
                     raise RawOutputValidationError(
                         f"Finding [{i}] missing 'finding_info' field in {path}",
+                        adapter_name=self.tool_name,
+                    )
+                if not isinstance(finding["finding_info"], dict):
+                    actual_type = type(cast(Any, finding["finding_info"])).__name__
+                    raise RawOutputValidationError(
+                        f"Finding [{i}] 'finding_info' is {actual_type}, expected object in {path}",
                         adapter_name=self.tool_name,
                     )
                 if "status_code" not in finding:

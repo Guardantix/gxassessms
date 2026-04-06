@@ -242,6 +242,46 @@ class TestValidateEventCode:
 
 
 # ---------------------------------------------------------------------------
+# _validate_and_load -- finding_info type validation
+# ---------------------------------------------------------------------------
+
+
+class TestValidateFindingInfoType:
+    def test_validate_raw_rejects_finding_info_not_dict(self, tmp_path: Path) -> None:
+        """finding_info must be a dict, not a string or number."""
+        import json
+
+        bad_finding = {
+            "finding_info": "not-a-dict",
+            "status_code": "FAIL",
+            "metadata": {"event_code": "some_check"},
+        }
+        manifest_file = tmp_path / "bad.ocsf.json"
+        manifest_file.write_text(json.dumps([bad_finding]))
+        raw = ResolvedManifest(
+            tool=ToolSource.PROWLER,
+            tool_slug="prowler",
+            schema_version="1.0.0",
+            manifest_version="1.0.0",
+            timestamp=datetime(2026, 4, 1, 12, 0, 0, tzinfo=UTC),
+            file_manifest={str(manifest_file): ArtifactRecord(encoding="utf-8", sha256="a" * 64)},
+            execution_metadata={},
+        )
+        adapter = ProwlerAdapter()
+        with pytest.raises(RawOutputValidationError, match=r"finding_info.*expected object"):
+            adapter.validate_raw(raw)
+
+    def test_validate_raw_accepts_finding_info_dict(self, tmp_path: Path) -> None:
+        """finding_info as a proper dict should pass validation."""
+        import json
+
+        good_finding = _minimal_finding()
+        raw = _make_manifest(tmp_path, json.dumps([good_finding]))
+        adapter = ProwlerAdapter()
+        adapter.validate_raw(raw)  # should not raise
+
+
+# ---------------------------------------------------------------------------
 # coverage -- aggregation across findings
 # ---------------------------------------------------------------------------
 
