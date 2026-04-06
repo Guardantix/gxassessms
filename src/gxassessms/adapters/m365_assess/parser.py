@@ -12,11 +12,11 @@ Verified against real sample output.
 from __future__ import annotations
 
 import csv
-import json
 import logging
 from pathlib import Path
 from typing import Any
 
+from gxassessms.adapters._base import load_json_file
 from gxassessms.adapters.m365_assess.mappings import (
     CATEGORY_MAP,
     SEVERITY_MAP,
@@ -32,15 +32,13 @@ logger = logging.getLogger(__name__)
 
 def load_risk_severity(path: Path) -> dict[str, str]:
     """Load risk-severity.json. Returns {base_check_id: severity_string}."""
-    with open(path, encoding="utf-8") as f:
-        data: dict[str, Any] = json.load(f)
+    data: dict[str, Any] = load_json_file(path, adapter_name="M365Assess")
     return data.get("checks", {})
 
 
 def load_registry(path: Path) -> dict[str, dict[str, Any]]:
     """Load registry.json. Returns {check_id: entry_dict}."""
-    with open(path, encoding="utf-8") as f:
-        data: dict[str, Any] = json.load(f)
+    data: dict[str, Any] = load_json_file(path, adapter_name="M365Assess")
     return {entry["checkId"]: entry for entry in data.get("checks", [])}
 
 
@@ -98,7 +96,7 @@ def parse_security_config_csv(
                 "csv_row": dict(row),
                 "base_check_id": base_id,
                 "collector": collector,
-                "category_hint": str(category_hint),
+                "category_hint": category_hint,
                 "remediation": row.get("Remediation", "").strip(),
                 "source_file": csv_path.name,
             }

@@ -157,9 +157,7 @@ class M365AssessAdapter:
 
         script = " ".join(script_parts)
 
-        existing_files: set[Path] = (
-            {f for f in output_dir.iterdir() if f.is_file()} if output_dir.exists() else set()
-        )
+        existing_files: set[Path] = {f for f in output_dir.iterdir() if f.is_file()}
 
         run_powershell(
             script=script,
@@ -242,7 +240,7 @@ class M365AssessAdapter:
         try:
             severity_lookup = load_risk_severity(severity_path) if severity_path.exists() else {}
             registry_lookup = load_registry(registry_path) if registry_path.exists() else {}
-        except (OSError, ValueError, KeyError) as exc:
+        except (RawOutputValidationError, KeyError) as exc:
             raise ParseError(
                 f"Failed to load M365-Assess metadata: {exc}",
                 adapter_name=self.tool_name,

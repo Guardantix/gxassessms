@@ -14,6 +14,7 @@ import pytest
 import yaml
 
 from gxassessms.adapters.m365_assess import M365AssessAdapter
+from gxassessms.adapters.m365_assess.adapter import _CSV_SUFFIX
 from gxassessms.core.domain.enums import ToolSource
 from gxassessms.core.domain.models import (
     ArtifactRecord,
@@ -29,9 +30,6 @@ FIXTURE_DIR = (
     / "m365_assess"
     / "fixtures"
 )
-
-# _CSV_SUFFIX from the adapter -- files must end with this to be recognised
-_CSV_SUFFIX = "-Security-Config.csv"
 
 
 class TestM365AssessConformance(AdapterConformanceSuite):
