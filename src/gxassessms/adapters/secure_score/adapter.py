@@ -106,9 +106,9 @@ class SecureScoreAdapter:
         Raises:
             CollectionError: If token acquisition fails.
         """
-        from datetime import UTC, datetime
-
         from pydantic import SecretStr
+
+        from gxassessms.core.config.datetime_utils import from_epoch
 
         try:
             from azure.core.exceptions import (  # pyright: ignore[reportMissingImports]
@@ -154,7 +154,7 @@ class SecureScoreAdapter:
                 adapter_name=self.tool_name,
             ) from exc
 
-        expires_at = datetime.fromtimestamp(token_result.expires_on, tz=UTC)  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
+        expires_at = from_epoch(token_result.expires_on)  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
         return AuthContext(
             token=SecretStr(token_result.token),  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
             expires_at=expires_at,
