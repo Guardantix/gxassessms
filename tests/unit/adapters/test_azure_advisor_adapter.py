@@ -20,6 +20,7 @@ from pydantic import SecretStr
 from gxassessms.adapters.azure_advisor import AzureAdvisorAdapter
 from gxassessms.core.config.config import AuthConfig, EngagementConfig, ToolConfig
 from gxassessms.core.contracts.errors import CollectionError, PrerequisiteError
+from gxassessms.core.domain.enums import ToolSource
 from gxassessms.core.domain.models import AuthContext
 
 _DEFAULT_SUBSCRIPTION_ID = "12345678-1234-1234-1234-123456789012"
@@ -183,3 +184,101 @@ class TestCollectHTTPErrors:
 
         with pytest.raises(CollectionError, match="'value' is not a list"):
             adapter.collect(config, _make_auth())
+
+
+# ---------------------------------------------------------------------------
+# collect() -- pagination
+# ---------------------------------------------------------------------------
+
+
+class TestCollectPagination:
+    @patch("gxassessms.adapters.azure_advisor.adapter.httpx.Client")
+    def test_accumulates_recommendations_across_pages(
+        self, MockClient: MagicMock, tmp_path: Path
+    ) -> None:
+        """Multi-page response accumulates all recommendations into one file."""
+        import json as _json
+
+        adapter = AzureAdvisorAdapter()
+        config = _make_config(output_dir=str(tmp_path))
+
+        rec1 = {
+            "recommendationTypeId": "aaa",
+            "name": "instance-1",
+            "category": "Security",
+            "impact": "High",
+            "shortDescription": {"problem": "P1", "solution": "S1"},
+        }
+        rec2 = {
+            "recommendationTypeId": "bbb",
+            "name": "instance-2",
+            "category": "Cost",
+            "impact": "Medium",
+            "shortDescription": {"problem": "P2", "solution": "S2"},
+        }
+
+        page2_url = "https://management.azure.com/nextpage"
+
+        mock_client = _make_mock_client(
+            [
+                {"value": [rec1], "nextLink": page2_url},
+                {"value": [rec2]},
+            ]
+        )
+        MockClient.return_value.__enter__.return_value = mock_client
+        MockClient.return_value.__exit__.return_value = False
+
+        adapter.collect(config, _make_auth())
+        output_file = tmp_path / "advisor_recommendations.json"
+        saved = _json.loads(output_file.read_text())
+        assert len(saved["value"]) == 2
+
+    @patch("gxassessms.adapters.azure_advisor.adapter.httpx.Client")
+    def test_raises_on_pagination_cycle(self, MockClient: MagicMock, tmp_path: Path) -> None:
+        """Cyclic nextLink must raise CollectionError instead of looping forever."""
+        adapter = AzureAdvisorAdapter()
+        config = _make_config(output_dir=str(tmp_path))
+
+        cycle_url = (
+            f"https://management.azure.com/subscriptions/{_DEFAULT_SUBSCRIPTION_ID}"
+            f"/providers/Microsoft.Advisor/recommendations"
+        )
+
+        mock_client = _make_mock_client([{"value": [], "nextLink": cycle_url}])
+        MockClient.return_value.__enter__.return_value = mock_client
+        MockClient.return_value.__exit__.return_value = False
+
+        with pytest.raises(CollectionError, match="cycle"):
+            adapter.collect(config, _make_auth())
+
+    @patch("gxassessms.adapters.azure_advisor.adapter.httpx.Client")
+    def test_single_page_returns_correct_collection_output(
+        self, MockClient: MagicMock, tmp_path: Path
+    ) -> None:
+        """Happy path: single-page response writes file and returns CollectionOutput."""
+        import json as _json
+
+        adapter = AzureAdvisorAdapter()
+        config = _make_config(output_dir=str(tmp_path))
+
+        rec = {
+            "recommendationTypeId": "abc",
+            "name": "inst-1",
+            "category": "Security",
+            "impact": "High",
+            "shortDescription": {"problem": "P", "solution": "S"},
+        }
+        mock_client = _make_mock_client([{"value": [rec]}])
+        MockClient.return_value.__enter__.return_value = mock_client
+        MockClient.return_value.__exit__.return_value = False
+
+        result = adapter.collect(config, _make_auth())
+
+        assert result.tool == ToolSource.AZURE_ADVISOR
+        assert result.tool_slug == "azure-advisor"
+        assert result.execution_metadata["recommendation_count"] == 1
+        assert len(result.artifacts) == 1
+        output_file = tmp_path / "advisor_recommendations.json"
+        assert output_file.exists()
+        saved = _json.loads(output_file.read_text())
+        assert len(saved["value"]) == 1

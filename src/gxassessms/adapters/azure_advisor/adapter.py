@@ -53,6 +53,7 @@ _MANAGEMENT_BASE_URL = "https://management.azure.com"
 _MANAGEMENT_SCOPE = "https://management.azure.com/.default"
 _DEFAULT_TIMEOUT_SECONDS = 120
 _OUTPUT_FILENAME = "advisor_recommendations.json"
+_MAX_PAGES = 200
 
 
 class AzureAdvisorAdapter:
@@ -187,11 +188,27 @@ class AzureAdvisorAdapter:
         }
 
         all_recommendations: list[dict[str, Any]] = []
+        seen_urls: set[str] = set()
+        page_count = 0
+        next_url: str | None = url
 
         try:
             with httpx.Client(timeout=timeout) as client:
-                next_url: str | None = url
                 while next_url is not None:
+                    if next_url in seen_urls:
+                        raise CollectionError(
+                            f"Azure Advisor pagination cycle detected at {next_url!r}",
+                            adapter_name=self.tool_name,
+                        )
+                    if page_count >= _MAX_PAGES:
+                        raise CollectionError(
+                            f"Azure Advisor pagination exceeded {_MAX_PAGES} pages; "
+                            f"aborting to prevent runaway collection",
+                            adapter_name=self.tool_name,
+                        )
+                    seen_urls.add(next_url)
+                    page_count += 1
+
                     response = client.get(
                         next_url,
                         headers=headers,
