@@ -5,8 +5,9 @@ the Microsoft Graph REST API directly via httpx. It fetches two endpoints
 (secureScoreControlProfiles and secureScores), joins them by control ID,
 and produces ToolObservations representing the tenant's security posture.
 
-Auth is handled by azure.identity (ClientSecretCredential for service
-principal configs, DefaultAzureCredential as fallback).
+Auth dispatches on ``config.auth.method``: ``client_credential`` uses
+ClientSecretCredential or CertificateCredential, ``device_code`` uses
+DeviceCodeCredential, and ``interactive`` uses InteractiveBrowserCredential.
 """
 
 from __future__ import annotations
@@ -101,11 +102,15 @@ class SecureScoreAdapter:
     def authenticate(self, config: EngagementConfig) -> AuthContext | None:
         """Acquire a Microsoft Graph API token via azure.identity.
 
-        Uses ClientSecretCredential when SP credentials are configured;
-        falls back to DefaultAzureCredential otherwise.
+        Dispatches on ``config.auth.method``:
+
+        - ``client_credential`` -- ClientSecretCredential (secret) or
+          CertificateCredential (cert), sub-dispatched by field presence.
+        - ``device_code`` -- DeviceCodeCredential (interactive device flow).
+        - ``interactive`` -- InteractiveBrowserCredential (browser flow).
 
         Raises:
-            CollectionError: If token acquisition fails.
+            CollectionError: If token acquisition fails or method is unsupported.
         """
         from pydantic import SecretStr
 
@@ -118,7 +123,8 @@ class SecureScoreAdapter:
             from azure.identity import (  # pyright: ignore[reportMissingImports]
                 CertificateCredential,  # pyright: ignore[reportUnknownVariableType]
                 ClientSecretCredential,  # pyright: ignore[reportUnknownVariableType]
-                DefaultAzureCredential,  # pyright: ignore[reportUnknownVariableType]
+                DeviceCodeCredential,  # pyright: ignore[reportUnknownVariableType]
+                InteractiveBrowserCredential,  # pyright: ignore[reportUnknownVariableType]
             )
         except ImportError as exc:
             raise CollectionError(
@@ -129,38 +135,66 @@ class SecureScoreAdapter:
 
         client_id = config.auth.client_id
         client_secret_env = config.auth.client_secret_env
+        auth_method = config.auth.method
 
         try:
-            if client_secret_env:
-                client_secret = os.environ.get(client_secret_env, "")
-                if not client_secret:
+            match auth_method:
+                case "client_credential":
+                    if client_secret_env:
+                        client_secret = os.environ.get(client_secret_env, "")
+                        if not client_secret:
+                            raise CollectionError(
+                                f"Environment variable '{client_secret_env}' is not set "
+                                f"or empty. Required for service principal authentication.",
+                                adapter_name=self.tool_name,
+                            )
+                        logger.info(  # nosemgrep  # client_id is not a secret
+                            "Authenticating Secure Score via ClientSecretCredential (SP: %s)",
+                            client_id,
+                        )
+                        credential = ClientSecretCredential(  # pyright: ignore[reportUnknownVariableType]
+                            tenant_id=config.auth.tenant_id,
+                            client_id=client_id,
+                            client_secret=client_secret,
+                        )
+                    elif config.auth.certificate_path:
+                        logger.info(  # nosemgrep  # client_id is not a secret
+                            "Authenticating Secure Score via CertificateCredential (SP: %s)",
+                            client_id,
+                        )
+                        credential = CertificateCredential(  # pyright: ignore[reportUnknownVariableType]
+                            tenant_id=config.auth.tenant_id,
+                            client_id=client_id,
+                            certificate_path=config.auth.certificate_path,
+                        )
+                    else:
+                        raise CollectionError(
+                            "client_credential auth requires client_secret_env or certificate_path",
+                            adapter_name=self.tool_name,
+                        )
+                case "device_code":
+                    logger.info(  # nosemgrep  # client_id is not a secret
+                        "Authenticating Secure Score via DeviceCodeCredential (client: %s)",
+                        client_id,
+                    )
+                    credential = DeviceCodeCredential(  # pyright: ignore[reportUnknownVariableType]
+                        client_id=client_id,
+                        tenant_id=config.auth.tenant_id,
+                    )
+                case "interactive":
+                    logger.info(  # nosemgrep  # client_id is not a secret
+                        "Authenticating Secure Score via InteractiveBrowserCredential (client: %s)",
+                        client_id,
+                    )
+                    credential = InteractiveBrowserCredential(  # pyright: ignore[reportUnknownVariableType]
+                        tenant_id=config.auth.tenant_id,
+                        client_id=client_id,
+                    )
+                case _:
                     raise CollectionError(
-                        f"Environment variable '{client_secret_env}' is not set "
-                        f"or empty. Required for service principal authentication.",
+                        f"Unsupported auth method: {auth_method!r}",
                         adapter_name=self.tool_name,
                     )
-                logger.info(  # nosemgrep  # client_id is a public Azure AD app GUID, not a secret
-                    "Authenticating Secure Score via ClientSecretCredential (SP: %s)",
-                    client_id,
-                )
-                credential = ClientSecretCredential(  # pyright: ignore[reportUnknownVariableType]
-                    tenant_id=config.auth.tenant_id,
-                    client_id=client_id,
-                    client_secret=client_secret,
-                )
-            elif config.auth.certificate_path:
-                logger.info(  # nosemgrep  # client_id is a public Azure AD app GUID, not a secret
-                    "Authenticating Secure Score via CertificateCredential (SP: %s)",
-                    client_id,
-                )
-                credential = CertificateCredential(  # pyright: ignore[reportUnknownVariableType]
-                    tenant_id=config.auth.tenant_id,
-                    client_id=client_id,
-                    certificate_path=config.auth.certificate_path,
-                )
-            else:
-                logger.info("Authenticating Secure Score via DefaultAzureCredential")
-                credential = DefaultAzureCredential()  # pyright: ignore[reportUnknownVariableType]
 
             token_result = credential.get_token(_GRAPH_SCOPE)  # pyright: ignore[reportUnknownVariableType,reportUnknownMemberType]
         except CollectionError:
