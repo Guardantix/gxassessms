@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, cast
@@ -54,6 +55,10 @@ _MANAGEMENT_SCOPE = "https://management.azure.com/.default"
 _DEFAULT_TIMEOUT_SECONDS = 120
 _OUTPUT_FILENAME = "advisor_recommendations.json"
 _MAX_PAGES = 200
+_SUBSCRIPTION_ID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 
 class AzureAdvisorAdapter:
@@ -169,6 +174,12 @@ class AzureAdvisorAdapter:
         if not config.subscription_id:
             raise CollectionError(
                 "Azure Advisor requires subscription_id in engagement config",
+                adapter_name=self.tool_name,
+            )
+
+        if not _SUBSCRIPTION_ID_RE.match(config.subscription_id):
+            raise CollectionError(
+                f"Invalid subscription_id format: expected a UUID, got {config.subscription_id!r}",
                 adapter_name=self.tool_name,
             )
 

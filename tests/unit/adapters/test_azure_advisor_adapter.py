@@ -318,3 +318,10 @@ class TestCollectGuards:
 
         with pytest.raises(CollectionError, match="subscription_id"):
             adapter.collect(config, _make_auth())
+
+    def test_raises_when_subscription_id_is_not_a_uuid(self, tmp_path: Path) -> None:
+        adapter = AzureAdvisorAdapter()
+        config = _make_config(output_dir=str(tmp_path), subscription_id="not-a-uuid")
+
+        with pytest.raises(CollectionError, match="Invalid subscription_id"):
+            adapter.collect(config, _make_auth())
