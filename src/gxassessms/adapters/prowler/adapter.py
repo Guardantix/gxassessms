@@ -247,8 +247,17 @@ class ProwlerAdapter:
                 adapter_name=self.tool_name,
             )
 
-        # Browser auth requires --tenant-id
-        if config.auth.method in ("device_code", "interactive"):
+        # Browser auth requires --tenant-id; covers both mapped methods and
+        # --browser-auth injected directly via extra_args.
+        browser_auth_active = (
+            config.auth.method
+            in (
+                "device_code",
+                "interactive",
+            )
+            or "--browser-auth" in extra_args
+        )
+        if browser_auth_active:
             tenant_id = config.auth.tenant_id
             if not tenant_id:
                 raise CollectionError(

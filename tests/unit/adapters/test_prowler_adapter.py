@@ -672,6 +672,32 @@ class TestCollectAuthMethods:
         with pytest.raises(CollectionError, match="tenant_id"):
             adapter.collect(config, None)
 
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_browser_auth_via_extra_args_injects_tenant_id(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """--browser-auth supplied via extra_args must still inject --tenant-id."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
+        ocsf_file.write_text('[{"finding_info": {}}]')
+        config = _make_config(
+            auth_method="client_credential",
+            extra_args=["--browser-auth"],
+            output_dir=str(tmp_path),
+        )
+        adapter = ProwlerAdapter()
+        captured_cmd: list[str] = []
+
+        def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
+            captured_cmd.extend(cmd)
+            return MagicMock(returncode=0, stdout=b"", stderr=b"")
+
+        with patch("subprocess.run", side_effect=capture):
+            adapter.collect(config, None)
+        assert "--tenant-id" in captured_cmd
+        idx = captured_cmd.index("--tenant-id")
+        assert captured_cmd[idx + 1] == "00000000-0000-0000-0000-000000000000"
+
 
 # ---------------------------------------------------------------------------
 # collect -- modules / --checks injection
