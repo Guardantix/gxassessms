@@ -147,8 +147,10 @@ class ProwlerAdapter:
                 adapter_name=self.tool_name,
             )
 
+        from gxassessms.core.security.permissions import secure_mkdir
+
         output_dir = Path(tc.output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
+        secure_mkdir(output_dir, parents=True, exist_ok=True)
 
         output_filename = _DEFAULT_OUTPUT_FILENAME
         timeout = tc.timeout if tc.timeout is not None else _DEFAULT_TIMEOUT_SECONDS
