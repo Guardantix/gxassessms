@@ -12,7 +12,7 @@ subscription. Key fields:
 Verified against Azure Advisor REST API docs and real API sample output.
 """
 
-from gxassessms.core.domain.enums import Category, Severity
+from gxassessms.core.domain.enums import Category, FindingStatus, Severity
 
 # ---------------------------------------------------------------------------
 # Impact -> Severity mapping
@@ -27,17 +27,31 @@ IMPACT_TO_SEVERITY_MAP: dict[str, Severity] = {
 }
 
 # ---------------------------------------------------------------------------
+# Severity map for NormalizationPolicy
+# Maps (native_severity, canonicalized_status) -> domain Severity.
+# The parser sets native_severity to Severity enum values (HIGH/MEDIUM/LOW)
+# and native_status to FAIL for all recommendations. Without this map,
+# normalization falls through to fallback_severity (MEDIUM) for everything.
+# ---------------------------------------------------------------------------
+
+SEVERITY_MAP: dict[tuple[str, str], Severity] = {
+    (Severity.HIGH, FindingStatus.FAIL): Severity.HIGH,
+    (Severity.MEDIUM, FindingStatus.FAIL): Severity.MEDIUM,
+    (Severity.LOW, FindingStatus.FAIL): Severity.LOW,
+}
+
+# ---------------------------------------------------------------------------
 # Category mapping: Azure Advisor category -> domain Category
 # 5 categories (PascalCase, from API response):
 #   Security, HighAvailability, Performance, Cost, OperationalExcellence
 # ---------------------------------------------------------------------------
 
 CATEGORY_MAP: dict[str, Category] = {
-    "Security": Category.INFRASTRUCTURE_SECURITY,
-    "HighAvailability": Category.INFRASTRUCTURE_SECURITY,
-    "Performance": Category.OPERATIONAL_EXCELLENCE,
-    "Cost": Category.COST_OPTIMIZATION,
-    "OperationalExcellence": Category.OPERATIONAL_EXCELLENCE,
+    "security": Category.INFRASTRUCTURE_SECURITY,
+    "highavailability": Category.INFRASTRUCTURE_SECURITY,
+    "performance": Category.OPERATIONAL_EXCELLENCE,
+    "cost": Category.COST_OPTIMIZATION,
+    "operationalexcellence": Category.OPERATIONAL_EXCELLENCE,
 }
 
 # ---------------------------------------------------------------------------
@@ -57,6 +71,6 @@ CATEGORY_MAP: dict[str, Category] = {
 # ---------------------------------------------------------------------------
 
 DEDUP_KEY_RULES: dict[str, str] = {
-    # From verified sample output
-    "242639fd-cd73-4be2-8f55-70478db8d1a5": "advisor:service_health_alert",
+    # Keys use category-prefixed format matching native_check_id
+    "HighAvailability.242639fd-cd73-4be2-8f55-70478db8d1a5": "advisor:service_health_alert",
 }

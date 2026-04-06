@@ -50,9 +50,7 @@ class TestAzureAdvisorConformance(AdapterConformanceSuite):
         )
 
     @pytest.fixture
-    def resolved_manifest(
-        self, adapter: AzureAdvisorAdapter, fixture_dir: Path
-    ) -> ResolvedManifest:
+    def resolved_manifest(self, fixture_dir: Path) -> ResolvedManifest:
         return _make_manifest(fixture_dir / "azure_advisor_sample.json")
 
     @pytest.fixture
@@ -88,11 +86,11 @@ class TestAzureAdvisorConformance(AdapterConformanceSuite):
         adapter: AzureAdvisorAdapter,
         resolved_manifest: ResolvedManifest,
     ) -> None:
-        """native_check_id should be recommendationTypeId, not name."""
+        """native_check_id is category-prefixed recommendationTypeId."""
         observations = adapter.parse(resolved_manifest)
         first = observations[0]
-        # recommendationTypeId from fixture
-        assert first.native_check_id == ("242639fd-cd73-4be2-8f55-70478db8d1a5")
+        # Category prefix + recommendationTypeId from fixture
+        assert first.native_check_id == ("HighAvailability.242639fd-cd73-4be2-8f55-70478db8d1a5")
         # NOT the name (per-instance GUID)
         assert first.native_check_id != ("b7762bb1-933d-32af-983e-74455d2943ae")
 

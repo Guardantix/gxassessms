@@ -72,20 +72,20 @@ class TestCategoryMap:
             assert isinstance(category, Category)
 
     def test_known_category_mappings(self) -> None:
-        assert CATEGORY_MAP["Security"] == Category.INFRASTRUCTURE_SECURITY
-        assert CATEGORY_MAP["HighAvailability"] == Category.INFRASTRUCTURE_SECURITY
-        assert CATEGORY_MAP["Performance"] == Category.OPERATIONAL_EXCELLENCE
-        assert CATEGORY_MAP["Cost"] == Category.COST_OPTIMIZATION
-        assert CATEGORY_MAP["OperationalExcellence"] == Category.OPERATIONAL_EXCELLENCE
+        assert CATEGORY_MAP["security"] == Category.INFRASTRUCTURE_SECURITY
+        assert CATEGORY_MAP["highavailability"] == Category.INFRASTRUCTURE_SECURITY
+        assert CATEGORY_MAP["performance"] == Category.OPERATIONAL_EXCELLENCE
+        assert CATEGORY_MAP["cost"] == Category.COST_OPTIMIZATION
+        assert CATEGORY_MAP["operationalexcellence"] == Category.OPERATIONAL_EXCELLENCE
 
     def test_all_five_categories_present(self) -> None:
         assert len(CATEGORY_MAP) == 5
 
     def test_fixture_categories_covered(self, fixture_data: dict) -> None:
-        """Every category value in fixtures is in CATEGORY_MAP."""
+        """Every category value in fixtures is in CATEGORY_MAP (lowercased)."""
         unmapped: set[str] = set()
         for rec in fixture_data["value"]:
-            cat = rec["category"]
+            cat = rec["category"].lower()
             if cat not in CATEGORY_MAP:
                 unmapped.add(cat)
         assert unmapped == set(), f"Unmapped categories in fixtures: {unmapped}"
@@ -105,10 +105,12 @@ class TestDedupKeyRules:
         for key, value in DEDUP_KEY_RULES.items():
             assert ":" in value, f"Dedup key for {key} must be namespaced (contain ':')"
 
-    def test_keys_are_lowercase_guids(self) -> None:
-        """recommendationTypeId values are lowercase GUIDs."""
+    def test_keys_are_category_prefixed_guids(self) -> None:
+        """Keys are category-prefixed recommendationTypeId: Category.GUID."""
         import re
 
-        guid_pattern = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+        pattern = re.compile(
+            r"^[A-Za-z]+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        )
         for key in DEDUP_KEY_RULES:
-            assert guid_pattern.match(key), f"Dedup key {key!r} is not a valid lowercase GUID"
+            assert pattern.match(key), f"Dedup key {key!r} must be Category.GUID format"

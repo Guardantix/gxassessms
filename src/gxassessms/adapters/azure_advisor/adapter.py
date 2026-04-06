@@ -22,10 +22,11 @@ from typing import Any
 import httpx
 from pydantic import SecretStr
 
-from gxassessms.adapters._base import load_json_file
+from gxassessms.adapters._base import load_json_file, parse_extra_args, validate_extra_args
 from gxassessms.adapters.azure_advisor.mappings import (
     CATEGORY_MAP,
     DEDUP_KEY_RULES,
+    SEVERITY_MAP,
 )
 from gxassessms.adapters.azure_advisor.parser import parse_advisor_recommendations
 from gxassessms.core.config.config import EngagementConfig
@@ -170,9 +171,10 @@ class AzureAdvisorAdapter:
         )
         params: dict[str, str] = {"api-version": _ADVISOR_API_VERSION}
 
-        for arg in tc.extra_args:
-            if arg.startswith("-Filter:"):
-                params["$filter"] = arg.split(":", 1)[1]
+        if tc.extra_args:
+            named_args, _ = parse_extra_args(validate_extra_args(tc.extra_args))
+            if "Filter" in named_args:
+                params["$filter"] = named_args["Filter"]
 
         headers = {
             "Authorization": f"Bearer {auth.token.get_secret_value()}",
@@ -201,6 +203,11 @@ class AzureAdvisorAdapter:
                 f"Azure Advisor API returned HTTP "
                 f"{exc.response.status_code}: "
                 f"{exc.response.text[:500]}",
+                adapter_name=self.tool_name,
+            ) from exc
+        except json.JSONDecodeError as exc:
+            raise CollectionError(
+                f"Azure Advisor API returned non-JSON response: {exc}",
                 adapter_name=self.tool_name,
             ) from exc
         except httpx.RequestError as exc:
@@ -346,8 +353,8 @@ class AzureAdvisorAdapter:
 
     @property
     def severity_map(self) -> dict[tuple[str, str], Any]:
-        """Empty: Azure Advisor severity is derived from impact in the parser."""
-        return {}
+        """(impact_severity, status) -> Severity for NormalizationPolicy."""
+        return SEVERITY_MAP
 
     @property
     def category_map(self) -> dict[str, Any]:

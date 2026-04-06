@@ -50,13 +50,13 @@ class TestParseAdvisorRecommendations:
         observations = parse_advisor_recommendations(recommendations)
         assert len(observations) == len(recommendations)
 
-    def test_native_check_id_is_recommendation_type_id(
+    def test_native_check_id_is_category_prefixed(
         self,
         recommendations: list[dict],
     ) -> None:
         observations = parse_advisor_recommendations(recommendations)
         first = observations[0]
-        assert first.native_check_id == "242639fd-cd73-4be2-8f55-70478db8d1a5"
+        assert first.native_check_id == ("HighAvailability.242639fd-cd73-4be2-8f55-70478db8d1a5")
 
     def test_severity_from_impact(
         self,
@@ -99,10 +99,11 @@ class TestParseAdvisorRecommendations:
         self,
         recommendations: list[dict],
     ) -> None:
-        """observation_id follows azure_advisor:{recommendationTypeId} format."""
+        """observation_id uses instance name (unique GUID), not recommendationTypeId."""
         observations = parse_advisor_recommendations(recommendations)
+        # name field from first fixture recommendation (instance GUID)
         assert observations[0].observation_id == (
-            "azure_advisor:242639fd-cd73-4be2-8f55-70478db8d1a5"
+            "azure_advisor:b7762bb1-933d-32af-983e-74455d2943ae"
         )
 
     def test_tool_is_azure_advisor(

@@ -53,15 +53,30 @@ def parse_advisor_recommendations(
 
     for rec in recommendations:
         recommendation_type_id: str = rec.get("recommendationTypeId", "")
+        instance_name: str = rec.get("name", "")
+
         if not recommendation_type_id:
             logger.warning(
                 "Recommendation missing recommendationTypeId, name=%s",
-                rec.get("name", "unknown"),
+                instance_name or "unknown",
             )
-            recommendation_type_id = str(rec.get("name", "unknown"))
+            recommendation_type_id = instance_name or "unknown"
 
+        if not instance_name:
+            logger.warning(
+                "Recommendation missing name, using recommendationTypeId=%s",
+                recommendation_type_id,
+            )
+            instance_name = recommendation_type_id
+
+        category: str = rec.get("category", "")
         impact: str = rec.get("impact", "Medium")
         severity = IMPACT_TO_SEVERITY_MAP.get(impact, Severity.MEDIUM)
+
+        # Prefix native_check_id with Advisor category so normalization's
+        # _extract_module_prefix can resolve it via the category_map.
+        # e.g. "Security.242639fd-..." -> prefix "security" -> INFRASTRUCTURE_SECURITY
+        check_id = f"{category}.{recommendation_type_id}" if category else recommendation_type_id
 
         short_desc: dict[str, Any] = rec.get("shortDescription", {})
         title: str = short_desc.get("problem", "")
@@ -70,9 +85,9 @@ def parse_advisor_recommendations(
         description = _build_description(rec, title, solution)
 
         observation = ToolObservation(
-            observation_id=f"azure_advisor:{recommendation_type_id}",
+            observation_id=f"azure_advisor:{instance_name}",
             tool=ToolSource.AZURE_ADVISOR,
-            native_check_id=recommendation_type_id,
+            native_check_id=check_id,
             title=title,
             native_severity=severity,
             native_status=FindingStatus.FAIL,
