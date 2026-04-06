@@ -101,7 +101,8 @@ DEDUP_KEY_RULES: dict[str, str] = {
     "MS.AAD.3.6v1": "cis:m365:5.2.2.1",  # MFA for admin roles
     "MS.AAD.3.2v2": "cis:m365:5.2.2.2",  # MFA for all users
     "MS.AAD.1.1v1": "cis:m365:5.2.2.3",  # Block legacy authentication
-    "MS.AAD.3.1v1": "cis:m365:5.2.2.5",  # Phishing-resistant MFA for admins
+    # CIS 5.2.2.5 is admins only -- CISA requires all users, different scope
+    "MS.AAD.3.1v1": "cisa:aad:phishing_resistant_mfa",
     # --- Section 5.2.3: Authentication Methods ---
     "MS.AAD.3.3v2": "cis:m365:5.2.3.1",  # Authenticator anti-fatigue (context info)
     "MS.AAD.3.5v2": "cis:m365:5.2.3.5",  # Disable weak auth methods

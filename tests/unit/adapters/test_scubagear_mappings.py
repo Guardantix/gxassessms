@@ -246,11 +246,20 @@ class TestDedupKeyRules:
         for key, val in self.rules.items():
             assert ":" in val, f"Value for {key!r} is not namespaced (no ':'): {val!r}"
 
-    def test_values_use_cis_m365_namespace(self) -> None:
+    def test_values_use_known_namespace(self) -> None:
+        # Most ScubaGear checks map to cis:m365:. CISA-only controls with no CIS
+        # equivalent use cisa: namespace (e.g. phishing-resistant MFA for all users,
+        # which CIS only requires for admins -- different scope, not equivalent).
+        valid_prefixes = ("cis:m365:", "cisa:")
         for key, val in self.rules.items():
-            assert val.startswith("cis:m365:"), (
-                f"Value for {key!r} does not use 'cis:m365:' namespace: {val!r}"
+            assert any(val.startswith(p) for p in valid_prefixes), (
+                f"Value for {key!r} uses unknown namespace: {val!r}"
             )
+
+    def test_ms_aad_3_1v1_phishing_resistant_mfa(self) -> None:
+        # CISA MS.AAD.3.1 enforces phishing-resistant MFA for ALL users;
+        # CIS 5.2.2.5 only requires it for administrators -- different scope.
+        assert self.rules["MS.AAD.3.1v1"] == "cisa:aad:phishing_resistant_mfa"
 
     # --- known mappings ---
 

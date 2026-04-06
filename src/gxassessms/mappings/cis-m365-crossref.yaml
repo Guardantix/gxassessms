@@ -149,11 +149,14 @@ cis:m365:5.2.2.3:  # Block legacy authentication via Conditional Access
   semantic: "entra:legacy_auth:block"
 
 cis:m365:5.2.2.5:  # Phishing-resistant MFA for administrators
-  scubagear: "MS.AAD.3.1v1"
-  maester_cisa: "CISA.MS.AAD.3.1"
+  # Note: CISA MS.AAD.3.1 / ScubaGear MS.AAD.3.1v1 enforce phishing-resistant MFA
+  # for ALL users -- broader scope than this CIS control (admins only). They are
+  # mapped to cisa:aad:phishing_resistant_mfa to avoid false equivalence.
+  scubagear: ~
+  maester_cisa: ~
   monkey365: ~
   m365_assess: ~
-  semantic: "entra:mfa:phishing_resistant"
+  semantic: "entra:mfa:phishing_resistant_admins"
 
 # ============================================================================
 # Section 5.2.3 -- Identity: Authentication Methods
