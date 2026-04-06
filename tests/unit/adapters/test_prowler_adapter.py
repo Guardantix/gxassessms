@@ -185,18 +185,17 @@ class TestCollectExtraArgs:
         assert "--az-cli-auth" in cmd
         assert "--scan-list" in cmd
         assert "check1" in cmd
+        # Mapped flag must be suppressed -- no conflicting auth modes
+        assert "--sp-env-auth" not in cmd
 
     @patch("gxassessms.adapters.prowler.adapter.shutil")
     @patch("subprocess.run")
-    def test_extra_args_satisfy_auth_requirement(
+    def test_extra_args_auth_flag_replaces_mapped_auth(
         self, mock_run: MagicMock, mock_shutil: MagicMock, tmp_path: Path
     ) -> None:
-        """When auth method has no mapping, extra_args should prevent the error."""
+        """An auth flag in extra_args replaces, not supplements, the mapped auth flag."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
         mock_run.return_value = MagicMock(returncode=0, stderr=b"")
-
-        # client_credential has a mapping, but let's test the fallback path
-        # by patching _AUTH_METHOD_MAP to be empty
         config = _make_config(
             extra_args=["--managed-identity-auth"],
             output_dir=str(tmp_path),
@@ -206,17 +205,35 @@ class TestCollectExtraArgs:
         ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
         ocsf_file.write_text('[{"test": true}]')
 
-        with (
-            patch.dict(
-                "gxassessms.adapters.prowler.adapter.AUTH_METHOD_MAP",
-                {"client_credential": None},
-            ),
-            patch("gxassessms.core.hashing.sha256_file", return_value="a" * 64),
-        ):
+        with patch("gxassessms.core.hashing.sha256_file", return_value="a" * 64):
             adapter.collect(config, None)
 
         cmd = mock_run.call_args[0][0]
         assert "--managed-identity-auth" in cmd
+        assert "--sp-env-auth" not in cmd
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    @patch("subprocess.run")
+    def test_non_auth_extra_args_do_not_suppress_mapped_auth(
+        self, mock_run: MagicMock, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """Non-auth extra_args do not suppress the mapped auth flag."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        mock_run.return_value = MagicMock(returncode=0, stderr=b"")
+        config = _make_config(
+            extra_args=["--scan-list", "check1"],
+            output_dir=str(tmp_path),
+        )
+        adapter = ProwlerAdapter()
+
+        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
+        ocsf_file.write_text('[{"test": true}]')
+
+        with patch("gxassessms.core.hashing.sha256_file", return_value="a" * 64):
+            adapter.collect(config, None)
+
+        cmd = mock_run.call_args[0][0]
+        assert "--sp-env-auth" in cmd
 
     @patch("gxassessms.adapters.prowler.adapter.shutil")
     def test_no_auth_mapping_and_no_extra_args_raises(self, mock_shutil: MagicMock) -> None:

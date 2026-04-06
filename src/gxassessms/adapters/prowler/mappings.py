@@ -158,3 +158,9 @@ AUTH_METHOD_MAP: dict[str, list[str]] = {
     "device_code": ["--browser-auth"],
     "interactive": ["--browser-auth"],
 }
+
+# All Prowler CLI authentication flags. When any of these appear in extra_args,
+# the adapter skips the mapped auth flags to avoid conflicting auth modes.
+PROWLER_AUTH_FLAGS: frozenset[str] = frozenset(
+    ["--sp-env-auth", "--browser-auth", "--az-cli-auth", "--managed-identity-auth"]
+)

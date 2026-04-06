@@ -32,6 +32,7 @@ from gxassessms.adapters.prowler.mappings import (
     AUTH_METHOD_MAP,
     CATEGORY_MAP,
     DEDUP_KEY_RULES,
+    PROWLER_AUTH_FLAGS,
     SEVERITY_MAP,
 )
 from gxassessms.adapters.prowler.parser import parse_prowler_findings
@@ -235,9 +236,10 @@ class ProwlerAdapter:
         extra_args = _validate_prowler_extra_args(tc.extra_args or [], self.tool_name)
 
         auth_flags = AUTH_METHOD_MAP.get(config.auth.method)
-        if auth_flags is not None:
+        extra_has_auth = bool(PROWLER_AUTH_FLAGS & set(extra_args))
+        if auth_flags is not None and not extra_has_auth:
             cmd.extend(auth_flags)
-        elif not extra_args:
+        elif not extra_has_auth:
             raise CollectionError(
                 f"No Prowler auth mapping for method: {config.auth.method!r}. "
                 f"Use extra_args to pass a Prowler-specific auth flag "
