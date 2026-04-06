@@ -25,6 +25,7 @@ from gxassessms.core.contracts.errors import (
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
+from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import CoverageStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
@@ -64,7 +65,7 @@ class SecureScoreAdapter:
     tool_name: str = "SecureScore"
     storage_slug: str = "secure-score"
     tool_source: ToolSource = ToolSource.SECURE_SCORE
-    capabilities: frozenset[str] = frozenset(
+    capabilities: frozenset[AdapterCapability] = frozenset(
         {"collect", "parse", "prerequisites", "shared_auth", "coverage_export"}
     )
 
