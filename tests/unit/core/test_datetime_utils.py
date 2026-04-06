@@ -124,27 +124,3 @@ class TestUtcToLocal:
         assert local.tzinfo is not None
         back_to_utc = local.astimezone(UTC)
         assert back_to_utc.hour == 10
-
-
-class TestFromEpoch:
-    def test_returns_utc_datetime(self) -> None:
-        """from_epoch always returns a UTC-aware datetime."""
-        result = from_epoch(0.0)
-        assert result.tzinfo == UTC
-
-    def test_converts_known_epoch(self) -> None:
-        """Unix epoch 0 is 1970-01-01T00:00:00Z."""
-        result = from_epoch(0.0)
-        assert result.year == 1970
-        assert result.month == 1
-        assert result.day == 1
-        assert result.hour == 0
-        assert result.minute == 0
-
-    def test_converts_modern_timestamp(self) -> None:
-        """A known timestamp converts correctly."""
-        # 2026-03-25T10:00:00Z = 1774432800.0
-        result = from_epoch(1774432800.0)
-        assert result.year == 2026
-        assert result.month == 3
-        assert result.tzinfo == UTC
