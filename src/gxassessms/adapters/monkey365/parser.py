@@ -94,10 +94,10 @@ def parse_monkey365_findings(
             observation_id=f"monkey365:{id_suffix}",
             tool=ToolSource.MONKEY365,
             native_check_id=id_suffix,
-            title=finding_info.get("title", ""),
+            title=finding_info.get("title") or "",
             native_severity=finding["severity"],  # validator guarantees this key
             native_status=finding["statusCode"],  # validator guarantees this key
-            description=finding_info.get("description", ""),
+            description=finding_info.get("description") or "",
             raw_data=finding,
         )
         observations.append(observation)

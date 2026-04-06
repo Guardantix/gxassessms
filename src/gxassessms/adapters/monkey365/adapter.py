@@ -51,6 +51,11 @@ _SCHEMA_VERSION = "1.0.0"
 _DEFAULT_TIMEOUT_SECONDS = 1800  # 30 minutes
 _OUTPUT_FILE_PREFIX = "monkey365"
 
+# Args the adapter controls -- user cannot override via extra_args.
+# Allowing overrides would break collection-path discovery or change
+# output format in ways the adapter cannot recover from.
+_RESERVED_ARGS: frozenset[str] = frozenset({"Instance", "ExportTo", "OutDir"})
+
 
 class Monkey365Adapter:
     """ToolAdapter implementation for Monkey365."""
@@ -115,6 +120,13 @@ class Monkey365Adapter:
         if tc.extra_args:
             validated = validate_extra_args(tc.extra_args)
             extra_named, switches = parse_extra_args(validated)
+            reserved_conflicts = _RESERVED_ARGS & extra_named.keys()
+            if reserved_conflicts:
+                raise CollectionError(
+                    f"extra_args contains reserved Monkey365 args that cannot be overridden: "
+                    f"{sorted(reserved_conflicts)}",
+                    adapter_name=self.tool_name,
+                )
             named_args.update(extra_named)
 
         override = getattr(tc, "module_policy_override", None)
