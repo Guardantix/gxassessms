@@ -31,7 +31,7 @@ cis:m365:1.1.1:  # Ensure administrative accounts are cloud-only
   maester_cisa: "CISA.MS.AAD.7.3"
   maester_cis: "CIS.M365.1.1.1"
   monkey365: ~   # TODO: populate when Monkey365 adapter is built
-  m365_assess: ~ # TODO: populate when M365Assess adapter is built
+  m365_assess: "ENTRA-CLOUDADMIN-001"
   semantic: "entra:admin_accounts:cloud_only"
 
 cis:m365:1.1.2:  # Ensure two emergency access accounts have been defined
@@ -136,14 +136,14 @@ cis:m365:5.2.2.1:  # Ensure MFA is enabled for all users in admin roles
   scubagear: "MS.AAD.3.6v1"
   maester_cisa: "CISA.MS.AAD.3.6"
   monkey365: ~
-  m365_assess: ~
+  m365_assess: "CA-MFA-ADMIN-001"
   semantic: "entra:mfa:privileged_roles"
 
 cis:m365:5.2.2.2:  # Ensure MFA is enabled for all users
   scubagear: "MS.AAD.3.2v2"
   maester_cisa: "CISA.MS.AAD.3.2"
   monkey365: ~
-  m365_assess: ~
+  m365_assess: "CA-MFA-ALL-001"
   semantic: "entra:mfa:all_users"
 
 cis:m365:5.2.2.3:  # Block legacy authentication via Conditional Access
