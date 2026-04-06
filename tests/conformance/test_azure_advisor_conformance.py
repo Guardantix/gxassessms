@@ -186,3 +186,26 @@ class TestAzureAdvisorConformance(AdapterConformanceSuite):
             match="shortDescription",
         ):
             adapter.validate_raw(raw)
+
+    def test_coverage_deduplicates_by_recommendation_type_id(
+        self,
+        adapter: AzureAdvisorAdapter,
+        tmp_path: Path,
+    ) -> None:
+        """Two recommendations with the same recommendationTypeId -> one CoverageRecord."""
+        shared_type_id = "242639fd-cd73-4be2-8f55-70478db8d1a5"
+        dup_file = tmp_path / "dup.json"
+        dup_file.write_text(
+            f'{{"value": ['
+            f'{{"recommendationTypeId": "{shared_type_id}", "name": "inst-1", '
+            f'"category": "Security", "impact": "High", '
+            f'"shortDescription": {{"problem": "P", "solution": "S"}}}},'
+            f'{{"recommendationTypeId": "{shared_type_id}", "name": "inst-2", '
+            f'"category": "Security", "impact": "Medium", '
+            f'"shortDescription": {{"problem": "P", "solution": "S"}}}}'
+            f"]}}"
+        )
+        raw = _make_manifest(dup_file)
+        records = adapter.coverage(raw)
+        assert len(records) == 1
+        assert records[0].control_id == f"Security.{shared_type_id}"
