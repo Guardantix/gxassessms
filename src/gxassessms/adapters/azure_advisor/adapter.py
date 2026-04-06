@@ -17,7 +17,7 @@ import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from pydantic import SecretStr
@@ -198,12 +198,27 @@ class AzureAdvisorAdapter:
                         params=params if next_url == url else None,
                     )
                     response.raise_for_status()
-                    data = response.json()
+                    raw_data: Any = response.json()
 
-                    recommendations = data.get("value", [])
-                    all_recommendations.extend(recommendations)
+                    if not isinstance(raw_data, dict):
+                        raise CollectionError(
+                            f"Azure Advisor API returned unexpected response type "
+                            f"{type(raw_data).__name__!r} (expected JSON object)",
+                            adapter_name=self.tool_name,
+                        )
 
-                    next_url = data.get("nextLink")
+                    page = cast(dict[str, Any], raw_data)
+                    raw_value = page.get("value", [])
+                    if not isinstance(raw_value, list):
+                        raise CollectionError(
+                            f"Azure Advisor API 'value' is not a list "
+                            f"(got {type(raw_value).__name__!r})",
+                            adapter_name=self.tool_name,
+                        )
+
+                    all_recommendations.extend(cast(list[dict[str, Any]], raw_value))
+                    raw_next = page.get("nextLink")
+                    next_url = str(raw_next) if raw_next is not None else None
         except httpx.HTTPStatusError as exc:
             raise CollectionError(
                 f"Azure Advisor API returned HTTP "
@@ -224,12 +239,24 @@ class AzureAdvisorAdapter:
 
         output_file = output_dir / _OUTPUT_FILENAME
         output_data: dict[str, Any] = {"value": all_recommendations}
-        output_file.write_text(
-            json.dumps(output_data, indent=2),
-            encoding="utf-8",
-        )
+        try:
+            output_file.write_text(
+                json.dumps(output_data, indent=2),
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            raise CollectionError(
+                f"Failed to write Azure Advisor output to {output_file}: {exc}",
+                adapter_name=self.tool_name,
+            ) from exc
 
-        sha = sha256_file(output_file)
+        try:
+            sha = sha256_file(output_file)
+        except OSError as exc:
+            raise CollectionError(
+                f"Failed to hash Azure Advisor output at {output_file}: {exc}",
+                adapter_name=self.tool_name,
+            ) from exc
         artifacts: list[CollectedArtifact] = [
             CollectedArtifact(
                 source_path=str(output_file),

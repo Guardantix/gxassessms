@@ -13,12 +13,13 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 from pydantic import SecretStr
 
 from gxassessms.adapters.azure_advisor import AzureAdvisorAdapter
 from gxassessms.core.config.config import AuthConfig, EngagementConfig, ToolConfig
-from gxassessms.core.contracts.errors import PrerequisiteError
+from gxassessms.core.contracts.errors import CollectionError, PrerequisiteError
 from gxassessms.core.domain.models import AuthContext
 
 _DEFAULT_SUBSCRIPTION_ID = "12345678-1234-1234-1234-123456789012"
@@ -108,3 +109,77 @@ class TestAuthenticate:
             pytest.raises(PrerequisiteError, match="not importable"),
         ):
             adapter.authenticate(config)
+
+
+# ---------------------------------------------------------------------------
+# collect() -- HTTP error handling and response validation
+# ---------------------------------------------------------------------------
+
+
+class TestCollectHTTPErrors:
+    @patch("gxassessms.adapters.azure_advisor.adapter.httpx.Client")
+    def test_raises_collection_error_on_http_status_error(
+        self, MockClient: MagicMock, tmp_path: Path
+    ) -> None:
+        adapter = AzureAdvisorAdapter()
+        config = _make_config(output_dir=str(tmp_path))
+
+        mock_client = MagicMock()
+        MockClient.return_value.__enter__.return_value = mock_client
+        MockClient.return_value.__exit__.return_value = False
+
+        request = httpx.Request("GET", "https://management.azure.com/")
+        error_response = httpx.Response(403, text="Forbidden")
+        mock_client.get.side_effect = httpx.HTTPStatusError(
+            "403", request=request, response=error_response
+        )
+
+        with pytest.raises(CollectionError, match="403"):
+            adapter.collect(config, _make_auth())
+
+    @patch("gxassessms.adapters.azure_advisor.adapter.httpx.Client")
+    def test_raises_collection_error_on_request_error(
+        self, MockClient: MagicMock, tmp_path: Path
+    ) -> None:
+        adapter = AzureAdvisorAdapter()
+        config = _make_config(output_dir=str(tmp_path))
+
+        mock_client = MagicMock()
+        MockClient.return_value.__enter__.return_value = mock_client
+        MockClient.return_value.__exit__.return_value = False
+
+        request = httpx.Request("GET", "https://management.azure.com/")
+        mock_client.get.side_effect = httpx.ConnectError("timeout", request=request)
+
+        with pytest.raises(CollectionError, match="request failed"):
+            adapter.collect(config, _make_auth())
+
+    @patch("gxassessms.adapters.azure_advisor.adapter.httpx.Client")
+    def test_raises_collection_error_on_non_dict_response(
+        self, MockClient: MagicMock, tmp_path: Path
+    ) -> None:
+        """Non-dict JSON response must raise CollectionError, not AttributeError."""
+        adapter = AzureAdvisorAdapter()
+        config = _make_config(output_dir=str(tmp_path))
+
+        mock_client = _make_mock_client([["not", "a", "dict"]])  # type: ignore[arg-type]
+        MockClient.return_value.__enter__.return_value = mock_client
+        MockClient.return_value.__exit__.return_value = False
+
+        with pytest.raises(CollectionError, match="unexpected response type"):
+            adapter.collect(config, _make_auth())
+
+    @patch("gxassessms.adapters.azure_advisor.adapter.httpx.Client")
+    def test_raises_collection_error_on_null_value_key(
+        self, MockClient: MagicMock, tmp_path: Path
+    ) -> None:
+        """null 'value' must raise CollectionError, not TypeError on extend(None)."""
+        adapter = AzureAdvisorAdapter()
+        config = _make_config(output_dir=str(tmp_path))
+
+        mock_client = _make_mock_client([{"value": None}])
+        MockClient.return_value.__enter__.return_value = mock_client
+        MockClient.return_value.__exit__.return_value = False
+
+        with pytest.raises(CollectionError, match="'value' is not a list"):
+            adapter.collect(config, _make_auth())
