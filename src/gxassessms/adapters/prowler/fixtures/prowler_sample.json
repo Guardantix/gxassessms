@@ -1,0 +1,494 @@
+[
+  {
+    "message": "Defender for App Services is OFF for subscription Contoso-Sub",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "finding_info": {
+      "created_time_dt": "2026-04-02T12:00:00.000Z",
+      "created_time": 1743595200,
+      "desc": "Turning on Microsoft Defender for App Service enables threat detection for resources running on Azure App Service.",
+      "title": "Ensure That Microsoft Defender for App Services Is Set To 'On'",
+      "uid": "prowler-azure-defender_ensure_defender_for_app_services_is_on-00000000-0000-0000-0000-000000000001-global-AppServices",
+      "name": "AppServices",
+      "types": []
+    },
+    "time_dt": "2026-04-02T12:00:00.000Z",
+    "time": 1743595200,
+    "remediation": {
+      "desc": "From Azure Portal: Go to Microsoft Defender for Cloud > Environment Settings > Select subscription > Enable Defender for App Services.",
+      "references": [
+        "https://learn.microsoft.com/en-us/azure/defender-for-cloud/defender-for-app-service-introduction"
+      ]
+    },
+    "severity_id": 3,
+    "severity": "Medium",
+    "status_id": 1,
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Defender for App Services is set to OFF for subscription Contoso-Sub",
+    "risk_details": "Without Defender for App Services, threats targeting web applications go undetected.",
+    "resources": [
+      {
+        "cloud_partition": "AzureCloud",
+        "region": "global",
+        "group": {"name": "defender"},
+        "labels": [],
+        "data": {},
+        "name": "AppServices",
+        "type": "Microsoft.Security/pricings",
+        "uid": "/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Security/pricings/AppServices"
+      }
+    ],
+    "metadata": {
+      "event_code": "defender_ensure_defender_for_app_services_is_on",
+      "product": {
+        "uid": "prowler",
+        "name": "Prowler",
+        "vendor_name": "Prowler",
+        "version": "3.11.3"
+      },
+      "profiles": ["cloud", "datetime"],
+      "tenant_uid": "00000000-0000-0000-0000-000000000000",
+      "version": "1.4.0"
+    },
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create",
+    "unmapped": {
+      "compliance": {
+        "CIS-2.1": ["5.3.1"],
+        "CIS-3.0": ["6.3.1"]
+      },
+      "scan_id": "00000000-0000-0000-0000-aaaaaaaaaaaa",
+      "provider": "azure"
+    },
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "cloud": {
+      "account": {
+        "name": "Contoso-Sub",
+        "type": "Azure AD Account",
+        "type_id": 6,
+        "uid": "00000000-0000-0000-0000-000000000001",
+        "labels": []
+      },
+      "org": {
+        "uid": "00000000-0000-0000-0000-000000000000",
+        "name": "contoso.onmicrosoft.com"
+      },
+      "provider": "azure",
+      "region": "global"
+    }
+  },
+  {
+    "message": "Defender for Storage is ON for subscription Contoso-Sub",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "finding_info": {
+      "created_time_dt": "2026-04-02T12:00:01.000Z",
+      "created_time": 1743595201,
+      "desc": "Turning on Microsoft Defender for Storage enables threat detection for storage accounts.",
+      "title": "Ensure That Microsoft Defender for Storage Is Set To 'On'",
+      "uid": "prowler-azure-defender_ensure_defender_for_storage_is_on-00000000-0000-0000-0000-000000000001-global-StorageAccounts",
+      "name": "StorageAccounts",
+      "types": []
+    },
+    "time_dt": "2026-04-02T12:00:01.000Z",
+    "time": 1743595201,
+    "remediation": {
+      "desc": "From Azure Portal: Go to Microsoft Defender for Cloud > Environment Settings > Select subscription > Enable Defender for Storage.",
+      "references": [
+        "https://learn.microsoft.com/en-us/azure/defender-for-cloud/defender-for-storage-introduction"
+      ]
+    },
+    "severity_id": 3,
+    "severity": "Medium",
+    "status_id": 1,
+    "status": "New",
+    "status_code": "PASS",
+    "status_detail": "Defender for Storage is set to ON for subscription Contoso-Sub",
+    "risk_details": "Without Defender for Storage, threats targeting storage accounts go undetected.",
+    "resources": [
+      {
+        "cloud_partition": "AzureCloud",
+        "region": "global",
+        "group": {"name": "defender"},
+        "labels": [],
+        "data": {},
+        "name": "StorageAccounts",
+        "type": "Microsoft.Security/pricings",
+        "uid": "/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Security/pricings/StorageAccounts"
+      }
+    ],
+    "metadata": {
+      "event_code": "defender_ensure_defender_for_storage_is_on",
+      "product": {
+        "uid": "prowler",
+        "name": "Prowler",
+        "vendor_name": "Prowler",
+        "version": "3.11.3"
+      },
+      "profiles": ["cloud", "datetime"],
+      "tenant_uid": "00000000-0000-0000-0000-000000000000",
+      "version": "1.4.0"
+    },
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create",
+    "unmapped": {
+      "compliance": {
+        "CIS-2.1": ["5.1.7"],
+        "CIS-3.0": ["6.1.4"]
+      },
+      "scan_id": "00000000-0000-0000-0000-aaaaaaaaaaaa",
+      "provider": "azure"
+    },
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "cloud": {
+      "account": {
+        "name": "Contoso-Sub",
+        "type": "Azure AD Account",
+        "type_id": 6,
+        "uid": "00000000-0000-0000-0000-000000000001",
+        "labels": []
+      },
+      "org": {
+        "uid": "00000000-0000-0000-0000-000000000000",
+        "name": "contoso.onmicrosoft.com"
+      },
+      "provider": "azure",
+      "region": "global"
+    }
+  },
+  {
+    "message": "Custom owner roles found in subscription Contoso-Sub",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "finding_info": {
+      "created_time_dt": "2026-04-02T12:00:02.000Z",
+      "created_time": 1743595202,
+      "desc": "Subscription ownership should not include permission to create custom owner roles. Classic subscription admin roles offer basic access management and include Account Administrator, Service Administrator, and Co-Administrator.",
+      "title": "Ensure That No Custom Subscription Administrator Roles Exist",
+      "uid": "prowler-azure-iam_subscription_roles_owner_custom_not_created-00000000-0000-0000-0000-000000000001-global-CustomOwnerRole",
+      "name": "CustomOwnerRole",
+      "types": []
+    },
+    "time_dt": "2026-04-02T12:00:02.000Z",
+    "time": 1743595202,
+    "remediation": {
+      "desc": "From Azure Portal: Go to Subscriptions > IAM > Roles. Review and remove custom roles that grant Owner-level permissions.",
+      "references": [
+        "https://learn.microsoft.com/en-us/azure/role-based-access-control/custom-roles"
+      ]
+    },
+    "severity_id": 4,
+    "severity": "High",
+    "status_id": 1,
+    "status": "New",
+    "status_code": "FAIL",
+    "status_detail": "Custom owner role 'CustomOwnerRole' found in subscription Contoso-Sub",
+    "risk_details": "Custom owner roles can be used to escalate privileges beyond what is intended.",
+    "resources": [
+      {
+        "cloud_partition": "AzureCloud",
+        "region": "global",
+        "group": {"name": "iam"},
+        "labels": [],
+        "data": {},
+        "name": "CustomOwnerRole",
+        "type": "Microsoft.Authorization/roleDefinitions",
+        "uid": "/subscriptions/00000000-0000-0000-0000-000000000001/providers/Microsoft.Authorization/roleDefinitions/custom-role-guid"
+      }
+    ],
+    "metadata": {
+      "event_code": "iam_subscription_roles_owner_custom_not_created",
+      "product": {
+        "uid": "prowler",
+        "name": "Prowler",
+        "vendor_name": "Prowler",
+        "version": "3.11.3"
+      },
+      "profiles": ["cloud", "datetime"],
+      "tenant_uid": "00000000-0000-0000-0000-000000000000",
+      "version": "1.4.0"
+    },
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create",
+    "unmapped": {
+      "compliance": {
+        "CIS-2.1": ["1.23"],
+        "CIS-3.0": ["1.25"]
+      },
+      "scan_id": "00000000-0000-0000-0000-aaaaaaaaaaaa",
+      "provider": "azure"
+    },
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "cloud": {
+      "account": {
+        "name": "Contoso-Sub",
+        "type": "Azure AD Account",
+        "type_id": 6,
+        "uid": "00000000-0000-0000-0000-000000000001",
+        "labels": []
+      },
+      "org": {
+        "uid": "00000000-0000-0000-0000-000000000000",
+        "name": "contoso.onmicrosoft.com"
+      },
+      "provider": "azure",
+      "region": "global"
+    }
+  },
+  {
+    "message": "SQL Server auditing is enabled for sqlserver-prod in subscription Contoso-Sub",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "finding_info": {
+      "created_time_dt": "2026-04-02T12:00:03.000Z",
+      "created_time": 1743595203,
+      "desc": "Enable auditing on SQL Servers to track database activities and maintain compliance.",
+      "title": "Ensure that 'Auditing' is set to 'On' for SQL servers",
+      "uid": "prowler-azure-sqlserver_auditing_enabled-00000000-0000-0000-0000-000000000001-eastus-sqlserver-prod",
+      "name": "sqlserver-prod",
+      "types": []
+    },
+    "time_dt": "2026-04-02T12:00:03.000Z",
+    "time": 1743595203,
+    "remediation": {
+      "desc": "From Azure Portal: Go to SQL servers > Select server > Auditing > Set 'Auditing' to 'On'.",
+      "references": [
+        "https://learn.microsoft.com/en-us/azure/azure-sql/database/auditing-overview"
+      ]
+    },
+    "severity_id": 3,
+    "severity": "Medium",
+    "status_id": 1,
+    "status": "New",
+    "status_code": "PASS",
+    "status_detail": "SQL Server auditing is enabled for sqlserver-prod",
+    "risk_details": "Without auditing, suspicious database activity may go undetected.",
+    "resources": [
+      {
+        "cloud_partition": "AzureCloud",
+        "region": "eastus",
+        "group": {"name": "sqlserver"},
+        "labels": [],
+        "data": {},
+        "name": "sqlserver-prod",
+        "type": "Microsoft.Sql/servers",
+        "uid": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-data/providers/Microsoft.Sql/servers/sqlserver-prod"
+      }
+    ],
+    "metadata": {
+      "event_code": "sqlserver_auditing_enabled",
+      "product": {
+        "uid": "prowler",
+        "name": "Prowler",
+        "vendor_name": "Prowler",
+        "version": "3.11.3"
+      },
+      "profiles": ["cloud", "datetime"],
+      "tenant_uid": "00000000-0000-0000-0000-000000000000",
+      "version": "1.4.0"
+    },
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create",
+    "unmapped": {
+      "compliance": {
+        "CIS-2.1": ["4.1.1"],
+        "CIS-3.0": ["5.1.1"]
+      },
+      "scan_id": "00000000-0000-0000-0000-aaaaaaaaaaaa",
+      "provider": "azure"
+    },
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "cloud": {
+      "account": {
+        "name": "Contoso-Sub",
+        "type": "Azure AD Account",
+        "type_id": 6,
+        "uid": "00000000-0000-0000-0000-000000000001",
+        "labels": []
+      },
+      "org": {
+        "uid": "00000000-0000-0000-0000-000000000000",
+        "name": "contoso.onmicrosoft.com"
+      },
+      "provider": "azure",
+      "region": "eastus"
+    }
+  },
+  {
+    "message": "Storage account storagecontoso requires manual review for customer-managed key encryption",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "finding_info": {
+      "created_time_dt": "2026-04-02T12:00:04.000Z",
+      "created_time": 1743595204,
+      "desc": "Ensure that storage accounts use customer-managed keys for encryption to maintain full control of encryption keys.",
+      "title": "Ensure Storage Account Encryption with Customer Managed Keys",
+      "uid": "prowler-azure-storage_ensure_encryption_with_customer_managed_keys-00000000-0000-0000-0000-000000000001-eastus-storagecontoso",
+      "name": "storagecontoso",
+      "types": []
+    },
+    "time_dt": "2026-04-02T12:00:04.000Z",
+    "time": 1743595204,
+    "remediation": {
+      "desc": "From Azure Portal: Go to Storage accounts > Select account > Encryption > Change to Customer-managed keys.",
+      "references": [
+        "https://learn.microsoft.com/en-us/azure/storage/common/customer-managed-keys-overview"
+      ]
+    },
+    "severity_id": 2,
+    "severity": "Low",
+    "status_id": 1,
+    "status": "New",
+    "status_code": "MANUAL",
+    "status_detail": "Storage account storagecontoso requires manual verification of customer-managed key configuration",
+    "risk_details": "Without customer-managed keys, Microsoft controls the encryption keys for your data.",
+    "resources": [
+      {
+        "cloud_partition": "AzureCloud",
+        "region": "eastus",
+        "group": {"name": "storage"},
+        "labels": [],
+        "data": {},
+        "name": "storagecontoso",
+        "type": "Microsoft.Storage/storageAccounts",
+        "uid": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-data/providers/Microsoft.Storage/storageAccounts/storagecontoso"
+      }
+    ],
+    "metadata": {
+      "event_code": "storage_ensure_encryption_with_customer_managed_keys",
+      "product": {
+        "uid": "prowler",
+        "name": "Prowler",
+        "vendor_name": "Prowler",
+        "version": "3.11.3"
+      },
+      "profiles": ["cloud", "datetime"],
+      "tenant_uid": "00000000-0000-0000-0000-000000000000",
+      "version": "1.4.0"
+    },
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create",
+    "unmapped": {
+      "compliance": {
+        "CIS-2.1": ["3.2"],
+        "CIS-3.0": ["4.2"]
+      },
+      "scan_id": "00000000-0000-0000-0000-aaaaaaaaaaaa",
+      "provider": "azure"
+    },
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "cloud": {
+      "account": {
+        "name": "Contoso-Sub",
+        "type": "Azure AD Account",
+        "type_id": 6,
+        "uid": "00000000-0000-0000-0000-000000000001",
+        "labels": []
+      },
+      "org": {
+        "uid": "00000000-0000-0000-0000-000000000000",
+        "name": "contoso.onmicrosoft.com"
+      },
+      "provider": "azure",
+      "region": "eastus"
+    }
+  },
+  {
+    "message": "Storage account storagecontoso enforces secure transfer",
+    "activity_id": 1,
+    "activity_name": "Create",
+    "finding_info": {
+      "created_time_dt": "2026-04-02T12:00:05.000Z",
+      "created_time": 1743595205,
+      "desc": "The secure transfer option enhances the security of a storage account by only allowing requests to the storage account by a secure connection.",
+      "title": "Ensure that 'Secure transfer required' is set to 'Enabled'",
+      "uid": "prowler-azure-storage_secure_transfer_required_is_enabled-00000000-0000-0000-0000-000000000001-eastus-storagecontoso",
+      "name": "storagecontoso",
+      "types": []
+    },
+    "time_dt": "2026-04-02T12:00:05.000Z",
+    "time": 1743595205,
+    "remediation": {
+      "desc": "",
+      "references": [
+        "https://learn.microsoft.com/en-us/azure/storage/common/storage-require-secure-transfer"
+      ]
+    },
+    "severity_id": 4,
+    "severity": "High",
+    "status_id": 1,
+    "status": "New",
+    "status_code": "PASS",
+    "status_detail": "Storage account storagecontoso has secure transfer enabled",
+    "risk_details": "Without secure transfer, data in transit to the storage account may be intercepted.",
+    "resources": [
+      {
+        "cloud_partition": "AzureCloud",
+        "region": "eastus",
+        "group": {"name": "storage"},
+        "labels": [],
+        "data": {},
+        "name": "storagecontoso",
+        "type": "Microsoft.Storage/storageAccounts",
+        "uid": "/subscriptions/00000000-0000-0000-0000-000000000001/resourceGroups/rg-data/providers/Microsoft.Storage/storageAccounts/storagecontoso"
+      }
+    ],
+    "metadata": {
+      "event_code": "storage_secure_transfer_required_is_enabled",
+      "product": {
+        "uid": "prowler",
+        "name": "Prowler",
+        "vendor_name": "Prowler",
+        "version": "3.11.3"
+      },
+      "profiles": ["cloud", "datetime"],
+      "tenant_uid": "00000000-0000-0000-0000-000000000000",
+      "version": "1.4.0"
+    },
+    "type_uid": 200401,
+    "type_name": "Detection Finding: Create",
+    "unmapped": {
+      "compliance": {
+        "CIS-2.1": ["3.1"],
+        "CIS-3.0": ["4.1"]
+      },
+      "scan_id": "00000000-0000-0000-0000-aaaaaaaaaaaa",
+      "provider": "azure"
+    },
+    "category_uid": 2,
+    "category_name": "Findings",
+    "class_uid": 2004,
+    "class_name": "Detection Finding",
+    "cloud": {
+      "account": {
+        "name": "Contoso-Sub",
+        "type": "Azure AD Account",
+        "type_id": 6,
+        "uid": "00000000-0000-0000-0000-000000000001",
+        "labels": []
+      },
+      "org": {
+        "uid": "00000000-0000-0000-0000-000000000000",
+        "name": "contoso.onmicrosoft.com"
+      },
+      "provider": "azure",
+      "region": "eastus"
+    }
+  }
+]
