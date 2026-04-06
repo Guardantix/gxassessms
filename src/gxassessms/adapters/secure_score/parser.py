@@ -54,23 +54,23 @@ def get_latest_control_state(
 
 def _derive_status(
     score: float | None,
-    max_score: float,
+    max_score: float | None,
     latest_state: str,
 ) -> FindingStatus:
     """Derive finding status from score, max score, and control state.
 
     Decision order:
-        1. No score data at all -> MANUAL (needs human review)
-        2. Full score achieved   -> PASS
-        3. Third-party/ignored   -> NOT_APPLICABLE
-        4. Otherwise             -> FAIL
+        1. No score or maxScore data  -> MANUAL (needs human review)
+        2. Third-party/ignored        -> NOT_APPLICABLE (state overrides score)
+        3. Full score achieved        -> PASS
+        4. Otherwise                  -> FAIL
     """
-    if score is None:
+    if score is None or max_score is None:
         return FindingStatus.MANUAL
-    if max_score > 0 and score >= max_score:
-        return FindingStatus.PASS
     if latest_state in CONTROL_STATE_PASS_THROUGH:
         return FindingStatus.NOT_APPLICABLE
+    if max_score > 0 and score >= max_score:
+        return FindingStatus.PASS
     return FindingStatus.FAIL
 
 
@@ -141,7 +141,12 @@ def parse_secure_score(
         if score_data is not None:
             current_score = score_data.get("score")
 
-        max_score = profile.get("maxScore", 0.0)
+        max_score: float | None = profile.get("maxScore")
+        if max_score is None:
+            logger.warning(
+                "Control '%s' missing 'maxScore' field; status will be MANUAL",
+                control_id,
+            )
         rank = profile.get("rank", 999)
         tier = profile.get("tier", "")
 
