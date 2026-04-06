@@ -129,6 +129,30 @@ class TestCheckPrerequisites:
         assert result["satisfied"]
         assert "4.6.1" in result["message"]
 
+    def test_version_below_minimum_reports_unsatisfied(self) -> None:
+        adapter = ProwlerAdapter()
+        mock_result = MagicMock()
+        mock_result.stdout = b"Prowler 3.12.0"
+        with (
+            patch("shutil.which", return_value="/usr/bin/prowler"),
+            patch("subprocess.run", return_value=mock_result),
+        ):
+            result = adapter.check_prerequisites()
+        assert not result["satisfied"]
+        assert "3.12.0" in result["message"]
+
+    def test_unparseable_version_reports_unsatisfied(self) -> None:
+        adapter = ProwlerAdapter()
+        mock_result = MagicMock()
+        mock_result.stdout = b"unexpected output"
+        with (
+            patch("shutil.which", return_value="/usr/bin/prowler"),
+            patch("subprocess.run", return_value=mock_result),
+        ):
+            result = adapter.check_prerequisites()
+        assert not result["satisfied"]
+        assert "could not be parsed" in result["message"]
+
 
 # ---------------------------------------------------------------------------
 # collect -- extra_args
@@ -710,6 +734,21 @@ class TestValidateProwlerExtraArgs:
         config = _make_config(
             auth_method="client_credential",
             extra_args=["--unknown-dangerous-flag"],
+            output_dir=str(tmp_path),
+        )
+        adapter = ProwlerAdapter()
+        with pytest.raises(CollectionError, match=r"[Uu]nrecognized.*flag"):
+            adapter.collect(config, None)
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_single_dash_flag_raises_collection_error(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """Single-dash flags like -M or -o must be rejected -- they bypass the allowlist."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        config = _make_config(
+            auth_method="client_credential",
+            extra_args=["-M", "csv"],
             output_dir=str(tmp_path),
         )
         adapter = ProwlerAdapter()

@@ -35,6 +35,7 @@ from gxassessms.adapters.prowler.mappings import (
     SEVERITY_MAP,
 )
 from gxassessms.adapters.prowler.parser import parse_prowler_findings
+from gxassessms.adapters.prowler.policy import MINIMUM_PROWLER_MAJOR_VERSION
 from gxassessms.core.config.config import EngagementConfig
 from gxassessms.core.contracts.errors import (
     CollectionError,
@@ -100,7 +101,7 @@ def _validate_prowler_extra_args(args: list[str], adapter_name: str) -> list[str
         CollectionError: If any arg contains an unrecognized flag or unsafe value.
     """
     for arg in args:
-        if arg.startswith("--"):
+        if arg.startswith("-"):
             if arg not in _PROWLER_ALLOWED_FLAGS:
                 raise CollectionError(
                     f"Unrecognized Prowler flag in extra_args: {arg!r}. "
@@ -152,6 +153,22 @@ class ProwlerAdapter:
                 check=True,
             )
             version = (result.stdout or b"").decode(errors="replace").strip()
+            version_match = re.search(r"(\d+)\.\d+", version)
+            if version_match is None:
+                return PrerequisiteResult(
+                    satisfied=False,
+                    message=f"Prowler version could not be parsed: {version!r}",
+                )
+            major = int(version_match.group(1))
+            if major < MINIMUM_PROWLER_MAJOR_VERSION:
+                return PrerequisiteResult(
+                    satisfied=False,
+                    message=(
+                        f"Prowler {version!r} is below the minimum required version "
+                        f"{MINIMUM_PROWLER_MAJOR_VERSION}.x "
+                        f"(required for -M json-ocsf output)"
+                    ),
+                )
             logger.info("Prowler prerequisites satisfied (version: %s)", version)
             return PrerequisiteResult(
                 satisfied=True,
