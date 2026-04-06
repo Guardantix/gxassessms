@@ -41,6 +41,7 @@ mseco = "gxassessms.cli.main:main"
 scubagear = "gxassessms.adapters.scubagear:ScubaGearAdapter"
 maester = "gxassessms.adapters.maester:MaesterAdapter"
 securescore = "gxassessms.adapters.secure_score:SecureScoreAdapter"
+azure_advisor = "gxassessms.adapters.azure_advisor:AzureAdvisorAdapter"
 
 [project.entry-points."gxassessms.credentials"]
 env_var = "gxassessms.core.contracts.credentials:EnvVarProvider"
