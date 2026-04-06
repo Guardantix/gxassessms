@@ -80,15 +80,30 @@ CATEGORY_MAP: dict[str, Category] = {
 # ---------------------------------------------------------------------------
 
 DEDUP_KEY_RULES: dict[str, str] = {
-    # CIS M365 Conditional Access controls
-    "aad_cap_force_mfa_high_users": "cis:m365:5.2.2.1",
-    "aad_cap_force_mfa_all_users": "cis:m365:5.2.2.2",
-    "aad_cap_admin_portals_missing": "cis:m365:5.2.2.3",
-    # CIS M365 Identity controls
+    # CIS M365 Section 1.1 -- Identity: Admin Account Governance
     "aad_lack_cloud_only_accounts": "cis:m365:1.1.1",
     "eid_lack_emergency_account": "cis:m365:1.1.2",
     "eid_excessive_global_admins": "cis:m365:1.1.3",
-    "eid_privileged_users_reduced_application_footprint_license": "cis:m365:1.1.4",
+    "eid_pim_privileged_users_reduced_application_footprint_license": "cis:m365:1.1.4",
+    # CIS M365 Section 2.1 -- Defender: Email Security
+    "m365_exo_safe_links_office_disabled": "cis:m365:2.1.1",
+    "m365_exo_attachment_type_filter_disabled": "cis:m365:2.1.2",
+    "m365_exo_anti_malware_admin_notification_disabled": "cis:m365:2.1.3",
+    "m365_exo_safe_attachment_policy_disabled": "cis:m365:2.1.4",
+    "m365_exo_safe_attachment_policy_office_apps_disabled": "cis:m365:2.1.5",
+    "m365_lack_spf_domain": "cis:m365:2.1.8",
+    "m365_lack_dkim_in_domain": "cis:m365:2.1.9",
+    "m365_lack_dmarc_in_domain": "cis:m365:2.1.10",
+    # CIS M365 Section 5.2.2 -- Conditional Access
+    "aad_cap_force_mfa_high_users": "cis:m365:5.2.2.1",
+    "aad_cap_force_mfa_all_users": "cis:m365:5.2.2.2",
+    "eid_cap_block_basic_auth": "cis:m365:5.2.2.3",
+    "aad_cap_force_phishing_resistant_mfa_high_priv_users": "cis:m365:5.2.2.5",
+    # CIS M365 Section 5.2.3 -- Authentication Methods
+    "aad_mfa_fatigue_not_configured": "cis:m365:5.2.3.1",
+    "eid_weak_auth_methods_enabled": "cis:m365:5.2.3.5",
+    # CIS M365 Section 6 -- Exchange Online
+    "m365_exo_mail_forwarding_enabled": "cis:m365:6.2.1",
     # CIS Azure MFA controls
     "aad_privileged_users_with_mfa_disabled": "cis:azure:2.1.2",
     "aad_users_with_mfa_disabled": "cis:azure:2.1.3",
