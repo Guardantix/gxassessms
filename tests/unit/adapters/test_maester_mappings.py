@@ -132,12 +132,13 @@ class TestDedupKeyRules:
 
     def test_cisa_scuba_mappings_present(self) -> None:
         """CISA tests overlap with ScubaGear -- must map to same dedup keys."""
-        assert DEDUP_KEY_RULES["CISA.MS.AAD.3.1"] == "cis:m365:1.1.1"
-        assert DEDUP_KEY_RULES["CISA.MS.EXO.4.1"] == "cis:m365:2.1.1"
+        assert DEDUP_KEY_RULES["CISA.MS.AAD.7.3"] == "cis:m365:1.1.1"
+        assert DEDUP_KEY_RULES["CISA.MS.EXO.4.1"] == "cis:m365:2.1.10"
 
     def test_cis_benchmark_mappings_present(self) -> None:
-        """CIS M365 benchmark tests map to cis: namespace directly."""
-        assert DEDUP_KEY_RULES["CIS.M365.1.1.1"] == "cis:m365:1.1.1:cloud_only_admins"
+        """CIS M365 benchmark tests use base keys to dedup with CISA-origin checks."""
+        assert DEDUP_KEY_RULES["CIS.M365.1.1.1"] == "cis:m365:1.1.1"
+        assert DEDUP_KEY_RULES["CIS.M365.2.1.9"] == "cis:m365:2.1.9"
 
     def test_keys_are_valid_maester_test_ids(self) -> None:
         """Maester test IDs use multiple prefixes, not just MT."""

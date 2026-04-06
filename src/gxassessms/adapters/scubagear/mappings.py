@@ -87,9 +87,26 @@ CATEGORY_MAP: dict[str, Category] = {
 # ---------------------------------------------------------------------------
 
 DEDUP_KEY_RULES: dict[str, str] = {
-    "MS.AAD.1.1v1": "cis:m365:1.1.4",  # Block legacy authentication
-    "MS.AAD.3.4v1": "cis:m365:1.1.1",  # Authentication Methods migration complete
-    "MS.EXO.1.1v2": "cis:m365:2.1.4",  # Disable automatic forwarding to external domains
-    "MS.EXO.2.2v2": "cis:m365:2.1.2",  # SPF policy published for each domain
-    "MS.EXO.3.1v1": "cis:m365:2.1.1",  # DKIM enabled for all domains
+    # --- Section 1.1: Admin Account Governance ---
+    "MS.AAD.7.3v1": "cis:m365:1.1.1",  # Admin accounts must be cloud-only
+    # CIS 1.1.3 requires max 4 global admins; CISA allows 2-8 -- different threshold.
+    "MS.AAD.7.1v1": "cisa:aad:global_admin_count",  # Global admin count (CISA threshold: 2-8)
+    # --- Section 2.1: Email Security (Defender/EXO) ---
+    "MS.DEFENDER.3.1v1": "cis:m365:2.1.5",  # Safe Attachments for SPO/ODB/Teams
+    "MS.EXO.2.2v2": "cis:m365:2.1.8",  # SPF -- ScubaGear <= 1.7.x
+    "MS.EXO.2.2v3": "cis:m365:2.1.8",  # SPF -- ScubaGear >= 1.8.x
+    "MS.EXO.3.1v1": "cis:m365:2.1.9",  # DKIM enabled for all domains
+    "MS.EXO.4.1v1": "cis:m365:2.1.10",  # DMARC record published for each domain
+    "MS.EXO.4.2v1": "cis:m365:2.1.10",  # DMARC p=reject (same CIS control)
+    # --- Section 5.2.2: Conditional Access ---
+    "MS.AAD.3.6v1": "cis:m365:5.2.2.1",  # MFA for admin roles
+    "MS.AAD.3.2v2": "cis:m365:5.2.2.2",  # MFA for all users
+    "MS.AAD.1.1v1": "cis:m365:5.2.2.3",  # Block legacy authentication
+    # CIS 5.2.2.5 is admins only -- CISA requires all users, different scope
+    "MS.AAD.3.1v1": "cisa:aad:phishing_resistant_mfa",
+    # --- Section 5.2.3: Authentication Methods ---
+    "MS.AAD.3.3v2": "cis:m365:5.2.3.1",  # Authenticator anti-fatigue (context info)
+    "MS.AAD.3.5v2": "cis:m365:5.2.3.5",  # Disable weak auth methods
+    # --- Section 6: Exchange Online ---
+    "MS.EXO.1.1v2": "cis:m365:6.2.1",  # Block all forms of mail forwarding
 }

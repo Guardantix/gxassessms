@@ -71,25 +71,42 @@ CATEGORY_MAP: dict[str, Category] = {
 #   ORCA.118          -> Office 365 recommended config (tool-scoped)
 #
 # CISA tests map to the SAME dedup keys as ScubaGear (same baseline).
-# CIS tests map to cis:m365: namespace with a semantic suffix to
-# distinguish from CISA-origin mappings that share the same number.
+# CIS tests map to cis:m365: base keys; they dedup with CISA-origin checks
+# where the controls are equivalent (same predicate, same threshold).
 # MT/EIDSCA/ORCA tests without cross-tool overlap get tool-scoped keys
 # (maester:{test_id}), assigned by the parser as the default fallback.
 # ---------------------------------------------------------------------------
 
 DEDUP_KEY_RULES: dict[str, str] = {
-    # CISA SCuBA tests -- same controls as ScubaGear, same dedup keys
-    "CISA.MS.AAD.3.1": "cis:m365:1.1.1",
-    "CISA.MS.AAD.3.2": "cis:m365:1.1.2",
-    "CISA.MS.AAD.3.3": "cis:m365:1.1.3",
-    "CISA.MS.AAD.7.1": "cis:m365:1.1.4",
-    "CISA.MS.EXO.4.1": "cis:m365:2.1.1",
-    "CISA.MS.EXO.4.2": "cis:m365:2.1.2",
-    "CISA.MS.EXO.4.3": "cis:m365:2.1.3",
+    # CISA SCuBA tests -- same controls as ScubaGear, same dedup keys.
+    # Mapped to CIS M365 v5/v6 control IDs where equivalent exists.
+    # --- Section 1.1: Admin Account Governance ---
+    "CISA.MS.AAD.7.3": "cis:m365:1.1.1",  # Admin accounts cloud-only
+    # CIS 1.1.3 requires max 4 global admins; CISA allows 2-8 -- different threshold.
+    "CISA.MS.AAD.7.1": "cisa:aad:global_admin_count",  # Global admin count (CISA threshold: 2-8)
+    # --- Section 2.1: Email Security (Defender/EXO) ---
+    "CISA.MS.DEFENDER.3.1": "cis:m365:2.1.5",  # Safe Attachments for SPO/ODB/Teams
+    "CISA.MS.EXO.2.2": "cis:m365:2.1.8",  # SPF
+    "CISA.MS.EXO.3.1": "cis:m365:2.1.9",  # DKIM
+    "CISA.MS.EXO.4.1": "cis:m365:2.1.10",  # DMARC record
+    "CISA.MS.EXO.4.2": "cis:m365:2.1.10",  # DMARC p=reject (same CIS control)
+    # --- Section 5.2.2: Conditional Access ---
+    "CISA.MS.AAD.3.6": "cis:m365:5.2.2.1",  # MFA for admin roles
+    "CISA.MS.AAD.3.2": "cis:m365:5.2.2.2",  # MFA for all users
+    "CISA.MS.AAD.1.1": "cis:m365:5.2.2.3",  # Block legacy auth
+    # CIS 5.2.2.5 is admins only -- CISA requires all users, different scope
+    "CISA.MS.AAD.3.1": "cisa:aad:phishing_resistant_mfa",
+    # --- Section 5.2.3: Authentication Methods ---
+    "CISA.MS.AAD.3.3": "cis:m365:5.2.3.1",  # Authenticator anti-fatigue
+    "CISA.MS.AAD.3.5": "cis:m365:5.2.3.5",  # Disable weak auth methods
+    # --- Section 6: Exchange Online ---
+    "CISA.MS.EXO.1.1": "cis:m365:6.2.1",  # Block mail forwarding
+    # --- CISA-only (no CIS equivalent) ---
     "CISA.MS.SHAREPOINT.1.1": "cisa:spo:external_sharing",
-    # CIS M365 benchmark tests -- separate framework, own dedup keys
-    "CIS.M365.1.1.1": "cis:m365:1.1.1:cloud_only_admins",
-    "CIS.M365.1.2.1": "cis:m365:1.2.1:public_groups",
-    "CIS.M365.2.1.9": "cis:m365:2.1.9:connection_filter_safelist",
-    "CIS.M365.8.6.1": "cis:m365:8.6.1:teams_security_reporting",
+    # CIS M365 benchmark tests -- use base cis:m365: keys so they dedup with
+    # CISA-origin checks where controls are equivalent (1.1.1, 2.1.9).
+    "CIS.M365.1.1.1": "cis:m365:1.1.1",
+    "CIS.M365.1.2.1": "cis:m365:1.2.1",
+    "CIS.M365.2.1.9": "cis:m365:2.1.9",
+    "CIS.M365.8.6.1": "cis:m365:8.6.1",
 }
