@@ -325,7 +325,7 @@ class ProwlerAdapter:
             artifacts.append(
                 CollectedArtifact(
                     source_path=str(f),
-                    target_relpath=f"{self.storage_slug}/{f.name}",
+                    target_relpath=f"{self.storage_slug}/{f.relative_to(output_dir).as_posix()}",
                     encoding="utf-8",
                     sha256=sha,
                 )
@@ -413,10 +413,9 @@ class ProwlerAdapter:
             findings: list[Any] = cast(list[Any], data)
 
             if len(findings) == 0:
-                raise RawOutputValidationError(
-                    f"Empty findings array in {path}. Prowler should produce at least one finding.",
-                    adapter_name=self.tool_name,
-                )
+                logger.warning("Empty findings array in %s -- no findings to parse", path)
+                result[file_path] = []
+                continue
 
             for i, finding in enumerate(findings):
                 if not isinstance(finding, dict):
