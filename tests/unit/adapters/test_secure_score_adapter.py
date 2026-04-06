@@ -137,6 +137,79 @@ class TestAuthenticate:
             )
 
 
+class TestFetchGraphEndpointPagination:
+    """Tests for _fetch_graph_endpoint max_pages behavior."""
+
+    def test_max_pages_stops_after_limit(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """max_pages=1 stops pagination after the first page, ignoring nextLink."""
+        import httpx
+
+        page1 = {
+            "value": [{"id": "first"}],
+            "@odata.nextLink": "https://graph.microsoft.com/v1.0/next-page",
+        }
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = page1
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = MagicMock(spec=httpx.Client)
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+
+        monkeypatch.setattr(httpx, "Client", MagicMock(return_value=mock_client))
+
+        adapter = SecureScoreAdapter()
+        result = adapter._fetch_graph_endpoint(
+            "https://graph.microsoft.com/v1.0/security/secureScores?$top=1",
+            headers={"Authorization": "Bearer fake"},
+            timeout=30,
+            label="secureScores",
+            max_pages=1,
+        )
+
+        assert result == {"value": [{"id": "first"}]}
+        mock_client.get.assert_called_once()
+
+    def test_default_max_pages_uses_global_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Without max_pages, pagination cap falls back to _MAX_PAGES."""
+        import httpx
+
+        from gxassessms.adapters.secure_score.adapter import _MAX_PAGES
+
+        call_count = 0
+
+        def mock_get(url: str, headers: dict[str, str]) -> MagicMock:  # type: ignore[type-arg]
+            nonlocal call_count
+            call_count += 1
+            resp = MagicMock()
+            resp.raise_for_status = MagicMock()
+            resp.json.return_value = {
+                "value": [{"id": f"item-{call_count}"}],
+                "@odata.nextLink": f"https://graph.microsoft.com/v1.0/next?page={call_count + 1}",
+            }
+            return resp
+
+        mock_client = MagicMock(spec=httpx.Client)
+        mock_client.get = mock_get
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+
+        monkeypatch.setattr(httpx, "Client", MagicMock(return_value=mock_client))
+
+        adapter = SecureScoreAdapter()
+        with pytest.raises(CollectionError, match=f"exceeded {_MAX_PAGES} pages"):
+            adapter._fetch_graph_endpoint(
+                "https://graph.microsoft.com/v1.0/security/test",
+                headers={"Authorization": "Bearer fake"},
+                timeout=30,
+                label="test",
+            )
+
+        assert call_count == _MAX_PAGES
+
+
 class TestCollectGuards:
     def test_raises_if_auth_is_none(self) -> None:
         """collect() raises CollectionError when auth is None."""

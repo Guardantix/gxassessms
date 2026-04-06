@@ -219,6 +219,7 @@ class SecureScoreAdapter:
             headers=headers,
             timeout=timeout,
             label="secureScores",
+            max_pages=1,
         )
 
         profiles_path = output_dir / _PROFILES_FILENAME
@@ -362,14 +363,21 @@ class SecureScoreAdapter:
         headers: dict[str, str],
         timeout: int,
         label: str,
+        max_pages: int | None = None,
     ) -> dict[str, Any]:
         """Fetch a Graph API endpoint, following @odata.nextLink for pagination.
 
         Accumulates all pages into a single ``{"value": [...]}`` response.
         Raises CollectionError on any HTTP or parse failure.
+
+        Args:
+            max_pages: Stop after this many pages. Defaults to ``_MAX_PAGES``
+                when ``None``. Use ``1`` when only the first page is needed
+                (e.g. ``secureScores?$top=1``).
         """
         import httpx
 
+        page_limit = max_pages if max_pages is not None else _MAX_PAGES
         all_items: list[Any] = []
         next_url: str | None = url
         page_count = 0
@@ -377,9 +385,9 @@ class SecureScoreAdapter:
         with httpx.Client(timeout=timeout) as client:
             while next_url is not None:
                 page_count += 1
-                if page_count > _MAX_PAGES:
+                if page_count > page_limit:
                     raise CollectionError(
-                        f"Graph API pagination exceeded {_MAX_PAGES} pages for {label}; "
+                        f"Graph API pagination exceeded {page_limit} pages for {label}; "
                         "possible runaway pagination or server error",
                         adapter_name=self.tool_name,
                     )
@@ -418,14 +426,21 @@ class SecureScoreAdapter:
                     )
 
                 all_items.extend(data.get("value", []))  # pyright: ignore[reportUnknownMemberType,reportUnknownArgumentType]
-                raw_next = data.get("@odata.nextLink")  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
-                if raw_next is not None and not isinstance(raw_next, str):
-                    raise CollectionError(
-                        f"Graph API returned non-string @odata.nextLink for {label} "
-                        f"(page={page_count}, got {type(raw_next).__name__})",  # pyright: ignore[reportUnknownArgumentType]
-                        adapter_name=self.tool_name,
-                    )
-                next_url = raw_next
+
+                # Explicit max_pages: stop cleanly after the requested pages.
+                # Default _MAX_PAGES cap: let the top-of-loop guard error on
+                # the next iteration (runaway pagination is unexpected).
+                if max_pages is not None and page_count >= max_pages:
+                    next_url = None
+                else:
+                    raw_next = data.get("@odata.nextLink")  # pyright: ignore[reportUnknownMemberType,reportUnknownVariableType]
+                    if raw_next is not None and not isinstance(raw_next, str):
+                        raise CollectionError(
+                            f"Graph API returned non-string @odata.nextLink for {label} "
+                            f"(page={page_count}, got {type(raw_next).__name__})",  # pyright: ignore[reportUnknownArgumentType]
+                            adapter_name=self.tool_name,
+                        )
+                    next_url = raw_next
 
         logger.info(
             "Fetched %s: %d items across %d page(s)",
