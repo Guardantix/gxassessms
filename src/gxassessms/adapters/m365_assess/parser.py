@@ -32,14 +32,14 @@ logger = logging.getLogger(__name__)
 
 def load_risk_severity(path: Path) -> dict[str, str]:
     """Load risk-severity.json. Returns {base_check_id: severity_string}."""
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data: dict[str, Any] = json.load(f)
     return data.get("checks", {})
 
 
 def load_registry(path: Path) -> dict[str, dict[str, Any]]:
     """Load registry.json. Returns {check_id: entry_dict}."""
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         data: dict[str, Any] = json.load(f)
     return {entry["checkId"]: entry for entry in data.get("checks", [])}
 
