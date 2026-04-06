@@ -22,30 +22,41 @@ def fixture_data(prowler_fixture_data: list[dict[str, Any]]) -> list[dict[str, A
 
 
 class TestSeverityMap:
-    """Maps OCSF severity string -> domain Severity enum."""
+    """Maps (OCSF severity, canonical status) -> domain Severity enum."""
 
     def test_severity_map_is_dict(self) -> None:
         assert isinstance(SEVERITY_MAP, dict)
+
+    def test_severity_map_keys_are_tuples(self) -> None:
+        for key in SEVERITY_MAP:
+            assert isinstance(key, tuple), f"Key {key!r} must be a tuple"
+            assert len(key) == 2, f"Key {key!r} must have 2 elements"
 
     def test_severity_map_values_are_valid_severities(self) -> None:
         for severity in SEVERITY_MAP.values():
             assert isinstance(severity, Severity)
 
-    def test_ocsf_severity_mappings(self) -> None:
-        """Prowler OCSF severity strings (title case)."""
-        assert SEVERITY_MAP["Critical"] == Severity.CRITICAL
-        assert SEVERITY_MAP["High"] == Severity.HIGH
-        assert SEVERITY_MAP["Medium"] == Severity.MEDIUM
-        assert SEVERITY_MAP["Low"] == Severity.LOW
-        assert SEVERITY_MAP["Informational"] == Severity.INFO
-        assert SEVERITY_MAP["Unknown"] == Severity.INFO  # Unknown -> INFO (conservative)
+    def test_ocsf_severity_fail_mappings(self) -> None:
+        """Prowler OCSF severity strings (title case) with FAIL status."""
+        assert SEVERITY_MAP[("Critical", "FAIL")] == Severity.CRITICAL
+        assert SEVERITY_MAP[("High", "FAIL")] == Severity.HIGH
+        assert SEVERITY_MAP[("Medium", "FAIL")] == Severity.MEDIUM
+        assert SEVERITY_MAP[("Low", "FAIL")] == Severity.LOW
+        assert SEVERITY_MAP[("Informational", "FAIL")] == Severity.LOW
+
+    def test_ocsf_severity_manual_mappings(self) -> None:
+        """MANUAL status entries preserve reported severity."""
+        assert SEVERITY_MAP[("Critical", "MANUAL")] == Severity.CRITICAL
+        assert SEVERITY_MAP[("High", "MANUAL")] == Severity.HIGH
+        assert SEVERITY_MAP[("Medium", "MANUAL")] == Severity.MEDIUM
 
     def test_fixture_severities_covered(self, fixture_data: list[dict]) -> None:
-        """Every severity value in fixtures is in SEVERITY_MAP."""
+        """Every (severity, status_code) in fixtures has a SEVERITY_MAP entry."""
+        severity_keys = {k[0] for k in SEVERITY_MAP}
         unmapped: set[str] = set()
         for finding in fixture_data:
             sev = finding["severity"]
-            if sev not in SEVERITY_MAP:
+            if sev not in severity_keys:
                 unmapped.add(sev)
         assert unmapped == set(), f"Unmapped severities in fixtures: {unmapped}"
 
@@ -82,7 +93,7 @@ class TestStatusMap:
 
 
 class TestCategoryMap:
-    """Maps resources[0].group.name -> domain Category enum."""
+    """Maps check ID (metadata.event_code) -> domain Category enum."""
 
     def test_category_map_is_dict(self) -> None:
         assert isinstance(CATEGORY_MAP, dict)
@@ -91,22 +102,33 @@ class TestCategoryMap:
         for category in CATEGORY_MAP.values():
             assert isinstance(category, Category)
 
-    def test_known_group_name_mappings(self) -> None:
-        assert CATEGORY_MAP["defender"] == Category.INFRASTRUCTURE_SECURITY
-        assert CATEGORY_MAP["iam"] == Category.IDENTITY_ACCESS
-        assert CATEGORY_MAP["sqlserver"] == Category.DATA_PROTECTION
-        assert CATEGORY_MAP["storage"] == Category.DATA_PROTECTION
+    def test_known_check_id_mappings(self) -> None:
+        assert (
+            CATEGORY_MAP["defender_ensure_defender_for_app_services_is_on"]
+            == Category.INFRASTRUCTURE_SECURITY
+        )
+        assert (
+            CATEGORY_MAP["iam_subscription_roles_owner_custom_not_created"]
+            == Category.IDENTITY_ACCESS
+        )
+        assert CATEGORY_MAP["sqlserver_auditing_enabled"] == Category.DATA_PROTECTION
+        assert (
+            CATEGORY_MAP["storage_secure_transfer_required_is_enabled"] == Category.DATA_PROTECTION
+        )
 
-    def test_fixture_groups_covered(self, fixture_data: list[dict]) -> None:
-        """Every resources[0].group.name in fixtures has a matching category."""
+    def test_all_dedup_keys_have_category(self) -> None:
+        """Every check in DEDUP_KEY_RULES should have a CATEGORY_MAP entry."""
+        missing = set(DEDUP_KEY_RULES) - set(CATEGORY_MAP)
+        assert missing == set(), f"Checks in DEDUP_KEY_RULES missing from CATEGORY_MAP: {missing}"
+
+    def test_fixture_check_ids_covered(self, fixture_data: list[dict]) -> None:
+        """Every metadata.event_code in fixtures has a matching category."""
         unmapped: set[str] = set()
         for finding in fixture_data:
-            resources = finding.get("resources", [])
-            if resources:
-                group_name = resources[0].get("group", {}).get("name")
-                if group_name and group_name not in CATEGORY_MAP:
-                    unmapped.add(group_name)
-        assert unmapped == set(), f"Unmapped group names: {unmapped}"
+            check_id = finding.get("metadata", {}).get("event_code")
+            if check_id and check_id not in CATEGORY_MAP:
+                unmapped.add(check_id)
+        assert unmapped == set(), f"Unmapped check IDs: {unmapped}"
 
 
 class TestDedupKeyRules:

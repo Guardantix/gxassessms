@@ -19,18 +19,31 @@ from __future__ import annotations
 from gxassessms.core.domain.enums import Category, FindingStatus, Severity
 
 # ---------------------------------------------------------------------------
-# Severity mapping: OCSF severity string (title case) -> Severity
+# Severity mapping: (OCSF severity, canonical status) -> Severity
 # Source: prowler/lib/outputs/ocsf/ocsf.py
 # OCSF severity_id: 0=Unknown, 1=Informational, 2=Low, 3=Medium, 4=High, 5=Critical, 99=Other
+#
+# Keys are (severity_string, domain_status) tuples to match
+# DefaultNormalizationPolicy._resolve_severity() lookup.
+# PASS observations short-circuit to INFO before consulting this map,
+# so only FAIL and MANUAL entries are needed.
 # ---------------------------------------------------------------------------
 
-SEVERITY_MAP: dict[str, Severity] = {
-    "Critical": Severity.CRITICAL,
-    "High": Severity.HIGH,
-    "Medium": Severity.MEDIUM,
-    "Low": Severity.LOW,
-    "Informational": Severity.INFO,
-    "Unknown": Severity.INFO,  # severity_id=0; conservative mapping
+SEVERITY_MAP: dict[tuple[str, str], Severity] = {
+    # FAIL entries -- direct assessment results
+    ("Critical", FindingStatus.FAIL): Severity.CRITICAL,
+    ("High", FindingStatus.FAIL): Severity.HIGH,
+    ("Medium", FindingStatus.FAIL): Severity.MEDIUM,
+    ("Low", FindingStatus.FAIL): Severity.LOW,
+    ("Informational", FindingStatus.FAIL): Severity.LOW,
+    ("Unknown", FindingStatus.FAIL): Severity.MEDIUM,
+    # MANUAL entries -- requires human verification, preserve reported severity
+    ("Critical", FindingStatus.MANUAL): Severity.CRITICAL,
+    ("High", FindingStatus.MANUAL): Severity.HIGH,
+    ("Medium", FindingStatus.MANUAL): Severity.MEDIUM,
+    ("Low", FindingStatus.MANUAL): Severity.LOW,
+    ("Informational", FindingStatus.MANUAL): Severity.LOW,
+    ("Unknown", FindingStatus.MANUAL): Severity.MEDIUM,
 }
 
 # ---------------------------------------------------------------------------
@@ -47,17 +60,42 @@ STATUS_MAP: dict[str, FindingStatus] = {
 }
 
 # ---------------------------------------------------------------------------
-# Category mapping: resources[0].group.name -> Category
-# Source: Prowler check definitions set the service name as group.name.
-# The 23 Azure checks use these service prefixes:
-#   defender (12 checks), iam (1), sqlserver (3), storage (7)
+# Category mapping: check ID (metadata.event_code) -> Category
+#
+# Keyed by full check ID because _extract_module_prefix uses dot-delimited
+# parsing which doesn't apply to Prowler's underscore-delimited IDs.
+# Service grouping: defender -> INFRASTRUCTURE_SECURITY, iam -> IDENTITY_ACCESS,
+# sqlserver/storage -> DATA_PROTECTION.
 # ---------------------------------------------------------------------------
 
 CATEGORY_MAP: dict[str, Category] = {
-    "defender": Category.INFRASTRUCTURE_SECURITY,
-    "iam": Category.IDENTITY_ACCESS,
-    "sqlserver": Category.DATA_PROTECTION,
-    "storage": Category.DATA_PROTECTION,
+    # Defender checks (12)
+    "defender_ensure_defender_for_app_services_is_on": Category.INFRASTRUCTURE_SECURITY,
+    "defender_ensure_defender_for_arm_is_on": Category.INFRASTRUCTURE_SECURITY,
+    "defender_ensure_defender_for_azure_sql_databases_is_on": Category.INFRASTRUCTURE_SECURITY,
+    "defender_ensure_defender_for_containers_is_on": Category.INFRASTRUCTURE_SECURITY,
+    "defender_ensure_defender_for_cosmosdb_is_on": Category.INFRASTRUCTURE_SECURITY,
+    "defender_ensure_defender_for_databases_is_on": Category.INFRASTRUCTURE_SECURITY,
+    "defender_ensure_defender_for_dns_is_on": Category.INFRASTRUCTURE_SECURITY,
+    "defender_ensure_defender_for_keyvault_is_on": Category.INFRASTRUCTURE_SECURITY,
+    "defender_ensure_defender_for_os_relational_databases_is_on": Category.INFRASTRUCTURE_SECURITY,
+    "defender_ensure_defender_for_server_is_on": Category.INFRASTRUCTURE_SECURITY,
+    "defender_ensure_defender_for_sql_servers_is_on": Category.INFRASTRUCTURE_SECURITY,
+    "defender_ensure_defender_for_storage_is_on": Category.INFRASTRUCTURE_SECURITY,
+    # IAM checks (1)
+    "iam_subscription_roles_owner_custom_not_created": Category.IDENTITY_ACCESS,
+    # SQL Server checks (3)
+    "sqlserver_auditing_enabled": Category.DATA_PROTECTION,
+    "sqlserver_azuread_administrator_enabled": Category.DATA_PROTECTION,
+    "sqlserver_unrestricted_inbound_access": Category.DATA_PROTECTION,
+    # Storage checks (7)
+    "storage_blob_public_access_level_is_disabled": Category.DATA_PROTECTION,
+    "storage_default_network_access_rule_is_denied": Category.DATA_PROTECTION,
+    "storage_ensure_azure_services_are_trusted_to_access_is_enabled": Category.DATA_PROTECTION,
+    "storage_ensure_encryption_with_customer_managed_keys": Category.DATA_PROTECTION,
+    "storage_ensure_minimum_tls_version_12": Category.DATA_PROTECTION,
+    "storage_infrastructure_encryption_is_enabled": Category.DATA_PROTECTION,
+    "storage_secure_transfer_required_is_enabled": Category.DATA_PROTECTION,
 }
 
 # ---------------------------------------------------------------------------
@@ -86,7 +124,7 @@ DEDUP_KEY_RULES: dict[str, str] = {
     "defender_ensure_defender_for_os_relational_databases_is_on": "cis:azure:5.3.9",
     "defender_ensure_defender_for_server_is_on": "cis:azure:5.3.10",
     "defender_ensure_defender_for_sql_servers_is_on": "cis:azure:5.3.11",
-    "defender_ensure_defender_for_storage_is_on": "cis:azure:5.3.12",
+    "defender_ensure_defender_for_storage_is_on": "cis:azure:5.1.7",
     # IAM checks (CIS Azure 2.1 Section 1)
     "iam_subscription_roles_owner_custom_not_created": "cis:azure:1.23",
     # SQL Server checks (CIS Azure 2.1 Section 4.1)

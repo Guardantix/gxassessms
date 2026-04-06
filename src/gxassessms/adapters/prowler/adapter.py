@@ -391,8 +391,8 @@ class ProwlerAdapter:
     # ------------------------------------------------------------------
 
     @property
-    def severity_map(self) -> dict[str, Any]:
-        """OCSF severity string -> Severity for NormalizationPolicy."""
+    def severity_map(self) -> dict[tuple[str, str], Any]:
+        """(OCSF severity, canonical status) -> Severity for NormalizationPolicy."""
         return SEVERITY_MAP
 
     @property
