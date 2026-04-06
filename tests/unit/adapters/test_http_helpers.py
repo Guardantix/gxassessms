@@ -242,6 +242,20 @@ class TestFetchPaginatedJson:
                 adapter_name="test",
             )
 
+    def test_non_dict_value_items_rejected(self) -> None:
+        resp = _mock_response({"value": ["unexpected", "strings"]})
+        client = _make_client(get=MagicMock(return_value=resp))
+
+        with (
+            patch("httpx.Client", return_value=client),
+            pytest.raises(CollectionError, match="non-object items"),
+        ):
+            fetch_paginated_json(
+                url=_GRAPH_URL,
+                headers={},
+                adapter_name="test",
+            )
+
     def test_missing_value_key_raises(self) -> None:
         resp = _mock_response({"items": [{"id": 1}]})
         client = _make_client(get=MagicMock(return_value=resp))

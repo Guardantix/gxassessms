@@ -130,7 +130,14 @@ def fetch_paginated_json(
                         adapter_name=adapter_name,
                     )
 
-                all_items.extend(cast(list[dict[str, Any]], body["value"]))
+                items = cast(list[Any], body["value"])
+                if items and not all(isinstance(item, dict) for item in items):
+                    raise CollectionError(
+                        f"{adapter_name}: 'value' contains non-object items at {label} page {page}",
+                        adapter_name=adapter_name,
+                    )
+
+                all_items.extend(cast(list[dict[str, Any]], items))
                 page += 1
 
                 next_link: Any = body.get(pagination_key)
@@ -157,9 +164,9 @@ def fetch_paginated_json(
             adapter_name=adapter_name,
         ) from exc
     except httpx.HTTPStatusError as exc:
-        body = exc.response.text[:500] if exc.response.text else ""
+        snippet = exc.response.text[:500] if exc.response.text else ""
         raise CollectionError(
-            f"{adapter_name}: HTTP {exc.response.status_code} at {label} page {page}: {body}",
+            f"{adapter_name}: HTTP {exc.response.status_code} at {label} page {page}: {snippet}",
             adapter_name=adapter_name,
         ) from exc
     except CollectionError:
