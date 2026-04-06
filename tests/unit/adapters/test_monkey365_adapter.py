@@ -79,6 +79,24 @@ class TestReservedArgGuard:
         with pytest.raises(CollectionError, match="reserved"):
             self._collect_blocked(["-INSTANCE:Azure"])
 
+    # -- reserved args as bare switches must also be blocked --
+
+    def test_outdir_as_switch_blocked(self) -> None:
+        with pytest.raises(CollectionError, match="reserved"):
+            self._collect_blocked(["-OutDir"])
+
+    def test_exportto_as_switch_blocked(self) -> None:
+        with pytest.raises(CollectionError, match="reserved"):
+            self._collect_blocked(["-ExportTo"])
+
+    def test_instance_as_switch_blocked(self) -> None:
+        with pytest.raises(CollectionError, match="reserved"):
+            self._collect_blocked(["-Instance"])
+
+    def test_outdir_switch_lowercase_blocked(self) -> None:
+        with pytest.raises(CollectionError, match="reserved"):
+            self._collect_blocked(["-outdir"])
+
     # -- non-reserved args must pass through without triggering the guard --
 
     def test_non_reserved_arg_passes_guard(self, tmp_path: Path) -> None:
