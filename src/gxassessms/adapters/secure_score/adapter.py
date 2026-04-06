@@ -138,7 +138,7 @@ class SecureScoreAdapter:
                         f"or empty. Required for service principal authentication.",
                         adapter_name=self.tool_name,
                     )
-                logger.info(
+                logger.info(  # nosemgrep  # client_id is a public Azure AD app GUID, not a secret
                     "Authenticating Secure Score via ClientSecretCredential (SP: %s)",
                     client_id,
                 )
