@@ -192,7 +192,6 @@ class SecureScoreAdapter:
         bearer_token = auth.token.get_secret_value()
         headers = {"Authorization": f"Bearer {bearer_token}"}
 
-        # Fetch both endpoints
         profiles_data = self._fetch_graph_endpoint(
             f"{_GRAPH_BASE_URL}{_PROFILES_ENDPOINT}",
             headers=headers,
@@ -206,7 +205,6 @@ class SecureScoreAdapter:
             label="secureScores",
         )
 
-        # Write JSON responses to disk
         profiles_path = output_dir / _PROFILES_FILENAME
         scores_path = output_dir / _SCORES_FILENAME
 
@@ -365,8 +363,7 @@ class SecureScoreAdapter:
                 adapter_name=self.tool_name,
             )
 
-        result: dict[str, Any] = data  # pyright: ignore[reportUnknownVariableType]
-        return result
+        return data  # pyright: ignore[reportUnknownVariableType]
 
     def _validate_and_load_responses(
         self, raw: ResolvedManifest
@@ -380,7 +377,6 @@ class SecureScoreAdapter:
                 adapter_name=self.tool_name,
             )
 
-        # Find both expected files by basename matching
         profiles_path: str | None = None
         scores_path: str | None = None
 
@@ -412,7 +408,6 @@ class SecureScoreAdapter:
         profiles_data = load_json_file(Path(profiles_path), adapter_name=self.tool_name)
         scores_data = load_json_file(Path(scores_path), adapter_name=self.tool_name)
 
-        # Structural validation: both must be dicts with "value" arrays
         for label, data in [("profiles", profiles_data), ("scores", scores_data)]:
             if not isinstance(data, dict):
                 raise RawOutputValidationError(

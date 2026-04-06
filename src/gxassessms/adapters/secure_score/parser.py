@@ -111,7 +111,6 @@ def parse_secure_score(
     if not profiles:
         return []
 
-    # Build lookup from the latest score snapshot
     score_lookup: dict[str, dict[str, Any]] = {}
     scores_list = scores_response.get("value", [])
     if scores_list:
