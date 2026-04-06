@@ -10,7 +10,6 @@ from gxassessms.adapters.monkey365.parser import (
     extract_id_suffix,
     parse_monkey365_findings,
 )
-from gxassessms.core.domain.enums import FindingStatus, Severity
 from gxassessms.core.domain.models import ToolObservation
 
 
@@ -78,23 +77,19 @@ class TestParseMonkey365Findings:
         first = observations[0]
         assert first.native_check_id == "aad_lack_cloud_only_accounts"
 
-    def test_severity_mapped_correctly(self, fixture_data: list[dict[str, Any]]) -> None:
+    def test_native_severity_is_raw_string(self, fixture_data: list[dict[str, Any]]) -> None:
+        """Parser stores raw OCSF severity strings; normalization maps later."""
         observations = parse_monkey365_findings(fixture_data)
-        # First finding: severity "Unknown" -> INFO
-        assert observations[0].native_severity == Severity.INFO
-        # Fourth finding: severity "High" -> HIGH
-        assert observations[3].native_severity == Severity.HIGH
-        # Fifth finding: severity "Critical" -> CRITICAL
-        assert observations[4].native_severity == Severity.CRITICAL
+        assert observations[0].native_severity == "Unknown"
+        assert observations[3].native_severity == "High"
+        assert observations[4].native_severity == "Critical"
 
-    def test_status_mapped_from_statuscode(self, fixture_data: list[dict[str, Any]]) -> None:
+    def test_native_status_is_raw_string(self, fixture_data: list[dict[str, Any]]) -> None:
+        """Parser stores raw OCSF statusCode; normalization maps later."""
         observations = parse_monkey365_findings(fixture_data)
-        # First finding: statusCode "pass" -> PASS
-        assert observations[0].native_status == FindingStatus.PASS
-        # Second finding: statusCode "manual" -> MANUAL
-        assert observations[1].native_status == FindingStatus.MANUAL
-        # Fourth finding: statusCode "fail" -> FAIL
-        assert observations[3].native_status == FindingStatus.FAIL
+        assert observations[0].native_status == "pass"
+        assert observations[1].native_status == "manual"
+        assert observations[3].native_status == "fail"
 
     def test_title_from_finding_info(self, fixture_data: list[dict[str, Any]]) -> None:
         observations = parse_monkey365_findings(fixture_data)

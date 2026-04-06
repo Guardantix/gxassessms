@@ -24,11 +24,7 @@ import logging
 import re
 from typing import Any
 
-from gxassessms.adapters.monkey365.mappings import (
-    SEVERITY_MAP,
-    STATUS_MAP,
-)
-from gxassessms.core.domain.enums import FindingStatus, Severity, ToolSource
+from gxassessms.core.domain.enums import ToolSource
 from gxassessms.core.domain.models import ToolObservation
 
 logger = logging.getLogger(__name__)
@@ -88,19 +84,13 @@ def parse_monkey365_findings(
             )
             id_suffix = finding_id  # Fallback: use raw ID
 
-        severity_str = finding.get("severity", "Unknown")
-        severity = SEVERITY_MAP.get(severity_str, Severity.INFO)
-
-        status_code = finding.get("statusCode", "fail")
-        status = STATUS_MAP.get(status_code, FindingStatus.FAIL)
-
         observation = ToolObservation(
             observation_id=f"monkey365:{id_suffix}",
             tool=ToolSource.MONKEY365,
             native_check_id=id_suffix,
             title=finding_info.get("title", ""),
-            native_severity=severity,
-            native_status=status,
+            native_severity=finding.get("severity", "Unknown"),
+            native_status=finding.get("statusCode", "fail"),
             description=finding_info.get("description", ""),
             raw_data=finding,
         )

@@ -15,7 +15,7 @@ import pytest
 import yaml
 
 from gxassessms.adapters.monkey365 import Monkey365Adapter
-from gxassessms.core.domain.enums import FindingStatus, ToolSource
+from gxassessms.core.domain.enums import ToolSource
 from gxassessms.core.domain.models import (
     ArtifactRecord,
     ResolvedManifest,
@@ -81,7 +81,7 @@ class TestMonkey365Conformance(AdapterConformanceSuite):
     ) -> None:
         pass_obs = [o for o in observations if o.native_check_id == "aad_lack_cloud_only_accounts"]
         assert len(pass_obs) == 1
-        assert pass_obs[0].native_status == FindingStatus.PASS
+        assert pass_obs[0].native_status == "pass"
 
     def test_statuscode_fail_produces_fail_status(
         self,
@@ -91,7 +91,7 @@ class TestMonkey365Conformance(AdapterConformanceSuite):
             o for o in observations if o.native_check_id == "aad_privileged_users_with_mfa_disabled"
         ]
         assert len(fail_obs) == 1
-        assert fail_obs[0].native_status == FindingStatus.FAIL
+        assert fail_obs[0].native_status == "fail"
 
     def test_statuscode_manual_produces_manual_status(
         self,
@@ -99,7 +99,7 @@ class TestMonkey365Conformance(AdapterConformanceSuite):
     ) -> None:
         manual_obs = [o for o in observations if o.native_check_id == "eid_lack_emergency_account"]
         assert len(manual_obs) == 1
-        assert manual_obs[0].native_status == FindingStatus.MANUAL
+        assert manual_obs[0].native_status == "manual"
 
     def test_observation_ids_are_prefixed(
         self,
@@ -170,27 +170,21 @@ class TestMonkey365Conformance(AdapterConformanceSuite):
         self,
         observations: list[ToolObservation],
     ) -> None:
-        """Fixture covers all 3 Monkey365 statusCode values."""
+        """Fixture covers all 3 Monkey365 statusCode values (raw strings)."""
         statuses = {obs.native_status for obs in observations}
-        expected = {FindingStatus.PASS, FindingStatus.FAIL, FindingStatus.MANUAL}
+        expected = {"pass", "fail", "manual"}
         assert statuses == expected, f"Fixture should cover all 3 statuses, found: {statuses}"
 
     def test_multiple_categories_in_fixture(
         self,
         normalized_findings: list,
     ) -> None:
-        """Fixture findings all resolve to a valid Category.
-
-        Monkey365 check IDs use underscore separators (e.g., aad_lack_cloud_only_accounts)
-        so the normalization prefix extractor (which requires dot-separated IDs) returns
-        None for all of them. Category resolution falls back to COMPLIANCE for every
-        finding. This test verifies the fallback path produces valid Category instances
-        rather than asserting multi-category coverage, which requires upstream ID format
-        changes to the prefix extractor.
-        """
+        """Fixture findings resolve to multiple categories via prefix extraction."""
         from gxassessms.core.domain.enums import Category
 
         categories = {f.category for f in normalized_findings}
-        assert len(categories) >= 1, "Findings must resolve to at least one category"
+        assert len(categories) >= 2, (
+            f"Fixture should cover at least 2 categories, found: {categories}"
+        )
         for cat in categories:
             assert isinstance(cat, Category), f"Expected Category enum, got {type(cat)}"

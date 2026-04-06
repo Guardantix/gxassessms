@@ -16,17 +16,26 @@ and sample output at /home/guardantix/ToolInspection/SampleReports/monkey365-rep
 from gxassessms.core.domain.enums import Category, FindingStatus, Severity
 
 # ---------------------------------------------------------------------------
-# Severity mapping: OCSF severity string (title case) -> Severity
+# Severity mapping: (OCSF severity string, canonical status) -> Severity
 # Source: psocsf/public/Ocsf/SeverityId.cs in Monkey365 source
+# Keys are (native_severity, canonical_status) tuples matching the contract
+# in NormalizationPolicy._resolve_severity().  PASS observations are
+# short-circuited to INFO before this map is consulted.
 # ---------------------------------------------------------------------------
 
-SEVERITY_MAP: dict[str, Severity] = {
-    "Critical": Severity.CRITICAL,
-    "High": Severity.HIGH,
-    "Medium": Severity.MEDIUM,
-    "Low": Severity.LOW,
-    "Informational": Severity.INFO,
-    "Unknown": Severity.INFO,  # severityId=0; conservative mapping
+SEVERITY_MAP: dict[tuple[str, str], Severity] = {
+    ("Critical", FindingStatus.FAIL): Severity.CRITICAL,
+    ("Critical", FindingStatus.MANUAL): Severity.CRITICAL,
+    ("High", FindingStatus.FAIL): Severity.HIGH,
+    ("High", FindingStatus.MANUAL): Severity.HIGH,
+    ("Medium", FindingStatus.FAIL): Severity.MEDIUM,
+    ("Medium", FindingStatus.MANUAL): Severity.MEDIUM,
+    ("Low", FindingStatus.FAIL): Severity.LOW,
+    ("Low", FindingStatus.MANUAL): Severity.LOW,
+    ("Informational", FindingStatus.FAIL): Severity.INFO,
+    ("Informational", FindingStatus.MANUAL): Severity.INFO,
+    ("Unknown", FindingStatus.FAIL): Severity.INFO,  # severityId=0; conservative
+    ("Unknown", FindingStatus.MANUAL): Severity.INFO,
 }
 
 # ---------------------------------------------------------------------------
@@ -43,24 +52,20 @@ STATUS_MAP: dict[str, FindingStatus] = {
 }
 
 # ---------------------------------------------------------------------------
-# Category mapping: resources.group.name -> Category
-# Source: Rule definitions set serviceType which maps to group.name in OCSF.
-# Values observed in real output and rule files.
+# Category mapping: module prefix (from native_check_id) -> Category
+# _extract_module_prefix() extracts the first underscore segment (e.g.,
+# aad_lack_cloud_only_accounts -> aad) or second segment for m365_ IDs
+# (e.g., m365_exo_transport_rules -> exo).
+# Only entries that differ from or extend default_category_map are needed;
+# aad, exo, teams, defender, azure are already in the default map.
 # ---------------------------------------------------------------------------
 
 CATEGORY_MAP: dict[str, Category] = {
-    "Entra Identity Governance": Category.IDENTITY_ACCESS,
-    "Entra ID": Category.IDENTITY_ACCESS,
-    "Microsoft Entra ID": Category.IDENTITY_ACCESS,
-    "Exchange Online": Category.EMAIL_COLLABORATION,
-    "SharePoint Online": Category.DATA_PROTECTION,
-    "OneDrive for Business": Category.DATA_PROTECTION,
-    "Microsoft Teams": Category.EMAIL_COLLABORATION,
-    "Microsoft Purview": Category.COMPLIANCE,
-    "Microsoft Fabric": Category.DATA_PROTECTION,
-    "Microsoft Defender for Office 365": Category.EMAIL_COLLABORATION,
-    "Azure": Category.INFRASTRUCTURE_SECURITY,
-    "General": Category.COMPLIANCE,
+    "eid": Category.IDENTITY_ACCESS,
+    "spo": Category.DATA_PROTECTION,
+    "odb": Category.DATA_PROTECTION,
+    "purview": Category.COMPLIANCE,
+    "fabric": Category.DATA_PROTECTION,
 }
 
 # ---------------------------------------------------------------------------

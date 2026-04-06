@@ -220,13 +220,13 @@ class Monkey365Adapter:
         return records
 
     @property
-    def severity_map(self) -> dict[str, Any]:
-        """OCSF severity string -> Severity for NormalizationPolicy."""
+    def severity_map(self) -> dict[tuple[str, str], Any]:
+        """(OCSF severity, canonical status) -> Severity for NormalizationPolicy."""
         return SEVERITY_MAP
 
     @property
     def category_map(self) -> dict[str, Any]:
-        """resources.group.name -> Category for NormalizationPolicy."""
+        """Module prefix -> Category for NormalizationPolicy."""
         return CATEGORY_MAP
 
     @property
@@ -274,6 +274,12 @@ class Monkey365Adapter:
             if "findingInfo" not in finding:
                 raise RawOutputValidationError(
                     f"Finding [{i}] missing 'findingInfo' field",
+                    adapter_name=self.tool_name,
+                )
+            if not isinstance(finding["findingInfo"], dict):
+                raise RawOutputValidationError(
+                    f"Finding [{i}] 'findingInfo' must be an object, "
+                    f"got {type(finding['findingInfo']).__name__}",
                     adapter_name=self.tool_name,
                 )
             if "statusCode" not in finding:

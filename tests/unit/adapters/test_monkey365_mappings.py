@@ -32,30 +32,42 @@ def fixture_data() -> list[dict[str, Any]]:
 
 
 class TestSeverityMap:
-    """Maps OCSF severity string -> domain Severity enum."""
+    """Maps (OCSF severity, canonical status) -> domain Severity enum."""
 
     def test_severity_map_is_dict(self) -> None:
         assert isinstance(SEVERITY_MAP, dict)
+
+    def test_severity_map_keys_are_tuples(self) -> None:
+        for key in SEVERITY_MAP:
+            assert isinstance(key, tuple)
+            assert len(key) == 2
 
     def test_severity_map_values_are_valid_severities(self) -> None:
         for severity in SEVERITY_MAP.values():
             assert isinstance(severity, Severity)
 
-    def test_ocsf_severity_mappings(self) -> None:
-        """Monkey365 OCSF severity strings (title case)."""
-        assert SEVERITY_MAP["Critical"] == Severity.CRITICAL
-        assert SEVERITY_MAP["High"] == Severity.HIGH
-        assert SEVERITY_MAP["Medium"] == Severity.MEDIUM
-        assert SEVERITY_MAP["Low"] == Severity.LOW
-        assert SEVERITY_MAP["Informational"] == Severity.INFO
-        assert SEVERITY_MAP["Unknown"] == Severity.INFO  # Unknown -> INFO (conservative)
+    def test_ocsf_severity_fail_mappings(self) -> None:
+        """OCSF severity + FAIL -> expected domain severity."""
+        assert SEVERITY_MAP[("Critical", FindingStatus.FAIL)] == Severity.CRITICAL
+        assert SEVERITY_MAP[("High", FindingStatus.FAIL)] == Severity.HIGH
+        assert SEVERITY_MAP[("Medium", FindingStatus.FAIL)] == Severity.MEDIUM
+        assert SEVERITY_MAP[("Low", FindingStatus.FAIL)] == Severity.LOW
+        assert SEVERITY_MAP[("Informational", FindingStatus.FAIL)] == Severity.INFO
+        assert SEVERITY_MAP[("Unknown", FindingStatus.FAIL)] == Severity.INFO
+
+    def test_ocsf_severity_manual_mappings(self) -> None:
+        """MANUAL observations get same severity as FAIL (check importance, not result)."""
+        assert SEVERITY_MAP[("Critical", FindingStatus.MANUAL)] == Severity.CRITICAL
+        assert SEVERITY_MAP[("High", FindingStatus.MANUAL)] == Severity.HIGH
+        assert SEVERITY_MAP[("Low", FindingStatus.MANUAL)] == Severity.LOW
 
     def test_fixture_severities_covered(self, fixture_data: list[dict[str, Any]]) -> None:
-        """Every severity value in fixtures is in SEVERITY_MAP."""
+        """Every severity value in fixtures appears in at least one SEVERITY_MAP key."""
+        mapped_severities = {key[0] for key in SEVERITY_MAP}
         unmapped: set[str] = set()
         for finding in fixture_data:
             sev = finding["severity"]
-            if sev not in SEVERITY_MAP:
+            if sev not in mapped_severities:
                 unmapped.add(sev)
         assert unmapped == set(), f"Unmapped severities in fixtures: {unmapped}"
 
@@ -86,7 +98,11 @@ class TestStatusMap:
 
 
 class TestCategoryMap:
-    """Maps resources.group.name -> domain Category enum."""
+    """Maps module prefix (from native_check_id) -> domain Category enum.
+
+    Only contains Monkey365-specific prefixes not already in default_category_map.
+    Prefixes like aad, exo, azure are handled by the default map.
+    """
 
     def test_category_map_is_dict(self) -> None:
         assert isinstance(CATEGORY_MAP, dict)
@@ -95,20 +111,13 @@ class TestCategoryMap:
         for category in CATEGORY_MAP.values():
             assert isinstance(category, Category)
 
-    def test_known_group_name_mappings(self) -> None:
-        assert CATEGORY_MAP["Entra Identity Governance"] == Category.IDENTITY_ACCESS
-        assert CATEGORY_MAP["Exchange Online"] == Category.EMAIL_COLLABORATION
-        assert CATEGORY_MAP["SharePoint Online"] == Category.DATA_PROTECTION
-        assert CATEGORY_MAP["Microsoft Teams"] == Category.EMAIL_COLLABORATION
-
-    def test_fixture_groups_covered(self, fixture_data: list[dict[str, Any]]) -> None:
-        """Every resources.group.name in fixtures has a matching category."""
-        unmapped: set[str] = set()
-        for finding in fixture_data:
-            group_name = finding.get("resources", {}).get("group", {}).get("name")
-            if group_name and group_name not in CATEGORY_MAP:
-                unmapped.add(group_name)
-        assert unmapped == set(), f"Unmapped group names: {unmapped}"
+    def test_monkey365_specific_prefix_mappings(self) -> None:
+        """Prefixes unique to Monkey365 that extend the default category map."""
+        assert CATEGORY_MAP["eid"] == Category.IDENTITY_ACCESS
+        assert CATEGORY_MAP["spo"] == Category.DATA_PROTECTION
+        assert CATEGORY_MAP["odb"] == Category.DATA_PROTECTION
+        assert CATEGORY_MAP["purview"] == Category.COMPLIANCE
+        assert CATEGORY_MAP["fabric"] == Category.DATA_PROTECTION
 
 
 class TestDedupKeyRules:
