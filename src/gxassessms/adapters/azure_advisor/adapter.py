@@ -120,8 +120,8 @@ class AzureAdvisorAdapter:
                 DefaultAzureCredential,  # pyright: ignore[reportUnknownVariableType]
             )
 
-            credential = DefaultAzureCredential()  # pyright: ignore[reportUnknownVariableType]
-            token = credential.get_token(_MANAGEMENT_SCOPE)  # pyright: ignore[reportUnknownVariableType,reportUnknownMemberType]
+            with DefaultAzureCredential() as credential:  # pyright: ignore[reportUnknownVariableType]
+                token = credential.get_token(_MANAGEMENT_SCOPE)  # pyright: ignore[reportUnknownVariableType,reportUnknownMemberType]
         except ImportError as exc:
             raise PrerequisiteError(
                 f"Azure authentication dependencies not importable: {exc}. "
@@ -249,7 +249,7 @@ class AzureAdvisorAdapter:
 
                     all_recommendations.extend(cast(list[dict[str, Any]], raw_value))
                     raw_next = page.get("nextLink")
-                    next_url = str(raw_next) if raw_next is not None else None
+                    next_url = str(raw_next) if raw_next else None
         except httpx.HTTPStatusError as exc:
             raise CollectionError(
                 f"Azure Advisor API returned HTTP "
