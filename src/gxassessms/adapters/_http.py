@@ -90,7 +90,9 @@ def fetch_paginated_json(
     import httpx  # function-scoped: heavy third-party dep
 
     initial_origin = urlparse(url)
-    origin = (initial_origin.scheme, initial_origin.netloc)
+    # Normalize scheme + netloc to lowercase for case-insensitive comparison
+    # (RFC 3986: scheme and host are case-insensitive)
+    origin = (initial_origin.scheme.lower(), initial_origin.netloc.lower())
 
     all_items: list[dict[str, Any]] = []
     seen_urls: set[str] = set()
@@ -141,7 +143,7 @@ def fetch_paginated_json(
                     )
                 else:
                     parsed = urlparse(next_link)
-                    if (parsed.scheme, parsed.netloc) != origin:
+                    if (parsed.scheme.lower(), parsed.netloc.lower()) != origin:
                         raise CollectionError(
                             f"{adapter_name}: cross-origin pagination link rejected"
                             f" at {label} page {page}",
