@@ -48,15 +48,20 @@ SEVERITY_MAP: dict[tuple[str, str], Severity] = {
 
 # ---------------------------------------------------------------------------
 # Status mapping: OCSF status_code (UPPERCASE) -> FindingStatus
-# Source: prowler check results use PASS/FAIL/MANUAL
+# Source: prowler check results use PASS/FAIL/MANUAL/MUTED
 # Note: OCSF "status" field is lifecycle status ("New"/"Suppressed"),
-# NOT the assessment result. Use status_code for PASS/FAIL/MANUAL.
+# NOT the assessment result. Use status_code for PASS/FAIL/MANUAL/MUTED.
+#
+# MUTED: finding suppressed by operator mutelist (accepted risk / known
+# exception). Not a PASS (control didn't satisfy), not a FAIL (explicitly
+# acknowledged). Maps to NOT_APPLICABLE -- excluded from scoring.
 # ---------------------------------------------------------------------------
 
 STATUS_MAP: dict[str, FindingStatus] = {
     FindingStatus.PASS: FindingStatus.PASS,
     FindingStatus.FAIL: FindingStatus.FAIL,
     FindingStatus.MANUAL: FindingStatus.MANUAL,
+    "MUTED": FindingStatus.NOT_APPLICABLE,
 }
 
 # ---------------------------------------------------------------------------

@@ -456,7 +456,7 @@ class TestValidateStatusCode:
             adapter.validate_raw(raw)
 
     def test_rejects_unrecognized_status_code(self, tmp_path: Path) -> None:
-        """status_code values outside PASS/FAIL/MANUAL must be rejected."""
+        """status_code values outside PASS/FAIL/MANUAL/MUTED must be rejected."""
         import json
 
         finding = _minimal_finding()
@@ -466,9 +466,9 @@ class TestValidateStatusCode:
         with pytest.raises(RawOutputValidationError, match="status_code"):
             adapter.validate_raw(raw)
 
-    @pytest.mark.parametrize("code", ["PASS", "FAIL", "MANUAL"])
+    @pytest.mark.parametrize("code", ["PASS", "FAIL", "MANUAL", "MUTED"])
     def test_accepts_valid_status_codes(self, tmp_path: Path, code: str) -> None:
-        """PASS, FAIL, and MANUAL are all valid status_code values."""
+        """PASS, FAIL, MANUAL, and MUTED are all valid status_code values."""
         import json
 
         finding = _minimal_finding(status_code=code)

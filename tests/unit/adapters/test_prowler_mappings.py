@@ -80,8 +80,13 @@ class TestStatusMap:
 
         assert STATUS_MAP["MANUAL"] == FindingStatus.MANUAL
 
-    def test_all_three_statuses_present(self) -> None:
-        assert len(STATUS_MAP) == 3
+    def test_muted_maps_to_not_applicable(self) -> None:
+        from gxassessms.core.domain.enums import FindingStatus
+
+        assert STATUS_MAP["MUTED"] == FindingStatus.NOT_APPLICABLE
+
+    def test_all_four_statuses_present(self) -> None:
+        assert len(STATUS_MAP) == 4
 
     def test_fixture_statuses_covered(self, fixture_data: list[dict]) -> None:
         """Every status_code value in fixtures is in STATUS_MAP."""

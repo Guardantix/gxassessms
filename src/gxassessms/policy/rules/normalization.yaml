@@ -70,3 +70,5 @@ default_status_map:
   "pass": "PASS"
   "fail": "FAIL"
   "manual": "MANUAL"
+  # Prowler MUTED: finding suppressed by operator mutelist (accepted risk)
+  "MUTED": "N/A"
