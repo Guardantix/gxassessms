@@ -250,14 +250,20 @@ class DefaultNormalizationPolicy:
 
         ScubaGear and Monkey365 use the second segment as the module prefix
         when the ID starts with a known namespace (MS. or m365).
+        All other dot-separated IDs use the first segment (lowercased), with
+        an additional hyphen-split to strip area/numbering suffixes so that
+        hyphen-separated formats (e.g. M365-Assess) resolve to their top-level
+        collector token rather than the full first segment.
 
         Examples (dot-separated):
-            MS.AAD.3.1v1        -> aad      (ScubaGear: second segment)
-            MS.EXO.4.1v1        -> exo
-            m365.iam.mfa_admins -> iam      (Monkey365: second segment)
-            CISA.MS.AAD.3.1     -> cisa     (Maester: first segment)
-            EIDSCA.AF01         -> eidsca
-            MT.1001             -> mt
+            MS.AAD.3.1v1         -> aad      (ScubaGear: second segment)
+            MS.EXO.4.1v1         -> exo
+            m365.iam.mfa_admins  -> iam      (Monkey365: second segment)
+            CISA.MS.AAD.3.1      -> cisa     (Maester: first segment)
+            EIDSCA.AF01          -> eidsca
+            MT.1001              -> mt
+            ENTRA-ADMIN-001.1    -> entra    (M365-Assess: collector prefix)
+            EXO-AUTH-001.2       -> exo
 
         Examples (underscore-separated, no dots):
             m365_exo_transport_rules_forwarding  -> exo   (Monkey365: second segment)
@@ -276,12 +282,14 @@ class DefaultNormalizationPolicy:
             if len(parts) >= 3:
                 return parts[1].lower()
 
-        # Generic dot-separated: first segment for other formats (Maester, etc.)
+        # Generic dot-separated: first segment for other formats (Maester, etc.),
+        # with an additional hyphen-split so ENTRA-ADMIN-001.1 -> "entra"
+        # rather than the full "entra-admin-001" token.
         # NOTE: Pure-underscore IDs (no dots) produce len(parts)==1 from split(".")
         # and fall through this block to the underscore branches below.
         parts = native_check_id.split(".")
         if len(parts) >= 2:
-            return parts[0].lower()
+            return parts[0].split("-")[0].lower()
 
         # Monkey365 underscore pattern: m365_{module}_check_name -- second segment
         if native_check_id.startswith("m365_"):

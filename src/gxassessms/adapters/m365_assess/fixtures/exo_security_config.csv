@@ -1,0 +1,6 @@
+"Category","Setting","CurrentValue","RecommendedValue","Status","CheckId","Remediation"
+"Authentication","Modern Authentication Enabled","True","True","Pass","EXO-AUTH-001.1","No action needed."
+"Auditing","Org-Level Audit Enabled","Enabled","Enabled","Pass","EXO-AUDIT-001.1","No action needed."
+"Security","Customer Lockbox Enabled","False","True (E5 license)","Review","EXO-LOCKBOX-001.1","M365 admin center > Settings > Org settings > Security & privacy > Customer Lockbox."
+"Email Security","Auto-Forward to External (Default Domain)","True","False","Fail","EXO-FORWARD-001.1","Run: Set-RemoteDomain -Identity Default -AutoForwardEnabled $false."
+"Mailbox Security","Shared Mailbox Sign-In Blocked","1/1 enabled: hello@contoso.com","All shared mailbox accounts disabled","Fail","EXO-SHAREDMBX-001.1","Block sign-in for shared mailbox accounts."

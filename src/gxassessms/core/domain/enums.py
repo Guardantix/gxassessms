@@ -54,7 +54,7 @@ class ToolSource(StrEnum):
     SCUBAGEAR = "ScubaGear"
     MAESTER = "Maester"
     MONKEY365 = "Monkey365"
-    M365_ASSESS = "M365Assess"
+    M365_ASSESS = "M365_Assess"
     PROWLER = "Prowler"
     STEAMPIPE = "Steampipe"
     SECURE_SCORE = "SecureScore"
