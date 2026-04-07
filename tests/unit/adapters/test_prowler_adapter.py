@@ -200,7 +200,7 @@ class TestCollectExtraArgs:
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
         mock_run.side_effect = _make_collector(tmp_path)
         config = _make_config(
-            extra_args=["--az-cli-auth", "--scan-list", "check1"],
+            extra_args=["--az-cli-auth", "--services", "storage"],
             output_dir=str(tmp_path),
         )
         adapter = ProwlerAdapter()
@@ -210,8 +210,8 @@ class TestCollectExtraArgs:
 
         cmd = mock_run.call_args[0][0]
         assert "--az-cli-auth" in cmd
-        assert "--scan-list" in cmd
-        assert "check1" in cmd
+        assert "--services" in cmd
+        assert "storage" in cmd
         # Mapped flag must be suppressed -- no conflicting auth modes
         assert "--sp-env-auth" not in cmd
 
@@ -245,7 +245,7 @@ class TestCollectExtraArgs:
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
         mock_run.side_effect = _make_collector(tmp_path)
         config = _make_config(
-            extra_args=["--scan-list", "check1"],
+            extra_args=["--services", "storage"],
             output_dir=str(tmp_path),
         )
         adapter = ProwlerAdapter()
@@ -803,39 +803,33 @@ class TestCollectErrorPaths:
             adapter.collect(config, None)
 
     @patch("gxassessms.adapters.prowler.adapter.shutil")
-    def test_stale_output_file_from_prior_run_is_excluded(
+    def test_rerun_with_same_output_dir_succeeds(
         self, mock_shutil: MagicMock, tmp_path: Path
     ) -> None:
-        """A ProwlerResults.ocsf.json left over from a prior run must not be collected.
+        """collect() must succeed when the output_dir is reused across runs.
 
-        Prowler writes to timestamped subdirectories, so a reused output_dir can
-        accumulate files from earlier runs.  Only the file written by the current
-        subprocess should appear in the manifest.
+        Prowler writes to a fixed path (-o <output_dir> -F ProwlerResults), so the
+        .ocsf.json file already exists when a second run begins.  The adapter must
+        collect the overwritten file rather than raising CollectionError.
         """
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
         config = _make_config(output_dir=str(tmp_path))
         adapter = ProwlerAdapter()
 
-        # Simulate a stale artifact left by a prior run.
-        stale_dir = tmp_path / "20260101_000000"
-        stale_dir.mkdir()
-        stale_file = stale_dir / "ProwlerResults.ocsf.json"
-        stale_file.write_text('[{"stale": true}]')
+        # Pre-create the output file as Prowler would have left it after a prior run.
+        existing_file = tmp_path / "ProwlerResults.ocsf.json"
+        existing_file.write_text('[{"stale": true}]')
 
-        # The subprocess writes a NEW file in a fresh dated subdir.
+        # The subprocess overwrites the same file with fresh results.
         def _fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
-            run_dir = tmp_path / "20260407_143022"
-            run_dir.mkdir()
-            (run_dir / "ProwlerResults.ocsf.json").write_text('[{"finding_info": {}}]')
+            existing_file.write_text('[{"finding_info": {}}]')
             return MagicMock(returncode=0, stdout=b"", stderr=b"")
 
         with patch("subprocess.run", side_effect=_fake_run):
             result = adapter.collect(config, None)
 
-        # Only the new file -- not the stale one -- must be in the manifest.
         assert len(result.artifacts) == 1
-        assert "20260407_143022" in result.artifacts[0].source_path
-        assert "20260101_000000" not in result.artifacts[0].source_path
+        assert result.artifacts[0].source_path == str(existing_file)
 
 
 # ---------------------------------------------------------------------------
@@ -1247,14 +1241,14 @@ class TestValidateProwlerExtraArgsWindowsPaths:
         result = _validate_prowler_extra_args(["--checks-file", r"C:\temp\checks.txt"], "Prowler")
         assert r"C:\temp\checks.txt" in result
 
-    def test_windows_path_for_scan_list_is_accepted(self) -> None:
-        """Windows path for --scan-list must not be rejected."""
+    def test_windows_path_for_mutelist_file_is_accepted(self) -> None:
+        """Windows path for --mutelist-file must not be rejected."""
         from gxassessms.adapters.prowler.adapter import _validate_prowler_extra_args
 
         result = _validate_prowler_extra_args(
-            ["--scan-list", r"C:\Users\auditor\scan.txt"], "Prowler"
+            ["--mutelist-file", r"C:\Users\auditor\mutelist.yaml"], "Prowler"
         )
-        assert r"C:\Users\auditor\scan.txt" in result
+        assert r"C:\Users\auditor\mutelist.yaml" in result
 
     def test_shell_metachar_still_rejected_on_windows_style_value(self) -> None:
         """Backslash allowance must not open shell injection via semicolons etc."""
