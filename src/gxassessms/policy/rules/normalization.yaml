@@ -66,3 +66,7 @@ default_status_map:
   "Failed": "FAIL"
   "Skipped": "N/A"
   "NotRun": "N/A"
+  # Monkey365 uses lowercase OCSF statusCode values
+  "pass": "PASS"
+  "fail": "FAIL"
+  "manual": "MANUAL"

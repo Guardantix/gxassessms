@@ -141,9 +141,10 @@ class DefaultNormalizationPolicy:
         Lookup order:
           1. Adapter map by module prefix (MS.AAD -> aad, m365.iam -> iam)
           2. Adapter map by full native_check_id (MT.1003 direct key)
-          3. Default rules map by module prefix
-          4. Default rules map by full native_check_id
-          5. Fallback category from rules (default: COMPLIANCE)
+          3. Adapter map by native_category (Identity, Data, etc.)
+          4. Default rules map by module prefix
+          5. Default rules map by full native_check_id
+          6. Fallback category from rules (default: COMPLIANCE)
         """
         prefix = self._extract_module_prefix(obs.native_check_id)
 
@@ -152,6 +153,10 @@ class DefaultNormalizationPolicy:
             return self._category_key_to_enum(adapter_category_map[prefix])
         if obs.native_check_id in adapter_category_map:
             return self._category_key_to_enum(adapter_category_map[obs.native_check_id])
+
+        # Try adapter map by native_category (tools that report category metadata)
+        if obs.native_category and obs.native_category in adapter_category_map:
+            return self._category_key_to_enum(adapter_category_map[obs.native_category])
 
         # Try default category map from rules (prefix first, then direct check ID)
         default_map = self._rules.get("default_category_map", {})
@@ -243,16 +248,21 @@ class DefaultNormalizationPolicy:
     def _extract_module_prefix(native_check_id: str) -> str | None:
         """Extract the module prefix from a tool-native check ID.
 
-        ScubaGear and Monkey365 use the second segment as the module prefix.
-        All other dot-separated IDs use the first segment (lowercased).
+        ScubaGear and Monkey365 use the second segment as the module prefix
+        when the ID starts with a known namespace (MS. or m365).
 
-        Examples:
-            MS.AAD.3.1v1       -> aad      (ScubaGear: second segment)
-            MS.EXO.4.1v1       -> exo
-            m365.iam.mfa_admins -> iam     (Monkey365: second segment)
-            CISA.MS.AAD.3.1    -> cisa     (Maester: first segment)
-            EIDSCA.AF01        -> eidsca
-            MT.1001            -> mt
+        Examples (dot-separated):
+            MS.AAD.3.1v1        -> aad      (ScubaGear: second segment)
+            MS.EXO.4.1v1        -> exo
+            m365.iam.mfa_admins -> iam      (Monkey365: second segment)
+            CISA.MS.AAD.3.1     -> cisa     (Maester: first segment)
+            EIDSCA.AF01         -> eidsca
+            MT.1001             -> mt
+
+        Examples (underscore-separated, no dots):
+            m365_exo_transport_rules_forwarding  -> exo   (Monkey365: second segment)
+            aad_lack_cloud_only_accounts         -> aad   (Monkey365: first segment)
+            eid_lack_emergency_account           -> eid
         """
         # ScubaGear pattern: MS.{MODULE}.x.y -- second segment is the module
         if native_check_id.startswith("MS."):
@@ -260,14 +270,27 @@ class DefaultNormalizationPolicy:
             if len(parts) >= 3:
                 return parts[1].lower()
 
-        # Monkey365 pattern: m365.{module}.check_name -- second segment
+        # Monkey365 dot pattern: m365.{module}.check_name -- second segment
         if native_check_id.startswith("m365."):
             parts = native_check_id.split(".")
             if len(parts) >= 3:
                 return parts[1].lower()
 
-        # Generic: first dot-separated segment for other formats
+        # Generic dot-separated: first segment for other formats (Maester, etc.)
+        # NOTE: Pure-underscore IDs (no dots) produce len(parts)==1 from split(".")
+        # and fall through this block to the underscore branches below.
         parts = native_check_id.split(".")
+        if len(parts) >= 2:
+            return parts[0].lower()
+
+        # Monkey365 underscore pattern: m365_{module}_check_name -- second segment
+        if native_check_id.startswith("m365_"):
+            parts = native_check_id.split("_")
+            if len(parts) >= 3:
+                return parts[1].lower()
+
+        # Underscore-separated: first segment (e.g., aad_check_name -> aad)
+        parts = native_check_id.split("_")
         if len(parts) >= 2:
             return parts[0].lower()
 

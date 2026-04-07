@@ -1,0 +1,365 @@
+[
+  {
+    "metadata": null,
+    "severityId": 0,
+    "severity": "Unknown",
+    "status": "New",
+    "statusCode": "pass",
+    "statusDetail": null,
+    "statusId": 1,
+    "unmapped": {
+      "provider": "EntraID",
+      "pluginId": "aad0005",
+      "apiType": "MSGraph",
+      "resource": "EntraID"
+    },
+    "activityName": "Create",
+    "activityId": 1,
+    "findingInfo": {
+      "createdTime": "2026-03-30T06:25:00.000Z",
+      "description": "Administrative accounts are special privileged accounts that could have varying levels of access to data, users, and settings. Ensure administrative accounts are cloud-only.",
+      "productId": "Monkey365",
+      "title": "Ensure Administrative accounts are separate and cloud-only",
+      "id": "Monkey365-aad-lack-cloud-only-accounts-00000000000000000000000000000000-abcdef1234567890abcd"
+    },
+    "resources": {
+      "cloudPartition": "6",
+      "region": null,
+      "data": null,
+      "group": { "name": "Entra Identity Governance" },
+      "labels": null,
+      "name": null,
+      "type": null,
+      "id": null
+    },
+    "categoryName": "Findings",
+    "categoryId": 2,
+    "className": "Detection",
+    "classId": 2004,
+    "cloud": {
+      "account": {
+        "name": "Contoso LLC",
+        "type": "AzureADAccount",
+        "typeId": "6",
+        "id": "00000000-0000-0000-0000-000000000000"
+      },
+      "organization": {
+        "name": "Contoso LLC",
+        "id": "00000000-0000-0000-0000-000000000000"
+      },
+      "provider": "Microsoft365",
+      "region": "global"
+    },
+    "time": "2026-03-30T06:25:00.000Z",
+    "remediation": {
+      "description": "",
+      "references": [
+        "https://docs.microsoft.com/en-us/azure/active-directory/users-groups-roles/directory-admin-roles-secure"
+      ]
+    },
+    "typeId": 200401,
+    "typeName": "Create"
+  },
+  {
+    "metadata": null,
+    "severityId": 3,
+    "severity": "Medium",
+    "status": "New",
+    "statusCode": "manual",
+    "statusDetail": null,
+    "statusId": 1,
+    "unmapped": {
+      "provider": null,
+      "pluginId": "emptyCollector234",
+      "apiType": null,
+      "resource": null
+    },
+    "activityName": "Create",
+    "activityId": 1,
+    "findingInfo": {
+      "createdTime": "2026-03-30T06:25:01.000Z",
+      "description": "Emergency access or break glass accounts are limited for emergency scenarios where normal administrative accounts are unavailable.",
+      "productId": "Monkey365",
+      "title": "Ensure two emergency access accounts have been defined",
+      "id": "Monkey365-eid-lack-emergency-account-00000000000000000000000000000000-cf70f1f7337140fd9630"
+    },
+    "resources": {
+      "cloudPartition": "6",
+      "region": null,
+      "data": null,
+      "group": { "name": "Entra Identity Governance" },
+      "labels": null,
+      "name": null,
+      "type": null,
+      "id": null
+    },
+    "categoryName": "Findings",
+    "categoryId": 2,
+    "className": "Detection",
+    "classId": 2004,
+    "cloud": {
+      "account": {
+        "name": "Contoso LLC",
+        "type": "AzureADAccount",
+        "typeId": "6",
+        "id": "00000000-0000-0000-0000-000000000000"
+      },
+      "organization": {
+        "name": "Contoso LLC",
+        "id": "00000000-0000-0000-0000-000000000000"
+      },
+      "provider": "Microsoft365",
+      "region": "global"
+    },
+    "time": "2026-03-30T06:25:01.000Z",
+    "remediation": {
+      "description": "",
+      "references": [
+        "https://learn.microsoft.com/en-us/azure/active-directory/roles/security-emergency-access"
+      ]
+    },
+    "typeId": 200401,
+    "typeName": "Create"
+  },
+  {
+    "metadata": null,
+    "severityId": 2,
+    "severity": "Low",
+    "status": "New",
+    "statusCode": "manual",
+    "statusDetail": "Ensure administrative accounts use licenses with a reduced application footprint",
+    "statusId": 1,
+    "unmapped": {
+      "provider": null,
+      "pluginId": "emptyCollector340",
+      "apiType": null,
+      "resource": null
+    },
+    "activityName": "Create",
+    "activityId": 1,
+    "findingInfo": {
+      "createdTime": "2026-03-30T06:25:02.000Z",
+      "description": "Administrative accounts are special privileged accounts. A license can enable an account to gain access to a variety of different applications. The recommended state is to not license a privileged account or use Microsoft Entra ID P1 or P2 licenses.",
+      "productId": "Monkey365",
+      "title": "Ensure administrative accounts use licenses with a reduced application footprint",
+      "id": "Monkey365-eid-privileged-users-reduced-application-footprint-license-00000000000000000000000000000000-176639065c10451a8982"
+    },
+    "resources": {
+      "cloudPartition": "6",
+      "region": null,
+      "data": null,
+      "group": { "name": "Entra Identity Governance" },
+      "labels": null,
+      "name": null,
+      "type": null,
+      "id": null
+    },
+    "categoryName": "Findings",
+    "categoryId": 2,
+    "className": "Detection",
+    "classId": 2004,
+    "cloud": {
+      "account": {
+        "name": "Contoso LLC",
+        "type": "AzureADAccount",
+        "typeId": "6",
+        "id": "00000000-0000-0000-0000-000000000000"
+      },
+      "organization": {
+        "name": "Contoso LLC",
+        "id": "00000000-0000-0000-0000-000000000000"
+      },
+      "provider": "Microsoft365",
+      "region": "global"
+    },
+    "time": "2026-03-30T06:25:02.000Z",
+    "remediation": {
+      "description": "1. Navigate to Microsoft 365 admin center. 2. Click to expand Users select Active users. 3. Click Add a user.",
+      "references": [
+        "https://learn.microsoft.com/en-us/microsoft-365/admin/add-users/add-users",
+        "https://learn.microsoft.com/en-us/microsoft-365/enterprise/protect-your-global-administrator-accounts"
+      ]
+    },
+    "typeId": 200401,
+    "typeName": "Create"
+  },
+  {
+    "metadata": null,
+    "severityId": 4,
+    "severity": "High",
+    "status": "New",
+    "statusCode": "fail",
+    "statusDetail": null,
+    "statusId": 1,
+    "unmapped": {
+      "provider": "EntraID",
+      "pluginId": "aad0024",
+      "apiType": "MSGraph",
+      "resource": "EntraID"
+    },
+    "activityName": "Create",
+    "activityId": 1,
+    "findingInfo": {
+      "createdTime": "2026-03-30T06:25:03.000Z",
+      "description": "Multi-factor authentication requires an individual to present a minimum of two separate forms of authentication before access is granted.",
+      "productId": "Monkey365",
+      "title": "Ensure that Multi-Factor Auth Status is Enabled for all Privileged Users",
+      "id": "Monkey365-aad-privileged-users-with-mfa-disabled-00000000000000000000000000000000-a1b2c3d4e5f6a1b2c3d4"
+    },
+    "resources": {
+      "cloudPartition": "6",
+      "region": null,
+      "data": null,
+      "group": { "name": "Entra Identity Governance" },
+      "labels": null,
+      "name": "admin@contoso.com",
+      "type": "User",
+      "id": "11111111-1111-1111-1111-111111111111"
+    },
+    "categoryName": "Findings",
+    "categoryId": 2,
+    "className": "Detection",
+    "classId": 2004,
+    "cloud": {
+      "account": {
+        "name": "Contoso LLC",
+        "type": "AzureADAccount",
+        "typeId": "6",
+        "id": "00000000-0000-0000-0000-000000000000"
+      },
+      "organization": {
+        "name": "Contoso LLC",
+        "id": "00000000-0000-0000-0000-000000000000"
+      },
+      "provider": "Microsoft365",
+      "region": "global"
+    },
+    "time": "2026-03-30T06:25:03.000Z",
+    "remediation": {
+      "description": "From Azure Portal: Select Microsoft Entra ID > Roles and administrators > Enable MFA for privileged users.",
+      "references": [
+        "https://docs.microsoft.com/en-us/azure/multi-factor-authentication/multi-factor-authentication"
+      ]
+    },
+    "typeId": 200401,
+    "typeName": "Create"
+  },
+  {
+    "metadata": null,
+    "severityId": 5,
+    "severity": "Critical",
+    "status": "New",
+    "statusCode": "fail",
+    "statusDetail": null,
+    "statusId": 1,
+    "unmapped": {
+      "provider": "ExchangeOnline",
+      "pluginId": "exo0042",
+      "apiType": "ExchangeOnline",
+      "resource": "ExchangeOnline"
+    },
+    "activityName": "Create",
+    "activityId": 1,
+    "findingInfo": {
+      "createdTime": "2026-03-30T06:25:04.000Z",
+      "description": "Auto-forwarding to external domains should be disabled to prevent data exfiltration.",
+      "productId": "Monkey365",
+      "title": "Ensure mail transport rules do not forward email to external domains",
+      "id": "Monkey365-m365-exo-transport-rules-forwarding-external-00000000000000000000000000000000-d4e5f6a7b8c9d0e1f2a3"
+    },
+    "resources": {
+      "cloudPartition": "6",
+      "region": null,
+      "data": null,
+      "group": { "name": "Exchange Online" },
+      "labels": null,
+      "name": "Forward to Partner",
+      "type": "TransportRule",
+      "id": null
+    },
+    "categoryName": "Findings",
+    "categoryId": 2,
+    "className": "Detection",
+    "classId": 2004,
+    "cloud": {
+      "account": {
+        "name": "Contoso LLC",
+        "type": "AzureADAccount",
+        "typeId": "6",
+        "id": "00000000-0000-0000-0000-000000000000"
+      },
+      "organization": {
+        "name": "Contoso LLC",
+        "id": "00000000-0000-0000-0000-000000000000"
+      },
+      "provider": "Microsoft365",
+      "region": "global"
+    },
+    "time": "2026-03-30T06:25:04.000Z",
+    "remediation": {
+      "description": "Review and remove transport rules that forward email to external domains.",
+      "references": []
+    },
+    "typeId": 200401,
+    "typeName": "Create"
+  },
+  {
+    "metadata": null,
+    "severityId": 1,
+    "severity": "Informational",
+    "status": "New",
+    "statusCode": "pass",
+    "statusDetail": null,
+    "statusId": 1,
+    "unmapped": {
+      "provider": "SharePointOnline",
+      "pluginId": "spo0010",
+      "apiType": "MSGraph",
+      "resource": "SharePointOnline"
+    },
+    "activityName": "Create",
+    "activityId": 1,
+    "findingInfo": {
+      "createdTime": "2026-03-30T06:25:05.000Z",
+      "description": "SharePoint external sharing should be restricted to prevent unintended data exposure.",
+      "productId": "Monkey365",
+      "title": "Ensure SharePoint external sharing is managed",
+      "id": "Monkey365-m365-spo-external-sharing-restricted-00000000000000000000000000000000-e5f6a7b8c9d0e1f2a3b4"
+    },
+    "resources": {
+      "cloudPartition": "6",
+      "region": null,
+      "data": null,
+      "group": { "name": "SharePoint Online" },
+      "labels": null,
+      "name": null,
+      "type": null,
+      "id": null
+    },
+    "categoryName": "Findings",
+    "categoryId": 2,
+    "className": "Detection",
+    "classId": 2004,
+    "cloud": {
+      "account": {
+        "name": "Contoso LLC",
+        "type": "AzureADAccount",
+        "typeId": "6",
+        "id": "00000000-0000-0000-0000-000000000000"
+      },
+      "organization": {
+        "name": "Contoso LLC",
+        "id": "00000000-0000-0000-0000-000000000000"
+      },
+      "provider": "Microsoft365",
+      "region": "global"
+    },
+    "time": "2026-03-30T06:25:05.000Z",
+    "remediation": {
+      "description": "",
+      "references": []
+    },
+    "typeId": 200401,
+    "typeName": "Create"
+  }
+]
