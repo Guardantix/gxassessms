@@ -308,7 +308,7 @@ class M365AssessAdapter:
             "tenant_id": config.tenant_id,
         }
         if tc.controls_dir:
-            execution_metadata["controls_dir"] = str(Path(tc.controls_dir))
+            execution_metadata["controls_dir"] = str(controls_dir)
 
         return CollectionOutput(
             tool=ToolSource.M365_ASSESS,
