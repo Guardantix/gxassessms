@@ -50,13 +50,37 @@ class TestParseAdvisorRecommendations:
         observations = parse_advisor_recommendations(recommendations)
         assert len(observations) == len(recommendations)
 
-    def test_native_check_id_is_category_prefixed(
+    def test_native_check_id_is_bare_guid(
         self,
         recommendations: list[dict],
     ) -> None:
         observations = parse_advisor_recommendations(recommendations)
         first = observations[0]
-        assert first.native_check_id == ("HighAvailability.242639fd-cd73-4be2-8f55-70478db8d1a5")
+        assert first.native_check_id == "242639fd-cd73-4be2-8f55-70478db8d1a5"
+
+    def test_native_category_set_from_category_field(
+        self,
+        recommendations: list[dict],
+    ) -> None:
+        """native_category carries the lowercased Advisor category for normalization."""
+        observations = parse_advisor_recommendations(recommendations)
+        first = observations[0]
+        assert first.native_category == "highavailability"
+
+    def test_null_category_sets_native_category_none(self) -> None:
+        """Null category produces native_category=None, native_check_id=bare GUID."""
+        rec = {
+            "recommendationTypeId": "aaaaaaaa-0000-0000-0000-000000000000",
+            "name": "inst-null-cat",
+            "category": None,
+            "impact": "High",
+            "shortDescription": {"problem": "P", "solution": "S"},
+        }
+        observations = parse_advisor_recommendations([rec])
+        assert len(observations) == 1
+        obs = observations[0]
+        assert obs.native_check_id == "aaaaaaaa-0000-0000-0000-000000000000"
+        assert obs.native_category is None
 
     def test_severity_from_impact(
         self,

@@ -72,13 +72,12 @@ def parse_advisor_recommendations(
         category_raw = rec.get("category")
         if not isinstance(category_raw, str) or not category_raw:
             logger.warning(
-                "Recommendation %s has null/empty category; "
-                "native_check_id will lack category prefix",
+                "Recommendation %s has null/empty category",
                 recommendation_type_id,
             )
-            category = ""
+            native_category: str | None = None
         else:
-            category = category_raw
+            native_category = category_raw.lower()
 
         impact_raw = rec.get("impact")
         if not isinstance(impact_raw, str) or not impact_raw:
@@ -97,10 +96,10 @@ def parse_advisor_recommendations(
                     recommendation_type_id,
                 )
 
-        # Prefix native_check_id with the Advisor category so the category_map lookup
-        # in _resolve_category can match on the lowercased first dot-segment.
-        # e.g. "Security.242639fd-..." -> prefix "security" -> CATEGORY_MAP["security"]
-        check_id = f"{category}.{recommendation_type_id}" if category else recommendation_type_id
+        # Use the bare recommendationTypeId as native_check_id for stable dedup.
+        # Category is carried separately via native_category so _resolve_category
+        # can still look it up via the native_category path in the adapter map.
+        check_id = recommendation_type_id
 
         short_desc: dict[str, Any] = rec.get("shortDescription", {})
         title: str = short_desc.get("problem", "")
@@ -112,6 +111,7 @@ def parse_advisor_recommendations(
             observation_id=f"azure_advisor:{instance_name}",
             tool=ToolSource.AZURE_ADVISOR,
             native_check_id=check_id,
+            native_category=native_category,
             title=title,
             native_severity=severity,
             native_status=FindingStatus.FAIL,

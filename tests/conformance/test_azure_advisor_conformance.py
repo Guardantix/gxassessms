@@ -86,13 +86,13 @@ class TestAzureAdvisorConformance(AdapterConformanceSuite):
         adapter: AzureAdvisorAdapter,
         resolved_manifest: ResolvedManifest,
     ) -> None:
-        """native_check_id is category-prefixed recommendationTypeId."""
+        """native_check_id is the bare recommendationTypeId GUID (no category prefix)."""
         observations = adapter.parse(resolved_manifest)
         first = observations[0]
-        # Category prefix + recommendationTypeId from fixture
-        assert first.native_check_id == ("HighAvailability.242639fd-cd73-4be2-8f55-70478db8d1a5")
+        # Bare recommendationTypeId from fixture (stable regardless of category)
+        assert first.native_check_id == "242639fd-cd73-4be2-8f55-70478db8d1a5"
         # NOT the name (per-instance GUID)
-        assert first.native_check_id != ("b7762bb1-933d-32af-983e-74455d2943ae")
+        assert first.native_check_id != "b7762bb1-933d-32af-983e-74455d2943ae"
 
     def test_validate_raw_accepts_empty_value_array(
         self,
@@ -208,7 +208,7 @@ class TestAzureAdvisorConformance(AdapterConformanceSuite):
         raw = _make_manifest(dup_file)
         records = adapter.coverage(raw)
         assert len(records) == 1
-        assert records[0].control_id == f"Security.{shared_type_id}"
+        assert records[0].control_id == shared_type_id
 
     def test_coverage_deduplicates_across_category_mismatch(
         self,

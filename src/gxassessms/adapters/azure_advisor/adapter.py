@@ -5,7 +5,7 @@ recommendations for a subscription. This adapter uses httpx for HTTP
 calls and azure-identity for authentication.
 
 API: GET /subscriptions/{sub}/providers/Microsoft.Advisor/recommendations
-Auth: DefaultAzureCredential (azure-identity SDK)
+Auth: dispatches on config.auth.method (client_credential, device_code, interactive)
 Output: JSON with {"value": [...], "nextLink": "..."}
 
 Verified against Azure Advisor REST API docs and real sample output.
@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -36,7 +37,6 @@ from gxassessms.core.config.config import EngagementConfig
 from gxassessms.core.config.datetime_utils import from_epoch
 from gxassessms.core.contracts.errors import (
     CollectionError,
-    PrerequisiteError,
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
@@ -150,30 +150,105 @@ class AzureAdvisorAdapter:
         self,
         config: EngagementConfig,
     ) -> AuthContext | None:
-        """Acquire an Azure Management API token via DefaultAzureCredential.
+        """Acquire an Azure Management API token.
 
-        DefaultAzureCredential tries (in order): environment variables,
-        managed identity, Azure CLI, Azure PowerShell, interactive browser.
-        No custom env vars needed.
+        Dispatches on ``config.auth.method``:
+
+        - ``client_credential`` -- ClientSecretCredential (secret) or
+          CertificateCredential (cert), sub-dispatched by field presence.
+        - ``device_code`` -- DeviceCodeCredential (interactive device flow).
+        - ``interactive`` -- InteractiveBrowserCredential (browser flow).
+
+        Raises:
+            CollectionError: If token acquisition fails, method is unsupported,
+                             or azure-identity is not installed.
         """
         try:
             from azure.core.exceptions import (  # pyright: ignore[reportMissingImports]
                 AzureError,  # pyright: ignore[reportUnknownVariableType]
             )
             from azure.identity import (  # pyright: ignore[reportMissingImports]
-                DefaultAzureCredential,  # pyright: ignore[reportUnknownVariableType]
+                CertificateCredential,  # pyright: ignore[reportUnknownVariableType]
+                ClientSecretCredential,  # pyright: ignore[reportUnknownVariableType]
+                DeviceCodeCredential,  # pyright: ignore[reportUnknownVariableType]
+                InteractiveBrowserCredential,  # pyright: ignore[reportUnknownVariableType]
             )
-
-            with DefaultAzureCredential() as credential:  # pyright: ignore[reportUnknownVariableType]
-                token = credential.get_token(_MANAGEMENT_SCOPE)  # pyright: ignore[reportUnknownVariableType,reportUnknownMemberType]
         except ImportError as exc:
-            raise PrerequisiteError(
+            raise CollectionError(
                 f"Azure authentication dependencies not importable: {exc}. "
                 f"Install with: pip install azure-identity",
                 adapter_name=self.tool_name,
             ) from exc
-        except AzureError as exc:  # pyright: ignore[reportUnknownVariableType,reportPossiblyUnboundVariable]
-            raise PrerequisiteError(
+
+        client_id = config.auth.client_id
+        client_secret_env = config.auth.client_secret_env
+        auth_method = config.auth.method
+
+        try:
+            match auth_method:
+                case "client_credential":
+                    if client_secret_env:
+                        client_secret = os.environ.get(client_secret_env, "")
+                        if not client_secret:
+                            raise CollectionError(
+                                f"Environment variable '{client_secret_env}' is not set "
+                                f"or empty. Required for service principal authentication.",
+                                adapter_name=self.tool_name,
+                            )
+                        logger.info(  # nosemgrep  # client_id is not a secret
+                            "Authenticating Azure Advisor via ClientSecretCredential (SP: %s)",
+                            client_id,
+                        )
+                        credential = ClientSecretCredential(  # pyright: ignore[reportUnknownVariableType]
+                            tenant_id=config.auth.tenant_id,
+                            client_id=client_id,
+                            client_secret=client_secret,
+                        )
+                    elif config.auth.certificate_path:
+                        logger.info(  # nosemgrep  # client_id is not a secret
+                            "Authenticating Azure Advisor via CertificateCredential (SP: %s)",
+                            client_id,
+                        )
+                        credential = CertificateCredential(  # pyright: ignore[reportUnknownVariableType]
+                            tenant_id=config.auth.tenant_id,
+                            client_id=client_id,
+                            certificate_path=config.auth.certificate_path,
+                        )
+                    else:
+                        raise CollectionError(
+                            "client_credential auth requires client_secret_env or certificate_path",
+                            adapter_name=self.tool_name,
+                        )
+                case "device_code":
+                    logger.info(  # nosemgrep  # client_id is not a secret
+                        "Authenticating Azure Advisor via DeviceCodeCredential (client: %s)",
+                        client_id,
+                    )
+                    credential = DeviceCodeCredential(  # pyright: ignore[reportUnknownVariableType]
+                        client_id=client_id,
+                        tenant_id=config.auth.tenant_id,
+                    )
+                case "interactive":
+                    logger.info(  # nosemgrep  # client_id is not a secret
+                        "Authenticating Azure Advisor via InteractiveBrowserCredential"
+                        " (client: %s)",
+                        client_id,
+                    )
+                    credential = InteractiveBrowserCredential(  # pyright: ignore[reportUnknownVariableType]
+                        tenant_id=config.auth.tenant_id,
+                        client_id=client_id,
+                    )
+                case _:
+                    raise CollectionError(
+                        f"Unsupported auth method: {auth_method!r}",
+                        adapter_name=self.tool_name,
+                    )
+
+            token = credential.get_token(_MANAGEMENT_SCOPE)  # pyright: ignore[reportUnknownVariableType,reportUnknownMemberType]
+        except CollectionError:
+            raise
+        except (AzureError, ValueError, OSError) as exc:  # pyright: ignore[reportUnknownVariableType,reportPossiblyUnboundVariable]
+            raise CollectionError(
                 f"Azure authentication failed: {exc}",
                 adapter_name=self.tool_name,
             ) from exc
@@ -393,13 +468,8 @@ class AzureAdvisorAdapter:
         seen_checks: set[str] = set()
 
         for obs in observations:
-            # Dedup by raw recommendationTypeId, stripping the category prefix that
-            # the parser adds to native_check_id (e.g. "Security.<guid>" -> "<guid>").
-            # A null-category record produces native_check_id == "<guid>" (no prefix),
-            # so rsplit(".", 1)[-1] normalises both forms to the bare GUID.
-            dedup_key = obs.native_check_id.rsplit(".", 1)[-1]
-            if dedup_key not in seen_checks:
-                seen_checks.add(dedup_key)
+            if obs.native_check_id not in seen_checks:
+                seen_checks.add(obs.native_check_id)
                 records.append(
                     CoverageRecord(
                         control_id=obs.native_check_id,
@@ -422,8 +492,9 @@ class AzureAdvisorAdapter:
 
     @property
     def dedup_key_rules(self) -> dict[str, str]:
-        """Category-prefixed native_check_id -> canonical cross-reference ID.
+        """recommendationTypeId GUID -> canonical cross-reference ID.
 
-        Keys use the format 'Category.<guid>', e.g. 'HighAvailability.<guid>'.
+        Keys are bare GUIDs (e.g. '242639fd-cd73-4be2-8f55-70478db8d1a5'),
+        matching the stable native_check_id emitted by the parser.
         """
         return DEDUP_KEY_RULES

@@ -57,6 +57,7 @@ CATEGORY_MAP: dict[str, Category] = {
 # ---------------------------------------------------------------------------
 
 DEDUP_KEY_RULES: dict[str, str] = {
-    # Keys use category-prefixed format matching native_check_id
-    "HighAvailability.242639fd-cd73-4be2-8f55-70478db8d1a5": "advisor:service_health_alert",
+    # Keys are bare recommendationTypeId GUIDs, matching the stable native_check_id
+    # emitted by the parser (no category prefix).
+    "242639fd-cd73-4be2-8f55-70478db8d1a5": "advisor:service_health_alert",
 }

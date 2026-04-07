@@ -105,12 +105,10 @@ class TestDedupKeyRules:
         for key, value in DEDUP_KEY_RULES.items():
             assert ":" in value, f"Dedup key for {key} must be namespaced (contain ':')"
 
-    def test_keys_are_category_prefixed_guids(self) -> None:
-        """Keys are category-prefixed recommendationTypeId: Category.GUID."""
+    def test_keys_are_bare_guids(self) -> None:
+        """Keys are bare recommendationTypeId GUIDs (no category prefix)."""
         import re
 
-        pattern = re.compile(
-            r"^[A-Za-z]+\.[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-        )
+        pattern = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
         for key in DEDUP_KEY_RULES:
-            assert pattern.match(key), f"Dedup key {key!r} must be Category.GUID format"
+            assert pattern.match(key), f"Dedup key {key!r} must be a bare GUID"
