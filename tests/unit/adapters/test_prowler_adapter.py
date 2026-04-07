@@ -22,6 +22,16 @@ from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Name of the test env var used by _make_config for client_credential tests.
+_TEST_SECRET_ENV = "AZURE_CLIENT_SECRET_TEST"  # pragma: allowlist secret
+_TEST_SECRET_VAL = "test-secret-value"  # pragma: allowlist secret
+
+
+@pytest.fixture(autouse=True)
+def _inject_sp_env_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure the test secret env var is set for any test that triggers --sp-env-auth."""
+    monkeypatch.setenv(_TEST_SECRET_ENV, _TEST_SECRET_VAL)
+
 
 def _make_config(
     auth_method: AuthMethod = "client_credential",
@@ -40,6 +50,7 @@ def _make_config(
             method=auth_method,
             tenant_id="00000000-0000-0000-0000-000000000000",
             client_id="test-client-id",
+            client_secret_env=_TEST_SECRET_ENV,
         ),
         tools={"prowler": tc},
     )
@@ -811,6 +822,7 @@ class TestCollectModules:
                 method="client_credential",
                 tenant_id="test-tenant",
                 client_id="test-client-id",
+                client_secret_env=_TEST_SECRET_ENV,
             ),
             tools={
                 "prowler": ToolConfig(
@@ -928,3 +940,189 @@ class TestValidateProwlerExtraArgs:
             adapter.collect(config, None)
         assert "--checks" in captured_cmd
         assert "defender_ensure_defender_for_app_services_is_on" in captured_cmd
+
+
+# ---------------------------------------------------------------------------
+# P1 -- client_credential env injection
+# ---------------------------------------------------------------------------
+
+
+class TestCollectClientCredentialEnvInjection:
+    """Verify AZURE_* env vars are injected into the Prowler subprocess for sp-env-auth."""
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_client_credential_injects_azure_env_vars(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """collect() must pass AZURE_* credentials in the subprocess env for --sp-env-auth."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
+        ocsf_file.write_text('[{"finding_info": {}}]')
+        config = _make_config(output_dir=str(tmp_path))
+        adapter = ProwlerAdapter()
+        captured_env: dict[str, str] = {}
+
+        def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
+            captured_env.update(kwargs.get("env") or {})
+            return MagicMock(returncode=0, stdout=b"", stderr=b"")
+
+        with patch("subprocess.run", side_effect=capture):
+            adapter.collect(config, None)
+
+        assert captured_env.get("AZURE_CLIENT_ID") == "test-client-id"
+        assert captured_env.get("AZURE_TENANT_ID") == "00000000-0000-0000-0000-000000000000"
+        assert captured_env.get("AZURE_CLIENT_SECRET") == _TEST_SECRET_VAL
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_client_credential_missing_secret_env_name_raises(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """collect() must raise if client_secret_env is empty when --sp-env-auth is active."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        config = EngagementConfig(
+            client_name="test-client",
+            tenant_id="test-tenant",
+            auth=AuthConfig(
+                method="client_credential",
+                tenant_id="test-tenant",
+                client_id="test-client-id",
+                client_secret_env="",  # explicitly empty
+            ),
+            tools={"prowler": ToolConfig(output_dir=str(tmp_path))},
+        )
+        adapter = ProwlerAdapter()
+        with pytest.raises(CollectionError, match="client_secret_env"):
+            adapter.collect(config, None)
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_client_credential_secret_env_var_not_set_raises(
+        self, mock_shutil: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """collect() must raise if the env var named by client_secret_env is absent."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        monkeypatch.delenv(_TEST_SECRET_ENV, raising=False)
+        config = _make_config(output_dir=str(tmp_path))
+        adapter = ProwlerAdapter()
+        with pytest.raises(CollectionError, match="is not set"):
+            adapter.collect(config, None)
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_auth_override_skips_env_injection(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """When extra_args overrides auth to --az-cli-auth, no AZURE_* injection occurs."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
+        ocsf_file.write_text('[{"finding_info": {}}]')
+        config = _make_config(extra_args=["--az-cli-auth"], output_dir=str(tmp_path))
+        adapter = ProwlerAdapter()
+        captured_kwargs: dict[str, Any] = {}
+
+        def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
+            captured_kwargs.update(kwargs)
+            return MagicMock(returncode=0, stdout=b"", stderr=b"")
+
+        with patch("subprocess.run", side_effect=capture):
+            adapter.collect(config, None)
+
+        # env kwarg should be None (no injection) when auth is overridden
+        assert captured_kwargs.get("env") is None
+
+
+# ---------------------------------------------------------------------------
+# P2 -- browser_auth_active keyed off actual cmd, not config.auth.method
+# ---------------------------------------------------------------------------
+
+
+class TestCollectBrowserAuthActive:
+    """Verify --tenant-id is only appended when --browser-auth is actually in the command."""
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_device_code_overridden_by_az_cli_auth_skips_tenant_id(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """device_code method + --az-cli-auth extra_arg must NOT inject --tenant-id.
+
+        Prowler rejects --tenant-id unless --browser-auth is active; pairing it
+        with --az-cli-auth causes a non-zero exit before scanning begins.
+        """
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
+        ocsf_file.write_text('[{"finding_info": {}}]')
+        config = _make_config(
+            auth_method="device_code",
+            extra_args=["--az-cli-auth"],
+            output_dir=str(tmp_path),
+        )
+        adapter = ProwlerAdapter()
+        captured_cmd: list[str] = []
+
+        def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
+            captured_cmd.extend(cmd)
+            return MagicMock(returncode=0, stdout=b"", stderr=b"")
+
+        with patch("subprocess.run", side_effect=capture):
+            adapter.collect(config, None)
+
+        assert "--tenant-id" not in captured_cmd
+        assert "--az-cli-auth" in captured_cmd
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_interactive_overridden_by_managed_identity_skips_tenant_id(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """interactive method + --managed-identity-auth must NOT inject --tenant-id."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
+        ocsf_file.write_text('[{"finding_info": {}}]')
+        config = _make_config(
+            auth_method="interactive",
+            extra_args=["--managed-identity-auth"],
+            output_dir=str(tmp_path),
+        )
+        adapter = ProwlerAdapter()
+        captured_cmd: list[str] = []
+
+        def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
+            captured_cmd.extend(cmd)
+            return MagicMock(returncode=0, stdout=b"", stderr=b"")
+
+        with patch("subprocess.run", side_effect=capture):
+            adapter.collect(config, None)
+
+        assert "--tenant-id" not in captured_cmd
+        assert "--managed-identity-auth" in captured_cmd
+
+
+# ---------------------------------------------------------------------------
+# P3 -- Windows paths accepted in extra_args values
+# ---------------------------------------------------------------------------
+
+
+class TestValidateProwlerExtraArgsWindowsPaths:
+    """Verify Windows-style file paths (backslashes) are accepted as extra_args values."""
+
+    def test_windows_path_for_checks_file_is_accepted(self) -> None:
+        """C:\\temp\\checks.txt must pass value validation."""
+        from gxassessms.adapters.prowler.adapter import _validate_prowler_extra_args
+
+        result = _validate_prowler_extra_args(["--checks-file", r"C:\temp\checks.txt"], "Prowler")
+        assert r"C:\temp\checks.txt" in result
+
+    def test_windows_path_for_scan_list_is_accepted(self) -> None:
+        """Windows path for --scan-list must not be rejected."""
+        from gxassessms.adapters.prowler.adapter import _validate_prowler_extra_args
+
+        result = _validate_prowler_extra_args(
+            ["--scan-list", r"C:\Users\auditor\scan.txt"], "Prowler"
+        )
+        assert r"C:\Users\auditor\scan.txt" in result
+
+    def test_shell_metachar_still_rejected_on_windows_style_value(self) -> None:
+        """Backslash allowance must not open shell injection via semicolons etc."""
+        from gxassessms.adapters.prowler.adapter import _validate_prowler_extra_args
+
+        with pytest.raises(CollectionError, match="Unsafe value"):
+            _validate_prowler_extra_args(
+                ["--checks-file", r"C:\temp\checks.txt; rm -rf /"], "Prowler"
+            )

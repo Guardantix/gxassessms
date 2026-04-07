@@ -21,6 +21,7 @@ Verified against Prowler source at /home/guardantix/ToolInspection/prowler/.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import shutil
 import subprocess
@@ -92,8 +93,9 @@ _PROWLER_ALLOWED_FLAGS: frozenset[str] = frozenset(
     }
 )
 
-# Permitted character set for non-flag values (UUIDs, check IDs, etc.)
-_PROWLER_VALUE_RE: re.Pattern[str] = re.compile(r"^[\w\-.,:/@ ]+$")
+# Permitted character set for non-flag values (UUIDs, check IDs, file paths, etc.)
+# Backslash is included to support Windows paths (e.g., C:\temp\checks.txt).
+_PROWLER_VALUE_RE: re.Pattern[str] = re.compile(r"^[\w\-.,:/@ \\]+$")
 
 
 def _validate_prowler_extra_args(args: list[str], adapter_name: str) -> list[str]:
@@ -248,16 +250,13 @@ class ProwlerAdapter:
                 adapter_name=self.tool_name,
             )
 
-        # Browser auth requires --tenant-id; covers both mapped methods and
-        # --browser-auth injected directly via extra_args.
-        browser_auth_active = (
-            config.auth.method
-            in (
-                "device_code",
-                "interactive",
-            )
-            or "--browser-auth" in extra_args
-        )
+        # Browser auth requires --tenant-id.  Key off whether --browser-auth
+        # actually landed in cmd (from AUTH_METHOD_MAP) or was supplied
+        # directly via extra_args.  Do NOT key off config.auth.method: if the
+        # method maps to --browser-auth but extra_args overrides it with
+        # --az-cli-auth / --managed-identity-auth, --browser-auth is absent
+        # from the command and Prowler rejects --tenant-id.
+        browser_auth_active = "--browser-auth" in cmd or "--browser-auth" in extra_args
         if browser_auth_active:
             tenant_id = config.auth.tenant_id
             if not tenant_id:
@@ -266,6 +265,38 @@ class ProwlerAdapter:
                     adapter_name=self.tool_name,
                 )
             cmd.extend(["--tenant-id", tenant_id])
+
+        # Service-principal auth: Prowler's --sp-env-auth reads credentials
+        # from AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_CLIENT_SECRET.
+        # Populate those vars from the engagement config so operators don't
+        # need a second set of manually-exported env vars.
+        #
+        # Key off whether --sp-env-auth actually landed in cmd (from
+        # AUTH_METHOD_MAP) or was supplied explicitly via extra_args -- NOT off
+        # config.auth.method.  If extra_args overrides auth to --az-cli-auth
+        # or --managed-identity-auth, Prowler ignores AZURE_* and we must not
+        # require or inject credentials that aren't used.
+        sp_env_auth_active = "--sp-env-auth" in cmd or "--sp-env-auth" in extra_args
+        subprocess_env: dict[str, str] | None = None
+        if sp_env_auth_active:
+            if not config.auth.client_secret_env:
+                raise CollectionError(
+                    "client_credential auth requires 'client_secret_env' in engagement config",
+                    adapter_name=self.tool_name,
+                )
+            secret = os.environ.get(config.auth.client_secret_env)
+            if secret is None:
+                raise CollectionError(
+                    f"client_credential auth: env var {config.auth.client_secret_env!r} "
+                    f"(client_secret_env) is not set in the environment",
+                    adapter_name=self.tool_name,
+                )
+            subprocess_env = {
+                **os.environ,
+                "AZURE_CLIENT_ID": config.auth.client_id,
+                "AZURE_TENANT_ID": config.auth.tenant_id,
+                "AZURE_CLIENT_SECRET": secret,
+            }
 
         cmd.extend(["-o", str(output_dir)])
         cmd.extend(["-F", output_filename])
@@ -291,6 +322,7 @@ class ProwlerAdapter:
                 cmd,
                 capture_output=True,
                 timeout=timeout,
+                env=subprocess_env,
             )
         except subprocess.TimeoutExpired as exc:
             raise CollectionError(
