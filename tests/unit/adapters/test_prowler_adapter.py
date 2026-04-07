@@ -71,6 +71,26 @@ def _make_manifest(tmp_path: Path, findings_json: str) -> ResolvedManifest:
     )
 
 
+def _make_collector(
+    tmp_path: Path,
+    returncode: int = 0,
+    content: str = '[{"finding_info": {}}]',
+) -> Any:
+    """Return a subprocess.run callable that writes the OCSF output file on invocation.
+
+    Simulates Prowler writing its output during subprocess execution so that the
+    file mtime is >= the run_start_ts captured just before subprocess.run() is
+    called.  Tests that need collect() to succeed must use this instead of
+    writing the file before calling collect().
+    """
+
+    def run(cmd: list[str], **kwargs: Any) -> MagicMock:
+        (tmp_path / "ProwlerResults.ocsf.json").write_text(content)
+        return MagicMock(returncode=returncode, stdout=b"", stderr=b"")
+
+    return run
+
+
 def _minimal_finding(
     *,
     check_id: str = "test_check",
@@ -178,16 +198,12 @@ class TestCollectExtraArgs:
     ) -> None:
         """extra_args from tool config should appear in the subprocess command."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        mock_run.return_value = MagicMock(returncode=0, stderr=b"")
+        mock_run.side_effect = _make_collector(tmp_path)
         config = _make_config(
             extra_args=["--az-cli-auth", "--scan-list", "check1"],
             output_dir=str(tmp_path),
         )
         adapter = ProwlerAdapter()
-
-        # Create a fake output file so collect doesn't error on missing output
-        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
-        ocsf_file.write_text('[{"test": true}]')
 
         with patch("gxassessms.core.hashing.sha256_file", return_value="a" * 64):
             adapter.collect(config, None)
@@ -206,15 +222,12 @@ class TestCollectExtraArgs:
     ) -> None:
         """An auth flag in extra_args replaces, not supplements, the mapped auth flag."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        mock_run.return_value = MagicMock(returncode=0, stderr=b"")
+        mock_run.side_effect = _make_collector(tmp_path)
         config = _make_config(
             extra_args=["--managed-identity-auth"],
             output_dir=str(tmp_path),
         )
         adapter = ProwlerAdapter()
-
-        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
-        ocsf_file.write_text('[{"test": true}]')
 
         with patch("gxassessms.core.hashing.sha256_file", return_value="a" * 64):
             adapter.collect(config, None)
@@ -230,15 +243,12 @@ class TestCollectExtraArgs:
     ) -> None:
         """Non-auth extra_args do not suppress the mapped auth flag."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        mock_run.return_value = MagicMock(returncode=0, stderr=b"")
+        mock_run.side_effect = _make_collector(tmp_path)
         config = _make_config(
             extra_args=["--scan-list", "check1"],
             output_dir=str(tmp_path),
         )
         adapter = ProwlerAdapter()
-
-        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
-        ocsf_file.write_text('[{"test": true}]')
 
         with patch("gxassessms.core.hashing.sha256_file", return_value="a" * 64):
             adapter.collect(config, None)
@@ -253,7 +263,7 @@ class TestCollectExtraArgs:
     ) -> None:
         """subscription_id in EngagementConfig must be passed as --subscription-ids."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        mock_run.return_value = MagicMock(returncode=0, stderr=b"")
+        mock_run.side_effect = _make_collector(tmp_path)
         tc = ToolConfig(enabled=True, output_dir=str(tmp_path))
         config = EngagementConfig(
             client_name="TestClient",
@@ -267,7 +277,6 @@ class TestCollectExtraArgs:
             ),
             tools={"prowler": tc},
         )
-        (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"test": true}]')
         adapter = ProwlerAdapter()
         with patch("gxassessms.core.hashing.sha256_file", return_value="a" * 64):
             adapter.collect(config, None)
@@ -282,9 +291,8 @@ class TestCollectExtraArgs:
     ) -> None:
         """When subscription_id is empty, --subscription-ids must not appear in cmd."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        mock_run.return_value = MagicMock(returncode=0, stderr=b"")
+        mock_run.side_effect = _make_collector(tmp_path)
         config = _make_config(output_dir=str(tmp_path))
-        (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"test": true}]')
         adapter = ProwlerAdapter()
         with patch("gxassessms.core.hashing.sha256_file", return_value="a" * 64):
             adapter.collect(config, None)
@@ -298,7 +306,7 @@ class TestCollectExtraArgs:
     ) -> None:
         """If --subscription-ids is in extra_args, config value must not also be injected."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        mock_run.return_value = MagicMock(returncode=0, stderr=b"")
+        mock_run.side_effect = _make_collector(tmp_path)
         tc = ToolConfig(
             enabled=True,
             output_dir=str(tmp_path),
@@ -316,7 +324,6 @@ class TestCollectExtraArgs:
             ),
             tools={"prowler": tc},
         )
-        (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"test": true}]')
         adapter = ProwlerAdapter()
         with patch("gxassessms.core.hashing.sha256_file", return_value="a" * 64):
             adapter.collect(config, None)
@@ -663,14 +670,13 @@ class TestCollectPathResolution:
     ) -> None:
         """collect() must use the resolved binary path, not the bare string 'prowler'."""
         mock_shutil.which.return_value = "/opt/prowler-venv/bin/prowler"
-        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
-        ocsf_file.write_text('[{"finding_info": {}}]')
         config = _make_config(output_dir=str(tmp_path))
         adapter = ProwlerAdapter()
         captured_cmd: list[str] = []
 
         def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
             captured_cmd.extend(cmd)
+            (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"finding_info": {}}]')
             return MagicMock(returncode=0, stdout=b"", stderr=b"")
 
         with patch("subprocess.run", side_effect=capture):
@@ -690,14 +696,9 @@ class TestCollectExitCodes:
     def test_exit_code_3_does_not_raise(self, mock_shutil: MagicMock, tmp_path: Path) -> None:
         """Exit code 3 (FAIL findings present) is Prowler's normal success signal."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
-        ocsf_file.write_text('[{"finding_info": {}}]')
         config = _make_config(output_dir=str(tmp_path))
         adapter = ProwlerAdapter()
-        with patch(
-            "subprocess.run",
-            return_value=MagicMock(returncode=3, stdout=b"", stderr=b""),
-        ):
+        with patch("subprocess.run", side_effect=_make_collector(tmp_path, returncode=3)):
             result = adapter.collect(config, None)
         assert result is not None
         assert result.tool == ToolSource.PROWLER
@@ -707,14 +708,9 @@ class TestCollectExitCodes:
     def test_exit_code_0_does_not_raise(self, mock_shutil: MagicMock, tmp_path: Path) -> None:
         """Exit code 0 (no FAIL findings) is also success."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
-        ocsf_file.write_text('[{"finding_info": {}}]')
         config = _make_config(output_dir=str(tmp_path))
         adapter = ProwlerAdapter()
-        with patch(
-            "subprocess.run",
-            return_value=MagicMock(returncode=0, stdout=b"", stderr=b""),
-        ):
+        with patch("subprocess.run", side_effect=_make_collector(tmp_path)):
             result = adapter.collect(config, None)
         assert result is not None
         assert result.tool == ToolSource.PROWLER
@@ -806,6 +802,41 @@ class TestCollectErrorPaths:
         ):
             adapter.collect(config, None)
 
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_stale_output_file_from_prior_run_is_excluded(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """A ProwlerResults.ocsf.json left over from a prior run must not be collected.
+
+        Prowler writes to timestamped subdirectories, so a reused output_dir can
+        accumulate files from earlier runs.  Only the file written by the current
+        subprocess should appear in the manifest.
+        """
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        config = _make_config(output_dir=str(tmp_path))
+        adapter = ProwlerAdapter()
+
+        # Simulate a stale artifact left by a prior run.
+        stale_dir = tmp_path / "20260101_000000"
+        stale_dir.mkdir()
+        stale_file = stale_dir / "ProwlerResults.ocsf.json"
+        stale_file.write_text('[{"stale": true}]')
+
+        # The subprocess writes a NEW file in a fresh dated subdir.
+        def _fake_run(cmd: list[str], **kwargs: Any) -> MagicMock:
+            run_dir = tmp_path / "20260407_143022"
+            run_dir.mkdir()
+            (run_dir / "ProwlerResults.ocsf.json").write_text('[{"finding_info": {}}]')
+            return MagicMock(returncode=0, stdout=b"", stderr=b"")
+
+        with patch("subprocess.run", side_effect=_fake_run):
+            result = adapter.collect(config, None)
+
+        # Only the new file -- not the stale one -- must be in the manifest.
+        assert len(result.artifacts) == 1
+        assert "20260407_143022" in result.artifacts[0].source_path
+        assert "20260101_000000" not in result.artifacts[0].source_path
+
 
 # ---------------------------------------------------------------------------
 # collect -- auth method behavior
@@ -853,8 +884,6 @@ class TestCollectAuthMethods:
     ) -> None:
         """--browser-auth supplied via extra_args must still inject --tenant-id."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
-        ocsf_file.write_text('[{"finding_info": {}}]')
         config = _make_config(
             auth_method="client_credential",
             extra_args=["--browser-auth"],
@@ -865,6 +894,7 @@ class TestCollectAuthMethods:
 
         def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
             captured_cmd.extend(cmd)
+            (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"finding_info": {}}]')
             return MagicMock(returncode=0, stdout=b"", stderr=b"")
 
         with patch("subprocess.run", side_effect=capture):
@@ -886,8 +916,6 @@ class TestCollectModules:
     def test_modules_list_injects_checks_flag(self, mock_shutil: MagicMock, tmp_path: Path) -> None:
         """Specifying modules in tool config must pass --checks to Prowler."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
-        ocsf_file.write_text('[{"finding_info": {}}]')
         config = EngagementConfig(
             client_name="test-client",
             tenant_id="test-tenant",
@@ -909,6 +937,7 @@ class TestCollectModules:
 
         def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
             captured_cmd.extend(cmd)
+            (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"finding_info": {}}]')
             return MagicMock(returncode=0, stdout=b"", stderr=b"")
 
         with patch("subprocess.run", side_effect=capture):
@@ -929,18 +958,13 @@ class TestValidateProwlerExtraArgs:
     def test_known_auth_flag_is_accepted(self, mock_shutil: MagicMock, tmp_path: Path) -> None:
         """Known Prowler auth flags must pass validation."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
-        ocsf_file.write_text('[{"finding_info": {}}]')
         config = _make_config(
             auth_method="client_credential",
             extra_args=["--az-cli-auth"],
             output_dir=str(tmp_path),
         )
         adapter = ProwlerAdapter()
-        with patch(
-            "subprocess.run",
-            return_value=MagicMock(returncode=0, stdout=b"", stderr=b""),
-        ):
+        with patch("subprocess.run", side_effect=_make_collector(tmp_path)):
             result = adapter.collect(config, None)
         assert result is not None
 
@@ -993,17 +1017,13 @@ class TestValidateProwlerExtraArgs:
     def test_azure_region_flag_is_accepted(self, mock_shutil: MagicMock, tmp_path: Path) -> None:
         """--azure-region must be in the allowlist to support sovereign cloud scans."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"finding_info": {}}]')
         config = _make_config(
             auth_method="client_credential",
             extra_args=["--azure-region", "AzureUSGovernment"],
             output_dir=str(tmp_path),
         )
         adapter = ProwlerAdapter()
-        with patch(
-            "subprocess.run",
-            return_value=MagicMock(returncode=0, stdout=b"", stderr=b""),
-        ):
+        with patch("subprocess.run", side_effect=_make_collector(tmp_path)):
             result = adapter.collect(config, None)
         assert result is not None
 
@@ -1013,8 +1033,6 @@ class TestValidateProwlerExtraArgs:
     ) -> None:
         """Known flag + safe value must pass validation and appear in command."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
-        ocsf_file.write_text('[{"finding_info": {}}]')
         config = _make_config(
             auth_method="client_credential",
             extra_args=["--checks", "defender_ensure_defender_for_app_services_is_on"],
@@ -1025,6 +1043,7 @@ class TestValidateProwlerExtraArgs:
 
         def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
             captured_cmd.extend(cmd)
+            (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"finding_info": {}}]')
             return MagicMock(returncode=0, stdout=b"", stderr=b"")
 
         with patch("subprocess.run", side_effect=capture):
@@ -1047,14 +1066,13 @@ class TestCollectClientCredentialEnvInjection:
     ) -> None:
         """collect() must pass AZURE_* credentials in the subprocess env for --sp-env-auth."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
-        ocsf_file.write_text('[{"finding_info": {}}]')
         config = _make_config(output_dir=str(tmp_path))
         adapter = ProwlerAdapter()
         captured_env: dict[str, str] = {}
 
         def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
             captured_env.update(kwargs.get("env") or {})
+            (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"finding_info": {}}]')
             return MagicMock(returncode=0, stdout=b"", stderr=b"")
 
         with patch("subprocess.run", side_effect=capture):
@@ -1103,14 +1121,13 @@ class TestCollectClientCredentialEnvInjection:
     ) -> None:
         """When extra_args overrides auth to --az-cli-auth, no AZURE_* injection occurs."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
-        ocsf_file.write_text('[{"finding_info": {}}]')
         config = _make_config(extra_args=["--az-cli-auth"], output_dir=str(tmp_path))
         adapter = ProwlerAdapter()
         captured_kwargs: dict[str, Any] = {}
 
         def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
             captured_kwargs.update(kwargs)
+            (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"finding_info": {}}]')
             return MagicMock(returncode=0, stdout=b"", stderr=b"")
 
         with patch("subprocess.run", side_effect=capture):
@@ -1132,8 +1149,6 @@ class TestCollectClientCredentialEnvInjection:
         other adapters but Prowler should use pre-exported AZURE_* instead.
         """
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
-        ocsf_file.write_text('[{"finding_info": {}}]')
         # client_credential method normally injects from config, but when the
         # operator also passes --sp-env-auth in extra_args, extra_has_auth=True
         # prevents AUTH_METHOD_MAP from adding --sp-env-auth to cmd, so
@@ -1144,6 +1159,7 @@ class TestCollectClientCredentialEnvInjection:
 
         def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
             captured_kwargs.update(kwargs)
+            (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"finding_info": {}}]')
             return MagicMock(returncode=0, stdout=b"", stderr=b"")
 
         with patch("subprocess.run", side_effect=capture):
@@ -1171,8 +1187,6 @@ class TestCollectBrowserAuthActive:
         with --az-cli-auth causes a non-zero exit before scanning begins.
         """
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
-        ocsf_file.write_text('[{"finding_info": {}}]')
         config = _make_config(
             auth_method="device_code",
             extra_args=["--az-cli-auth"],
@@ -1183,6 +1197,7 @@ class TestCollectBrowserAuthActive:
 
         def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
             captured_cmd.extend(cmd)
+            (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"finding_info": {}}]')
             return MagicMock(returncode=0, stdout=b"", stderr=b"")
 
         with patch("subprocess.run", side_effect=capture):
@@ -1197,8 +1212,6 @@ class TestCollectBrowserAuthActive:
     ) -> None:
         """interactive method + --managed-identity-auth must NOT inject --tenant-id."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
-        ocsf_file.write_text('[{"finding_info": {}}]')
         config = _make_config(
             auth_method="interactive",
             extra_args=["--managed-identity-auth"],
@@ -1209,6 +1222,7 @@ class TestCollectBrowserAuthActive:
 
         def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
             captured_cmd.extend(cmd)
+            (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"finding_info": {}}]')
             return MagicMock(returncode=0, stdout=b"", stderr=b"")
 
         with patch("subprocess.run", side_effect=capture):

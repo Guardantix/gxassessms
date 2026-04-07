@@ -323,6 +323,12 @@ class ProwlerAdapter:
         )
         logger.debug("[Prowler] Full command: %s", " ".join(cmd))
 
+        # Snapshot pre-existing output files so stale artifacts from prior runs in
+        # the same output_dir are excluded after the subprocess completes.
+        pre_run_files: frozenset[str] = frozenset(
+            str(f) for f in output_dir.rglob(f"{output_filename}{_OCSF_EXTENSION}")
+        )
+
         try:
             result = subprocess.run(  # noqa: S603
                 cmd,
@@ -355,7 +361,14 @@ class ProwlerAdapter:
                 "[Prowler] Exit code 3: FAIL findings present (expected for real assessments)"
             )
 
-        ocsf_files = list(output_dir.rglob(f"{output_filename}{_OCSF_EXTENSION}"))
+        # Collect only files created by this subprocess: exclude any that already
+        # existed before the run started (stale artifacts from a prior run in the
+        # same output_dir).
+        ocsf_files = [
+            f
+            for f in output_dir.rglob(f"{output_filename}{_OCSF_EXTENSION}")
+            if str(f) not in pre_run_files
+        ]
         if not ocsf_files:
             raise CollectionError(
                 f"No Prowler OCSF output found in {output_dir}. "
