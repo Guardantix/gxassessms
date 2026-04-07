@@ -101,6 +101,27 @@ class TestLoadRegistry:
         with pytest.raises(RawOutputValidationError, match="missing 'checkId'"):
             load_registry(bad_registry)
 
+    def test_raises_on_non_string_check_id(self, tmp_path: Path) -> None:
+        """Registry entry with a non-string checkId (e.g. int) must raise, not silently create an
+        unreachable dict key (CSV lookups always use strings, so int keys are never found)."""
+        import json
+
+        from gxassessms.core.contracts.errors import RawOutputValidationError
+
+        bad_registry = tmp_path / "bad_registry.json"
+        bad_registry.write_text(
+            json.dumps(
+                {
+                    "schemaVersion": "1.0.0",
+                    "checks": [
+                        {"checkId": 42, "name": "Integer checkId", "frameworks": {}},
+                    ],
+                }
+            )
+        )
+        with pytest.raises(RawOutputValidationError, match="must be a string"):
+            load_registry(bad_registry)
+
 
 class TestParseSecurityConfigCsv:
     def test_returns_tool_observations(self, severity_map, registry) -> None:

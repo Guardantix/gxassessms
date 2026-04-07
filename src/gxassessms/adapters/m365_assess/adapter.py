@@ -218,13 +218,18 @@ class M365AssessAdapter:
         # Collect controls directory reference files so they are saved in the
         # raw-output manifest and available during replay via manifest scan
         # (strategy #3 in _locate_m365_assess_controls).
-        # Resolution order: explicit controls_dir > script_dir/controls > output_dir/controls.
+        # Resolution order:
+        #   1. explicit controls_dir config
+        #   2. script_dir/controls (when script_dir is set)
+        #   3. CWD/controls (best-effort: script likely ran from here when no script_dir)
+        #   4. output_dir/controls (last resort)
         if tc.controls_dir:
             controls_dir = Path(tc.controls_dir)
         elif tc.script_dir:
             controls_dir = Path(tc.script_dir) / "controls"
         else:
-            controls_dir = output_dir / "controls"
+            cwd_controls = Path.cwd() / "controls"
+            controls_dir = cwd_controls if cwd_controls.is_dir() else output_dir / "controls"
         for filename in ("risk-severity.json", "registry.json"):
             ctrl_file = controls_dir / filename
             if ctrl_file.is_file():

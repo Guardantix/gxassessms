@@ -70,6 +70,12 @@ def load_registry(path: Path) -> dict[str, dict[str, Any]]:
                 f"registry.json entry at index {i} is missing 'checkId' field: {entry!r}",
                 adapter_name="M365Assess",
             )
+        if not isinstance(check_id, str):
+            raise RawOutputValidationError(
+                f"registry.json 'checkId' at index {i} must be a string, "
+                f"got {type(check_id).__name__}: {check_id!r}",
+                adapter_name="M365Assess",
+            )
         result[check_id] = entry
     return result
 
