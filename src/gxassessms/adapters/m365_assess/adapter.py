@@ -269,12 +269,16 @@ class M365AssessAdapter:
                         sha256=sha,
                     )
                 )
-        if not any(a.target_relpath.endswith("risk-severity.json") for a in artifacts):
-            logger.warning(
-                "M365-Assess controls directory not found at %s; "
-                "parse will attempt to locate controls at runtime. "
+        staged_controls = {
+            Path(a.target_relpath).name for a in artifacts if "/controls/" in a.target_relpath
+        }
+        missing = {"risk-severity.json", "registry.json"} - staged_controls
+        if missing:
+            raise CollectionError(
+                f"M365-Assess controls metadata missing from {controls_dir}: "
+                f"{', '.join(sorted(missing))}. "
                 "Set 'controls_dir' in tool config to specify the path explicitly.",
-                controls_dir,
+                adapter_name=self.tool_name,
             )
 
         logger.info(
@@ -386,7 +390,7 @@ class M365AssessAdapter:
                         raw_status = (row.get("Status") or "").strip()
                         cov_status = (
                             CoverageStatus.NOT_ASSESSED
-                            if raw_status == "Review"
+                            if raw_status in {"Review", "Unknown"}
                             else CoverageStatus.ASSESSED
                         )
                         records.append(
