@@ -98,8 +98,46 @@ def load_registry(path: Path) -> dict[str, dict[str, Any]]:
                 f"got {type(check_id).__name__}: {check_id!r}",
                 adapter_name="M365_Assess",
             )
+        _validate_registry_frameworks(check_id, entry)
         result[check_id] = entry
     return result
+
+
+def _validate_registry_frameworks(check_id: str, entry: dict[str, Any]) -> None:
+    """Validate nested framework entries so _extract_benchmark_refs never crashes.
+
+    Raises RawOutputValidationError if frameworks is not a mapping, any framework
+    value is not a mapping, or any controlId is not a string.
+    """
+    raw_fw: Any = entry.get("frameworks")
+    if raw_fw is None:
+        return
+    if not isinstance(raw_fw, dict):
+        raise RawOutputValidationError(
+            f"registry.json entry {check_id!r}: 'frameworks' must be a mapping, "
+            f"got {type(raw_fw).__name__}",
+            adapter_name="M365_Assess",
+        )
+    frameworks_dict: dict[str, Any] = cast(dict[str, Any], raw_fw)
+    for fw_key in ("cis-m365-v6", "nist-800-53", "soc2"):
+        raw_val: Any = frameworks_dict.get(fw_key)
+        if raw_val is None:
+            continue
+        if not isinstance(raw_val, dict):
+            raise RawOutputValidationError(
+                f"registry.json entry {check_id!r}: frameworks[{fw_key!r}] must be a mapping, "
+                f"got {type(raw_val).__name__}",
+                adapter_name="M365_Assess",
+            )
+        fw_dict: dict[str, Any] = cast(dict[str, Any], raw_val)
+        raw_ctrl_id: Any = fw_dict.get("controlId")
+        if raw_ctrl_id is not None and not isinstance(raw_ctrl_id, str):
+            raise RawOutputValidationError(
+                f"registry.json entry {check_id!r}: "
+                f"frameworks[{fw_key!r}].controlId must be a string, "
+                f"got {type(raw_ctrl_id).__name__}",
+                adapter_name="M365_Assess",
+            )
 
 
 def parse_security_config_csv(

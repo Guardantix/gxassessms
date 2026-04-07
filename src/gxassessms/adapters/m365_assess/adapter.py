@@ -350,7 +350,7 @@ class M365AssessAdapter:
             try:
                 obs = parse_security_config_csv(Path(csv_path), severity_lookup, registry_lookup)
                 observations.extend(obs)
-            except (OSError, UnicodeDecodeError, csv.Error) as exc:
+            except (OSError, UnicodeDecodeError, csv.Error, RawOutputValidationError) as exc:
                 raise ParseError(
                     f"Failed to parse {Path(csv_path).name}: {exc}",
                     adapter_name=self.tool_name,
@@ -366,15 +366,14 @@ class M365AssessAdapter:
     def coverage(self, raw: ResolvedManifest) -> list[CoverageRecord]:
         """Extract per-control coverage records, deduplicated by base CheckId.
 
-        Status=Review rows are mapped to NOT_ASSESSED because they require human
-        review and have not been fully evaluated by the tool.  All other statuses
-        with a valid CheckId are marked ASSESSED.  Sub-checks (.N suffix) are
-        collapsed to their base CheckId.
+        Status=Review/Unknown rows are NOT_ASSESSED; all other statuses are ASSESSED.
+        Sub-checks (.N suffix) collapse to the base CheckId.  When a base control
+        has both Review sub-checks and automated (Pass/Fail/Warning) sub-checks,
+        ASSESSED wins so mixed manual/automated controls are not undercounted.
         """
         self.validate_raw(raw)
 
-        seen_base_ids: set[str] = set()
-        records: list[CoverageRecord] = []
+        status_by_base_id: dict[str, CoverageStatus] = {}
         csv_paths = [p for p in raw.file_manifest if p.endswith(_CSV_SUFFIX)]
 
         for csv_path in csv_paths:
@@ -386,30 +385,34 @@ class M365AssessAdapter:
                         if not check_id:
                             continue
                         base_id = extract_base_check_id(check_id)
-                        if base_id in seen_base_ids:
-                            continue
-                        seen_base_ids.add(base_id)
-
                         raw_status = (row.get("Status") or "").strip()
                         cov_status = (
                             CoverageStatus.NOT_ASSESSED
                             if raw_status in {"Review", "Unknown"}
                             else CoverageStatus.ASSESSED
                         )
-                        records.append(
-                            CoverageRecord(
-                                control_id=base_id,
-                                tool=ToolSource.M365_ASSESS,
-                                status=cov_status,
-                                reason=None,
-                            )
-                        )
+                        # ASSESSED wins: never downgrade once an automated sub-check
+                        # has been observed for this control.
+                        if (
+                            base_id not in status_by_base_id
+                            or cov_status == CoverageStatus.ASSESSED
+                        ):
+                            status_by_base_id[base_id] = cov_status
             except (OSError, UnicodeDecodeError, csv.Error) as exc:
                 raise ParseError(
                     f"Failed to read coverage data from {Path(csv_path).name}: {exc}",
                     adapter_name=self.tool_name,
                 ) from exc
 
+        records = [
+            CoverageRecord(
+                control_id=base_id,
+                tool=ToolSource.M365_ASSESS,
+                status=cov_status,
+                reason=None,
+            )
+            for base_id, cov_status in status_by_base_id.items()
+        ]
         logger.info("M365-Assess coverage export: %d records", len(records))
         return records
 
