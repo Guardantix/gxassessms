@@ -7,7 +7,6 @@ own files.
 
 from __future__ import annotations
 
-import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -102,237 +101,38 @@ class TestCheckPrerequisites:
 # ---------------------------------------------------------------------------
 
 
-def _make_azure_mocks() -> tuple[MagicMock, MagicMock, MagicMock, MagicMock]:
-    """Return (mock_core_exc, mock_identity, mock_credential, mock_token)."""
-    mock_token = MagicMock()
-    mock_token.token = "fake-bearer"  # pragma: allowlist secret
-    mock_token.expires_on = 9_999_999_999
-
-    mock_credential = MagicMock()
-    mock_credential.get_token.return_value = mock_token
-
-    mock_identity = MagicMock()
-    mock_identity.ClientSecretCredential.return_value = mock_credential
-    mock_identity.CertificateCredential.return_value = mock_credential
-    mock_identity.DeviceCodeCredential.return_value = mock_credential
-    mock_identity.InteractiveBrowserCredential.return_value = mock_credential
-
-    mock_core_exc = MagicMock()
-    mock_core_exc.AzureError = Exception  # stand-in; isinstance checks not used in adapter
-
-    return mock_core_exc, mock_identity, mock_credential, mock_token
-
-
 class TestAuthenticate:
-    def test_raises_collection_error_on_import_error(self, tmp_path: Path) -> None:
-        """ImportError from inside authenticate() must become CollectionError."""
+    def test_delegates_to_acquire_azure_token(self, tmp_path: Path) -> None:
+        """authenticate() delegates to shared acquire_azure_token with correct args."""
+        adapter = AzureAdvisorAdapter()
+        config = _make_config(output_dir=str(tmp_path))
+        sentinel = AuthContext(
+            token=SecretStr("test-token"),  # pragma: allowlist secret
+            extra={"scope": "https://management.azure.com/.default"},
+            expires_at=datetime(2026, 12, 31, 0, 0, 0, tzinfo=UTC),
+        )
+        with patch(
+            "gxassessms.adapters.azure_advisor.adapter.acquire_azure_token",
+            return_value=sentinel,
+        ) as mock_acquire:
+            result = adapter.authenticate(config)
+        mock_acquire.assert_called_once_with(
+            config,
+            scope="https://management.azure.com/.default",
+            adapter_name="AzureAdvisor",
+        )
+        assert result is sentinel
+
+    def test_propagates_collection_error(self, tmp_path: Path) -> None:
+        """CollectionError from acquire_azure_token propagates unchanged."""
         adapter = AzureAdvisorAdapter()
         config = _make_config(output_dir=str(tmp_path))
         with (
-            patch.dict(sys.modules, {"azure.core.exceptions": None}),
-            pytest.raises(CollectionError, match="not importable"),
-        ):
-            adapter.authenticate(config)
-
-    def test_client_credential_uses_client_secret_credential(self, tmp_path: Path) -> None:
-        """client_credential + client_secret_env -> ClientSecretCredential."""
-        adapter = AzureAdvisorAdapter()
-        config = _make_config(
-            output_dir=str(tmp_path)
-        )  # method=client_credential, env=GX_TEST_SECRET
-
-        mock_core_exc, mock_identity, _cred, _tok = _make_azure_mocks()
-
-        with (
-            patch.dict(
-                sys.modules,
-                {
-                    "azure.core.exceptions": mock_core_exc,
-                    "azure.identity": mock_identity,
-                },
+            patch(
+                "gxassessms.adapters.azure_advisor.adapter.acquire_azure_token",
+                side_effect=CollectionError("boom", adapter_name="AzureAdvisor"),
             ),
-            patch.dict(os.environ, {"GX_TEST_SECRET": "the-secret"}),  # pragma: allowlist secret
-        ):
-            result = adapter.authenticate(config)
-
-        mock_identity.ClientSecretCredential.assert_called_once_with(
-            tenant_id="00000000-0000-0000-0000-000000000001",
-            client_id="00000000-0000-0000-0000-000000000002",
-            client_secret="the-secret",  # pragma: allowlist secret
-        )
-        assert result is not None
-        assert result.token.get_secret_value() == "fake-bearer"  # pragma: allowlist secret
-
-    def test_client_credential_missing_secret_env_raises(self, tmp_path: Path) -> None:
-        """client_credential with unset env var raises CollectionError."""
-        adapter = AzureAdvisorAdapter()
-        config = _make_config(output_dir=str(tmp_path))
-
-        mock_core_exc, mock_identity, _, _ = _make_azure_mocks()
-
-        env_without_secret = {k: v for k, v in os.environ.items() if k != "GX_TEST_SECRET"}
-
-        with (
-            patch.dict(
-                sys.modules,
-                {
-                    "azure.core.exceptions": mock_core_exc,
-                    "azure.identity": mock_identity,
-                },
-            ),
-            patch.dict(os.environ, env_without_secret, clear=True),
-            pytest.raises(CollectionError, match="GX_TEST_SECRET"),
-        ):
-            adapter.authenticate(config)
-
-    def test_client_credential_without_secret_or_cert_raises(self, tmp_path: Path) -> None:
-        """client_credential with no secret env or cert path raises CollectionError."""
-        adapter = AzureAdvisorAdapter()
-        config = EngagementConfig(
-            client_name="Test",
-            tenant_id="00000000-0000-0000-0000-000000000001",
-            subscription_id=_DEFAULT_SUBSCRIPTION_ID,
-            auth=AuthConfig(
-                method="client_credential",
-                tenant_id="00000000-0000-0000-0000-000000000001",
-                client_id="00000000-0000-0000-0000-000000000002",
-                # no client_secret_env and no certificate_path
-            ),
-            tools={"azureadvisor": ToolConfig(enabled=True, output_dir=str(tmp_path))},
-        )
-
-        mock_core_exc, mock_identity, _, _ = _make_azure_mocks()
-
-        with (
-            patch.dict(
-                sys.modules,
-                {
-                    "azure.core.exceptions": mock_core_exc,
-                    "azure.identity": mock_identity,
-                },
-            ),
-            pytest.raises(CollectionError, match="client_credential auth requires"),
-        ):
-            adapter.authenticate(config)
-
-    def test_device_code_uses_device_code_credential(self, tmp_path: Path) -> None:
-        """device_code auth method -> DeviceCodeCredential."""
-        adapter = AzureAdvisorAdapter()
-        config = EngagementConfig(
-            client_name="Test",
-            tenant_id="00000000-0000-0000-0000-000000000001",
-            subscription_id=_DEFAULT_SUBSCRIPTION_ID,
-            auth=AuthConfig(
-                method="device_code",
-                tenant_id="00000000-0000-0000-0000-000000000001",
-                client_id="00000000-0000-0000-0000-000000000002",
-            ),
-            tools={"azureadvisor": ToolConfig(enabled=True, output_dir=str(tmp_path))},
-        )
-
-        mock_core_exc, mock_identity, _, _ = _make_azure_mocks()
-
-        with patch.dict(
-            sys.modules,
-            {
-                "azure.core.exceptions": mock_core_exc,
-                "azure.identity": mock_identity,
-            },
-        ):
-            result = adapter.authenticate(config)
-
-        mock_identity.DeviceCodeCredential.assert_called_once_with(
-            client_id="00000000-0000-0000-0000-000000000002",
-            tenant_id="00000000-0000-0000-0000-000000000001",
-        )
-        assert result is not None
-
-    def test_interactive_uses_interactive_browser_credential(self, tmp_path: Path) -> None:
-        """interactive auth method -> InteractiveBrowserCredential."""
-        adapter = AzureAdvisorAdapter()
-        config = EngagementConfig(
-            client_name="Test",
-            tenant_id="00000000-0000-0000-0000-000000000001",
-            subscription_id=_DEFAULT_SUBSCRIPTION_ID,
-            auth=AuthConfig(
-                method="interactive",
-                tenant_id="00000000-0000-0000-0000-000000000001",
-                client_id="00000000-0000-0000-0000-000000000002",
-            ),
-            tools={"azureadvisor": ToolConfig(enabled=True, output_dir=str(tmp_path))},
-        )
-
-        mock_core_exc, mock_identity, _, _ = _make_azure_mocks()
-
-        with patch.dict(
-            sys.modules,
-            {
-                "azure.core.exceptions": mock_core_exc,
-                "azure.identity": mock_identity,
-            },
-        ):
-            result = adapter.authenticate(config)
-
-        mock_identity.InteractiveBrowserCredential.assert_called_once_with(
-            tenant_id="00000000-0000-0000-0000-000000000001",
-            client_id="00000000-0000-0000-0000-000000000002",
-        )
-        assert result is not None
-
-    def test_unsupported_auth_method_raises_collection_error(self, tmp_path: Path) -> None:
-        """Unsupported auth method raises CollectionError."""
-        from gxassessms.core.config.config import AuthConfig as _AuthConfig
-
-        adapter = AzureAdvisorAdapter()
-        # model_construct bypasses Pydantic's Literal validator so we can inject
-        # an out-of-band method value to exercise the case _ arm.
-        bad_auth = _AuthConfig.model_construct(
-            method="unsupported_method",
-            tenant_id="00000000-0000-0000-0000-000000000001",
-            client_id="00000000-0000-0000-0000-000000000002",
-            client_secret_env="",
-            certificate_path=None,
-        )
-        config = EngagementConfig.model_construct(
-            client_name="Test",
-            tenant_id="00000000-0000-0000-0000-000000000001",
-            subscription_id=_DEFAULT_SUBSCRIPTION_ID,
-            auth=bad_auth,
-            tools={"azureadvisor": ToolConfig(enabled=True, output_dir=str(tmp_path))},
-        )
-
-        mock_core_exc, mock_identity, _, _ = _make_azure_mocks()
-
-        with (
-            patch.dict(
-                sys.modules,
-                {
-                    "azure.core.exceptions": mock_core_exc,
-                    "azure.identity": mock_identity,
-                },
-            ),
-            pytest.raises(CollectionError, match="Unsupported auth method"),
-        ):
-            adapter.authenticate(config)
-
-    def test_azure_error_raises_collection_error(self, tmp_path: Path) -> None:
-        """AzureError during token acquisition raises CollectionError."""
-        adapter = AzureAdvisorAdapter()
-        config = _make_config(output_dir=str(tmp_path))
-
-        mock_core_exc, mock_identity, mock_credential, _ = _make_azure_mocks()
-        mock_credential.get_token.side_effect = Exception("auth failure")  # acts as AzureError
-
-        with (
-            patch.dict(
-                sys.modules,
-                {
-                    "azure.core.exceptions": mock_core_exc,
-                    "azure.identity": mock_identity,
-                },
-            ),
-            patch.dict(os.environ, {"GX_TEST_SECRET": "the-secret"}),  # pragma: allowlist secret
-            pytest.raises(CollectionError, match="Azure authentication failed"),
+            pytest.raises(CollectionError, match="boom"),
         ):
             adapter.authenticate(config)
 
