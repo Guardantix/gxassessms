@@ -67,8 +67,11 @@ _SUBSCRIPTION_ID_RE = re.compile(
 # OData $filter values for Azure Advisor contain spaces, single quotes, and
 # comparison operators (eq, ne, lt, gt) -- characters that are rejected by the
 # PowerShell-safe _ARG_PATTERN in _base.validate_extra_args().  This pattern
-# allows only the characters valid OData Advisor expressions actually need.
-_ODATA_FILTER_RE = re.compile(r"^[A-Za-z0-9_\s'\-()]{1,512}$")
+# allows only the characters valid OData Advisor expressions actually need,
+# including '.' and '/' for property paths and resource IDs
+# (e.g. ResourceMetadata.ResourceType eq 'Microsoft.Compute/virtualMachines')
+# and ':' for ISO-8601 timestamp literals.
+_ODATA_FILTER_RE = re.compile(r"^[A-Za-z0-9_\s'\-()./:]{1,512}$")
 
 
 def _parse_advisor_args(extra_args: list[str], adapter_name: str) -> dict[str, str]:
@@ -108,7 +111,8 @@ def _parse_advisor_args(extra_args: list[str], adapter_name: str) -> dict[str, s
                 raise CollectionError(
                     f"Filter value contains disallowed characters: {value!r}. "
                     f"OData filter values may contain alphanumeric characters, "
-                    f"spaces, single quotes, hyphens, underscores, and parentheses.",
+                    f"spaces, single quotes, hyphens, underscores, parentheses, "
+                    f"dots, forward slashes, and colons.",
                     adapter_name=adapter_name,
                 )
             result[name] = value

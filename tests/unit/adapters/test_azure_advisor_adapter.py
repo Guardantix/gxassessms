@@ -585,6 +585,26 @@ class TestCollectExtraArgs:
         call_kwargs = mock_client.get.call_args.kwargs
         assert call_kwargs.get("params", {}).get("$filter") == "Category eq 'Security'"
 
+    @patch("httpx.Client")
+    def test_filter_with_resource_type_path_is_accepted(
+        self, MockClient: MagicMock, tmp_path: Path
+    ) -> None:
+        """Filter values containing '.' and '/' for resource type paths are accepted."""
+        adapter = AzureAdvisorAdapter()
+        filter_expr = "ResourceMetadata.ResourceType eq 'Microsoft.Compute/virtualMachines'"
+        config = _make_config(
+            output_dir=str(tmp_path),
+            extra_args=[f"-Filter:{filter_expr}"],
+        )
+        mock_client = _make_mock_client([{"value": []}])
+        MockClient.return_value.__enter__.return_value = mock_client
+        MockClient.return_value.__exit__.return_value = False
+
+        adapter.collect(config, _make_auth())
+
+        call_kwargs = mock_client.get.call_args.kwargs
+        assert call_kwargs.get("params", {}).get("$filter") == filter_expr
+
     def test_filter_with_disallowed_chars_raises_collection_error(self, tmp_path: Path) -> None:
         """A Filter value containing disallowed characters is rejected before HTTP."""
         adapter = AzureAdvisorAdapter()
