@@ -2,6 +2,7 @@
 
 from gxassessms.adapters.m365_assess.mappings import (
     CATEGORY_MAP,
+    DEDUP_KEY_RULES,
     SEVERITY_MAP,
     STATUS_MAP,
     extract_base_check_id,
@@ -143,3 +144,36 @@ class TestExtractCollectorPrefix:
 
     def test_multi_segment_prefix(self) -> None:
         assert extract_collector_prefix("DEFENDER-ANTIPHISH-001.15") == "DEFENDER"
+
+
+class TestDedupKeyRules:
+    """Verify cross-tool dedup mappings resolve to canonical CIS control IDs.
+
+    Keys use full subcheck IDs (with .N suffix) as emitted by SecurityConfigHelper.ps1.
+    """
+
+    def test_entra_cloudadmin_maps_to_cis_1_1_1(self) -> None:
+        assert DEDUP_KEY_RULES["ENTRA-CLOUDADMIN-001.1"] == "cis:m365:1.1.1"
+
+    def test_ca_mfa_admin_maps_to_cis_5_2_2_1(self) -> None:
+        assert DEDUP_KEY_RULES["CA-MFA-ADMIN-001.1"] == "cis:m365:5.2.2.1"
+
+    def test_ca_mfa_all_maps_to_cis_5_2_2_2(self) -> None:
+        assert DEDUP_KEY_RULES["CA-MFA-ALL-001.1"] == "cis:m365:5.2.2.2"
+
+    def test_all_values_use_cis_namespace(self) -> None:
+        for key, value in DEDUP_KEY_RULES.items():
+            assert value.startswith("cis:m365:"), (
+                f"DEDUP_KEY_RULES[{key!r}] = {value!r} -- expected 'cis:m365:' namespace"
+            )
+
+    def test_all_keys_have_subcheck_suffix(self) -> None:
+        """All keys must include the .N suffix since SecurityConfigHelper always appends it."""
+        import re
+
+        pattern = re.compile(r"\.\d+$")
+        for key in DEDUP_KEY_RULES:
+            assert pattern.search(key), (
+                f"DEDUP_KEY_RULES key {key!r} missing .N suffix -- "
+                "SecurityConfigHelper.ps1 always appends sub-numbering to CheckIds"
+            )

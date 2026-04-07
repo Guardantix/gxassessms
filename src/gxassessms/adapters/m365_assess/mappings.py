@@ -103,12 +103,22 @@ CATEGORY_MAP: dict[str, Category] = {
 }
 
 # ---------------------------------------------------------------------------
-# Dedup key rules: base CheckId -> canonical cross-reference ID
+# Dedup key rules: full CheckId (with .N suffix) -> canonical cross-reference ID
 # Maps M365-Assess checks to CIS benchmark control IDs where known.
-# Populated from registry.json framework mappings at implementation time.
+#
+# Keys use the full subcheck ID as it appears in CSV output (e.g., "ENTRA-X-001.1"),
+# not the base CheckId, because SecurityConfigHelper.ps1 auto-appends .N to every
+# row before writing the CSV, and the normalization engine does an exact key lookup.
+# Cross-references sourced from src/gxassessms/mappings/cis-m365-crossref.yaml.
 # ---------------------------------------------------------------------------
 
-DEDUP_KEY_RULES: dict[str, str] = {}
+DEDUP_KEY_RULES: dict[str, str] = {
+    # --- Section 1.1: Admin Account Governance ---
+    "ENTRA-CLOUDADMIN-001.1": "cis:m365:1.1.1",  # Admin accounts must be cloud-only
+    # --- Section 5.2.2: Conditional Access ---
+    "CA-MFA-ADMIN-001.1": "cis:m365:5.2.2.1",  # MFA required for all users in admin roles
+    "CA-MFA-ALL-001.1": "cis:m365:5.2.2.2",  # MFA required for all users
+}
 
 # Regex to strip .N sub-numbering from CheckId
 _SUB_NUMBER_PATTERN = re.compile(r"\.\d+$")

@@ -66,7 +66,7 @@ _REQUIRED_PS_MODULES: tuple[str, ...] = (
 class M365AssessAdapter:
     """ToolAdapter implementation for M365-Assess (multi-framework M365 security assessment)."""
 
-    tool_name: str = "M365Assess"
+    tool_name: str = "M365_Assess"
     storage_slug: str = "m365-assess"
     tool_source: ToolSource = ToolSource.M365_ASSESS
     capabilities: frozenset[str] = frozenset(
@@ -136,7 +136,7 @@ class M365AssessAdapter:
         from gxassessms.core.config.datetime_utils import utc_now
         from gxassessms.core.hashing import sha256_file
 
-        tc = config.tools.get(self.tool_name.lower()) or config.tools.get("m365_assess")
+        tc = config.tools.get(self.tool_name.lower())
         if tc is None or not tc.output_dir:
             raise CollectionError(
                 "M365-Assess adapter requires 'output_dir' in tool config",

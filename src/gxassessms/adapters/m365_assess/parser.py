@@ -32,12 +32,12 @@ logger = logging.getLogger(__name__)
 
 def load_risk_severity(path: Path) -> dict[str, str]:
     """Load risk-severity.json. Returns {base_check_id: severity_string}."""
-    data: dict[str, Any] = load_json_file(path, adapter_name="M365Assess")
+    data: dict[str, Any] = load_json_file(path, adapter_name="M365_Assess")
     raw: Any = data.get("checks", {})
     if not isinstance(raw, dict):
         raise RawOutputValidationError(
             f"risk-severity.json 'checks' must be a mapping, got {type(raw).__name__}",
-            adapter_name="M365Assess",
+            adapter_name="M365_Assess",
         )
     return cast(dict[str, str], raw)
 
@@ -49,12 +49,12 @@ def load_registry(path: Path) -> dict[str, dict[str, Any]]:
     Returns ``{check_id: entry_dict}`` keyed by ``checkId``.
     Raises RawOutputValidationError if any entry is missing the 'checkId' field.
     """
-    data: dict[str, Any] = load_json_file(path, adapter_name="M365Assess")
+    data: dict[str, Any] = load_json_file(path, adapter_name="M365_Assess")
     raw: Any = data.get("checks", [])
     if not isinstance(raw, list):
         raise RawOutputValidationError(
             f"registry.json 'checks' must be a list, got {type(raw).__name__}",
-            adapter_name="M365Assess",
+            adapter_name="M365_Assess",
         )
     result: dict[str, dict[str, Any]] = {}
     for i, entry in enumerate(cast(list[dict[str, Any]], raw)):
@@ -62,19 +62,19 @@ def load_registry(path: Path) -> dict[str, dict[str, Any]]:
             raise RawOutputValidationError(
                 f"registry.json 'checks' entry at index {i} must be a mapping, "
                 f"got {type(entry).__name__}",
-                adapter_name="M365Assess",
+                adapter_name="M365_Assess",
             )
         check_id = entry.get("checkId")
         if not check_id:
             raise RawOutputValidationError(
                 f"registry.json entry at index {i} is missing 'checkId' field: {entry!r}",
-                adapter_name="M365Assess",
+                adapter_name="M365_Assess",
             )
         if not isinstance(check_id, str):
             raise RawOutputValidationError(
                 f"registry.json 'checkId' at index {i} must be a string, "
                 f"got {type(check_id).__name__}: {check_id!r}",
-                adapter_name="M365Assess",
+                adapter_name="M365_Assess",
             )
         result[check_id] = entry
     return result
