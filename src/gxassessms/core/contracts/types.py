@@ -102,6 +102,7 @@ class ToolAdapter(Protocol):
 @runtime_checkable
 class ReportRenderer(Protocol):
     format: str = ""
+    theme: str = ""
     supported_payload_versions: str = ""
 
     def render(self, payload: ReportPayload, output_dir: Path) -> Path: ...

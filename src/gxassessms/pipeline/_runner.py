@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from gxassessms.core.config.config import EngagementConfig
 from gxassessms.core.config.datetime_utils import format_utc, utc_now
-from gxassessms.core.contracts.errors import GxAssessError, PipelineError
+from gxassessms.core.contracts.errors import GxAssessError, PipelineError, ReportError
 from gxassessms.core.contracts.types import AdapterRunStatus
 from gxassessms.core.domain.models import (
     AdapterResult,
@@ -202,6 +202,73 @@ def _run_qa_review(
     ctx.qa_results = qa_review(ctx.consolidated_findings, qa_strategy)
 
 
+def _filter_renderers(
+    renderers: list[ReportRenderer],
+    config: EngagementConfig,
+) -> list[ReportRenderer]:
+    """Filter renderers to match config report_formats and report_theme.
+
+    A renderer is selected if:
+    1. Its format is in config.report_formats
+    2. Its theme matches config.report_theme, OR the renderer is
+       theme-agnostic (theme="" or no theme attribute)
+
+    Raises ReportError if no renderers survive filtering (fail-closed).
+    """
+    requested_formats = set(config.report_formats)
+    requested_theme = config.report_theme
+
+    selected: list[ReportRenderer] = []
+    for renderer in renderers:
+        if renderer.format not in requested_formats:
+            continue
+        # getattr required: Protocol defaults are not inherited at runtime.
+        renderer_theme = getattr(renderer, "theme", "")
+        if renderer_theme and renderer_theme != requested_theme:
+            continue
+        selected.append(renderer)
+
+    # Warn for requested formats with no matching renderer
+    selected_formats = {r.format for r in selected}
+    unmatched = sorted(requested_formats - selected_formats)
+    for fmt in unmatched:
+        logger.warning(
+            "No renderer found for requested format '%s' with theme '%s'",
+            fmt,
+            requested_theme,
+        )
+
+    if not selected:
+        raise ReportError(
+            f"No renderers match config: report_formats={config.report_formats}, "
+            f"report_theme={requested_theme!r}. "
+            f"Available: {_describe_renderers(renderers)}"
+        )
+
+    logger.info(
+        "Renderer selection: %d of %d renderers match (formats=%s, theme=%s)",
+        len(selected),
+        len(renderers),
+        config.report_formats,
+        requested_theme,
+    )
+    return selected
+
+
+def _describe_renderers(renderers: list[ReportRenderer]) -> str:
+    """Format available renderers for diagnostic messages."""
+    if not renderers:
+        return "(none discovered)"
+    parts: list[str] = []
+    for r in renderers:
+        theme = getattr(r, "theme", "")
+        label = f"format={r.format}"
+        if theme:
+            label += f",theme={theme}"
+        parts.append(label)
+    return "; ".join(parts)
+
+
 def _run_render(
     ctx: StageContext,
     renderers: list[ReportRenderer],
@@ -213,6 +280,7 @@ def _run_render(
     """Execute RENDER stage: build report payload and render."""
     _require_in_memory("consolidated_findings", ctx.consolidated_findings, Stage.RENDER)
     assert ctx.consolidated_findings is not None  # noqa: S101 -- narrowing for type checker
+    selected_renderers = _filter_renderers(renderers, config)
     if output_dir is None:
         eng_dir = orchestrator._artifact_manager.get_engagement_dir(engagement_id)
         report_dir = eng_dir / "reports"
@@ -226,7 +294,7 @@ def _run_render(
         ctx.consolidated_findings,
         orchestrator._coverage_repo,
     )
-    render(payload, renderers, report_dir)
+    render(payload, selected_renderers, report_dir)
 
 
 def _handle_qa_completion(

@@ -46,6 +46,7 @@ class BasicDocxRenderer:
     """
 
     format: str = "docx"
+    theme: str = "basic"
     supported_payload_versions: str = ">=1.0.0,<2.0.0"
 
     def __init__(self) -> None:
