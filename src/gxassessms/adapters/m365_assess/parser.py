@@ -54,6 +54,13 @@ def load_risk_severity(path: Path) -> dict[str, str]:
             f"risk-severity.json 'checks' must be a mapping, got {type(raw).__name__}",
             adapter_name="M365_Assess",
         )
+    for k, v in cast(dict[str, Any], raw).items():
+        if not isinstance(v, str):
+            raise RawOutputValidationError(
+                f"risk-severity.json 'checks' value for {k!r} must be a string, "
+                f"got {type(v).__name__}: {v!r}",
+                adapter_name="M365_Assess",
+            )
     return cast(dict[str, str], raw)
 
 
@@ -100,6 +107,11 @@ def load_registry(path: Path) -> dict[str, dict[str, Any]]:
             raise RawOutputValidationError(
                 f"registry.json 'checkId' at index {i} must be a string, "
                 f"got {type(check_id).__name__}: {check_id!r}",
+                adapter_name="M365_Assess",
+            )
+        if check_id in result:
+            raise RawOutputValidationError(
+                f"registry.json has duplicate 'checkId' entry: {check_id!r}",
                 adapter_name="M365_Assess",
             )
         _validate_registry_frameworks(check_id, entry)
@@ -244,23 +256,29 @@ def _extract_benchmark_refs(
         return []
 
     refs: list[str] = []
-    frameworks: dict[str, Any] = entry.get("frameworks", {})
+    frameworks: dict[str, Any] = entry.get("frameworks") or {}
 
-    cis: dict[str, Any] = frameworks.get("cis-m365-v6", {})
+    # Use `or {}` for each framework value: `frameworks.get(key, {})` returns None when
+    # the key is present with an explicit null value, so the default `{}` is never used.
+    cis: dict[str, Any] = frameworks.get("cis-m365-v6") or {}
     cis_id: str | None = cis.get("controlId")
     if cis_id:
         refs.append(f"cis:m365:{cis_id}")
 
-    nist: dict[str, Any] = frameworks.get("nist-800-53", {})
+    nist: dict[str, Any] = frameworks.get("nist-800-53") or {}
     nist_id: str | None = nist.get("controlId")
     if nist_id:
         for ctrl in nist_id.split(";"):
-            refs.append(f"nist:800-53:{ctrl.strip()}")
+            ctrl = ctrl.strip()
+            if ctrl:
+                refs.append(f"nist:800-53:{ctrl}")
 
-    soc2: dict[str, Any] = frameworks.get("soc2", {})
+    soc2: dict[str, Any] = frameworks.get("soc2") or {}
     soc2_id: str | None = soc2.get("controlId")
     if soc2_id:
         for ctrl in soc2_id.split(";"):
-            refs.append(f"soc2:{ctrl.strip()}")
+            ctrl = ctrl.strip()
+            if ctrl:
+                refs.append(f"soc2:{ctrl}")
 
     return refs

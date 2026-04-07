@@ -80,6 +80,18 @@ class TestLoadRiskSeverity:
         with pytest.raises(RawOutputValidationError, match="must be a mapping"):
             load_risk_severity(bad_severity)
 
+    def test_raises_on_non_string_severity_value(self, tmp_path: Path) -> None:
+        """risk-severity.json with a non-string value must raise, not let a dict flow into
+        ToolObservation.native_severity where Pydantic would raise an unstructured error."""
+        import json
+
+        from gxassessms.core.contracts.errors import RawOutputValidationError
+
+        bad_severity = tmp_path / "bad_severity.json"
+        bad_severity.write_text(json.dumps({"checks": {"ENTRA-ADMIN-001": {"level": "High"}}}))
+        with pytest.raises(RawOutputValidationError, match="must be a string"):
+            load_risk_severity(bad_severity)
+
 
 class TestLoadRegistry:
     def test_returns_dict_keyed_by_check_id(self) -> None:
@@ -165,6 +177,53 @@ class TestLoadRegistry:
         )
         with pytest.raises(RawOutputValidationError, match="must be a string"):
             load_registry(bad_registry)
+
+    def test_raises_on_duplicate_check_id(self, tmp_path: Path) -> None:
+        """Duplicate checkId entries in registry.json must raise, not silently drop one."""
+        import json
+
+        from gxassessms.core.contracts.errors import RawOutputValidationError
+
+        bad_registry = tmp_path / "bad_registry.json"
+        bad_registry.write_text(
+            json.dumps(
+                {
+                    "checks": [
+                        {"checkId": "ENTRA-ADMIN-001", "frameworks": {}},
+                        {"checkId": "ENTRA-ADMIN-001", "frameworks": {}},
+                    ],
+                }
+            )
+        )
+        with pytest.raises(RawOutputValidationError, match="duplicate 'checkId'"):
+            load_registry(bad_registry)
+
+    def test_null_framework_value_does_not_crash_benchmark_extraction(self, tmp_path: Path) -> None:
+        """A registry entry with an explicit null framework value (e.g. "cis-m365-v6": null)
+        must not cause AttributeError in _extract_benchmark_refs via frameworks.get(key, {})."""
+        import json
+
+        null_fw_registry = tmp_path / "null_fw_registry.json"
+        null_fw_registry.write_text(
+            json.dumps(
+                {
+                    "checks": [
+                        {
+                            "checkId": "ENTRA-TEST-001",
+                            "frameworks": {"cis-m365-v6": None, "nist-800-53": None},
+                        },
+                    ],
+                }
+            )
+        )
+        registry = load_registry(null_fw_registry)
+        assert "ENTRA-TEST-001" in registry
+
+        # Benchmark extraction must not crash and must return an empty list
+        from gxassessms.adapters.m365_assess.parser import _extract_benchmark_refs
+
+        refs = _extract_benchmark_refs("ENTRA-TEST-001", registry)
+        assert refs == []
 
 
 class TestParseSecurityConfigCsv:
@@ -263,6 +322,39 @@ class TestParseSecurityConfigCsv:
         cloud_admin = [o for o in observations if "ENTRA-CLOUDADMIN-001" in o.native_check_id]
         assert len(cloud_admin) == 1
         assert "soc2:CC6.3" in cloud_admin[0].benchmark_refs
+
+    def test_benchmark_refs_skip_empty_tokens_from_trailing_semicolons(
+        self, tmp_path: Path
+    ) -> None:
+        """NIST/SOC2 controlId values with trailing semicolons must not produce empty refs
+        like 'nist:800-53:' that would propagate as invalid control IDs."""
+        import json
+
+        registry_path = tmp_path / "registry.json"
+        registry_path.write_text(
+            json.dumps(
+                {
+                    "checks": [
+                        {
+                            "checkId": "ENTRA-TEST-001",
+                            "frameworks": {
+                                "nist-800-53": {"controlId": "AC-6;AC-17;"},
+                                "soc2": {"controlId": "CC6.3;"},
+                            },
+                        }
+                    ]
+                }
+            )
+        )
+        registry = load_registry(registry_path)
+        from gxassessms.adapters.m365_assess.parser import _extract_benchmark_refs
+
+        refs = _extract_benchmark_refs("ENTRA-TEST-001", registry)
+        assert "nist:800-53:AC-6" in refs
+        assert "nist:800-53:AC-17" in refs
+        assert "soc2:CC6.3" in refs
+        # No empty refs
+        assert not any(r.endswith(":") for r in refs)
 
     def test_severity_warning_logged_for_unknown_check_id(
         self, caplog: pytest.LogCaptureFixture
