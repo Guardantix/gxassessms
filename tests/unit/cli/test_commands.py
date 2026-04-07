@@ -1028,6 +1028,8 @@ class TestReportCommand:
         runner = CliRunner()
         result = runner.invoke(cli, ["report", "--help"])
         assert result.exit_code == 0
+        assert "deliverable" in result.output.lower()
+        assert "render" in result.output.lower()
 
     def test_requires_config_argument(self) -> None:
         runner = CliRunner()
@@ -1048,6 +1050,151 @@ class TestReportCommand:
             cli, ["report", "--engagement-id", "eng-001", "/nonexistent/config.yaml"]
         )
         assert result.exit_code != 0
+
+    @patch("gxassessms.cli._helpers.discover_all_plugins", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli.commands.report.validate_config", autospec=True)
+    @patch("gxassessms.cli.commands.report.load_config", autospec=True)
+    def test_report_happy_path_runs_render_stage(
+        self,
+        mock_load: MagicMock,
+        mock_validate: MagicMock,
+        mock_build: MagicMock,
+        mock_discover: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Core behavior: Stage.RENDER, renderers wired, run_from called with correct kwargs."""
+        from gxassessms.pipeline.stages import Stage
+
+        config_path = _write_config(tmp_path)
+        cfg = mock_load.return_value
+        mock_validate.return_value = ([], [])
+        mock_discover.return_value = ["renderer-a"]
+
+        result = CliRunner().invoke(cli, ["report", "--engagement-id", "eng-001", str(config_path)])
+
+        assert result.exit_code == 0
+        assert "report generation complete" in result.output.lower()
+        mock_discover.assert_called_once_with("gxassessms.renderers")
+        mock_build.return_value.run_from.assert_called_once_with(
+            engagement_id="eng-001",
+            config=cfg,
+            start_stage=Stage.RENDER,
+            adapters=[],
+            normalization_policy=None,
+            consolidation_rule=None,
+            qa_strategy=None,
+            renderers=["renderer-a"],
+        )
+
+    @patch("gxassessms.cli.commands.report.load_config", autospec=True)
+    def test_report_config_error_exits_nonzero(
+        self,
+        mock_load: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """load_config raising ConfigError -> exit nonzero, error message shown."""
+        from gxassessms.core.contracts.errors import ConfigError
+
+        config_path = _write_config(tmp_path)
+        mock_load.side_effect = ConfigError("bad config")
+
+        result = CliRunner().invoke(cli, ["report", "--engagement-id", "eng-001", str(config_path)])
+
+        assert result.exit_code != 0
+        assert "config error" in result.output.lower()
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli.commands.report.validate_config", autospec=True)
+    @patch("gxassessms.cli.commands.report.load_config", autospec=True)
+    def test_report_validation_errors_exit_without_run(
+        self,
+        mock_load: MagicMock,
+        mock_validate: MagicMock,
+        mock_build: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Validation errors -> exit nonzero, orchestrator never called."""
+        config_path = _write_config(tmp_path)
+        mock_validate.return_value = (["missing tenant"], [])
+
+        result = CliRunner().invoke(cli, ["report", "--engagement-id", "eng-001", str(config_path)])
+
+        assert result.exit_code != 0
+        assert "missing tenant" in result.output
+        mock_build.assert_not_called()
+
+    @patch("gxassessms.cli._helpers.discover_all_plugins", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli.commands.report.validate_config", autospec=True)
+    @patch("gxassessms.cli.commands.report.load_config", autospec=True)
+    def test_report_validation_warning_printed_but_runs(
+        self,
+        mock_load: MagicMock,
+        mock_validate: MagicMock,
+        mock_build: MagicMock,
+        mock_discover: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Warnings-only path: warning printed, orchestrator still called."""
+        config_path = _write_config(tmp_path)
+        mock_validate.return_value = ([], ["consider adding MFA"])
+        mock_discover.return_value = []
+
+        result = CliRunner().invoke(cli, ["report", "--engagement-id", "eng-001", str(config_path)])
+
+        assert result.exit_code == 0
+        assert "consider adding mfa" in result.output.lower()
+        mock_build.return_value.run_from.assert_called_once()
+
+    @patch("gxassessms.cli._helpers.discover_all_plugins", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli.commands.report.validate_config", autospec=True)
+    @patch("gxassessms.cli.commands.report.load_config", autospec=True)
+    def test_report_gxassess_error_exits_nonzero(
+        self,
+        mock_load: MagicMock,
+        mock_validate: MagicMock,
+        mock_build: MagicMock,
+        mock_discover: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """run_from raising GxAssessError -> exit nonzero, failure message shown."""
+        from gxassessms.core.contracts.errors import GxAssessError
+
+        config_path = _write_config(tmp_path)
+        mock_validate.return_value = ([], [])
+        mock_discover.return_value = []
+        mock_build.return_value.run_from.side_effect = GxAssessError("render failed")
+
+        result = CliRunner().invoke(cli, ["report", "--engagement-id", "eng-001", str(config_path)])
+
+        assert result.exit_code != 0
+        assert "report generation failed" in result.output.lower()
+        assert "render failed" in result.output
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli.commands.report.validate_config", autospec=True)
+    @patch("gxassessms.cli.commands.report.load_config", autospec=True)
+    def test_report_orchestrator_init_failure_exits_nonzero(
+        self,
+        mock_load: MagicMock,
+        mock_validate: MagicMock,
+        mock_build: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """build_orchestrator raising GxAssessError -> exit nonzero, failure message shown."""
+        from gxassessms.core.contracts.errors import GxAssessError
+
+        config_path = _write_config(tmp_path)
+        mock_validate.return_value = ([], [])
+        mock_build.side_effect = GxAssessError("disk full")
+
+        result = CliRunner().invoke(cli, ["report", "--engagement-id", "eng-001", str(config_path)])
+
+        assert result.exit_code != 0
+        assert "report generation failed" in result.output.lower()
+        assert "disk full" in result.output
 
 
 class TestReplayCommand:

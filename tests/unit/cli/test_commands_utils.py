@@ -717,11 +717,6 @@ class TestCLIErrorHandling:
         )
         assert result.exit_code != 0
 
-    def test_report_bad_config_exit_code(self) -> None:
-        runner = CliRunner()
-        result = runner.invoke(cli, ["report", "--engagement-id", "eng-001", "/nonexistent.yaml"])
-        assert result.exit_code != 0
-
     def test_preflight_bad_config_exit_code(self) -> None:
         runner = CliRunner()
         result = runner.invoke(cli, ["preflight", "/nonexistent.yaml"])
