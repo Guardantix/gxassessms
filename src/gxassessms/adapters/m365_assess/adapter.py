@@ -152,17 +152,20 @@ class M365AssessAdapter:
                 "M365-Assess adapter requires 'output_dir' in tool config",
                 adapter_name=self.tool_name,
             )
+        if not tc.script_dir:
+            raise CollectionError(
+                "M365-Assess adapter requires 'script_dir' in tool config "
+                "(path to the M365-Assess checkout containing Invoke-M365Assessment.ps1)",
+                adapter_name=self.tool_name,
+            )
 
         output_dir = Path(tc.output_dir)
         secure_mkdir(output_dir, parents=True, exist_ok=True)
         timeout = tc.timeout if tc.timeout is not None else _DEFAULT_TIMEOUT_SECONDS
 
-        # Resolve script path.  When script_dir is configured, resolve to an
-        # absolute path so the script is discoverable regardless of the process CWD.
-        if tc.script_dir:
-            script_path = str(Path(tc.script_dir).resolve() / "Invoke-M365Assessment.ps1")
-        else:
-            script_path = ".\\Invoke-M365Assessment.ps1"
+        # Resolve to an absolute path so the script is discoverable regardless
+        # of the process CWD.
+        script_path = str(Path(tc.script_dir).resolve() / "Invoke-M365Assessment.ps1")
 
         # Build script invocation.  Use the call operator (&) with single-quoted
         # path so PowerShell treats it as a literal string rather than splitting

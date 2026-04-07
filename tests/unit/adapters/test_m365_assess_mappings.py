@@ -155,6 +155,9 @@ class TestDedupKeyRules:
     def test_entra_cloudadmin_maps_to_cis_1_1_1(self) -> None:
         assert DEDUP_KEY_RULES["ENTRA-CLOUDADMIN-001.1"] == "cis:m365:1.1.1"
 
+    def test_entra_admin_maps_to_cis_1_1_3(self) -> None:
+        assert DEDUP_KEY_RULES["ENTRA-ADMIN-001.1"] == "cis:m365:1.1.3"
+
     def test_ca_mfa_admin_maps_to_cis_5_2_2_1(self) -> None:
         assert DEDUP_KEY_RULES["CA-MFA-ADMIN-001.1"] == "cis:m365:5.2.2.1"
 

@@ -115,6 +115,7 @@ CATEGORY_MAP: dict[str, Category] = {
 DEDUP_KEY_RULES: dict[str, str] = {
     # --- Section 1.1: Admin Account Governance ---
     "ENTRA-CLOUDADMIN-001.1": "cis:m365:1.1.1",  # Admin accounts must be cloud-only
+    "ENTRA-ADMIN-001.1": "cis:m365:1.1.3",  # 2-4 global admins designated
     # --- Section 5.2.2: Conditional Access ---
     "CA-MFA-ADMIN-001.1": "cis:m365:5.2.2.1",  # MFA required for all users in admin roles
     "CA-MFA-ALL-001.1": "cis:m365:5.2.2.2",  # MFA required for all users
