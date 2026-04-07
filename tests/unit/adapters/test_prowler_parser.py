@@ -173,3 +173,24 @@ class TestParseProwlerFindings:
         observations = parse_prowler_findings(findings)
         assert len(observations) == 2
         assert observations[0].observation_id != observations[1].observation_id
+
+    def test_missing_uid_no_cross_file_collision(self) -> None:
+        """source_tag prevents observation_id collision across separate parse calls.
+
+        Without source_tag, two files each with a uid-less finding at idx 0
+        and the same check_id would both emit prowler:{check_id}:idx0.
+        """
+        finding = {
+            "finding_info": {"title": "T", "desc": "D"},  # no uid
+            "metadata": {"event_code": "some_check"},
+            "severity": "Medium",
+            "status_code": "FAIL",
+            "status": "New",
+            "resources": [],
+            "remediation": {"desc": "", "references": []},
+            "unmapped": {"compliance": {}, "provider": "azure"},
+            "cloud": {"provider": "azure"},
+        }
+        obs_file1 = parse_prowler_findings([finding], source_tag="/results/file1.json")
+        obs_file2 = parse_prowler_findings([finding], source_tag="/results/file2.json")
+        assert obs_file1[0].observation_id != obs_file2[0].observation_id

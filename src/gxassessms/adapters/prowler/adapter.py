@@ -374,7 +374,7 @@ class ProwlerAdapter:
         all_observations: list[ToolObservation] = []
         for file_path, findings in all_findings.items():
             try:
-                observations = parse_prowler_findings(findings)
+                observations = parse_prowler_findings(findings, source_tag=str(file_path))
                 all_observations.extend(observations)
             except (KeyError, TypeError, ValueError, IndexError, AttributeError) as exc:
                 raise ParseError(

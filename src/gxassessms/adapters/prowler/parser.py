@@ -35,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 def parse_prowler_findings(
     findings: list[dict[str, Any]],
+    source_tag: str = "",
 ) -> list[ToolObservation]:
     """Parse a list of Prowler OCSF Detection Finding dicts into ToolObservations.
 
@@ -44,6 +45,11 @@ def parse_prowler_findings(
 
     Args:
         findings: List of OCSF Detection Finding objects (from JSON array).
+        source_tag: Optional discriminator (e.g. file path) included in the
+            fallback observation_id suffix when finding_info.uid is absent.
+            Required for correctness when this function is called more than once
+            (e.g. once per artifact file) -- without it, idx-based fallbacks
+            restart from zero each call and can collide across files.
 
     Returns:
         List of ToolObservation instances, one per finding.
@@ -87,11 +93,16 @@ def parse_prowler_findings(
         benchmark_refs = _extract_benchmark_refs(finding)
 
         # Hash finding_info.uid to differentiate per-resource observations.
-        # Fall back to index when uid is absent so observations never collide.
+        # Fall back to index when uid is absent. Include a hash of source_tag
+        # (typically the artifact file path) so the fallback stays unique across
+        # multiple parse_prowler_findings() calls -- idx resets to 0 each call.
         raw_finding_uid: Any = finding_info.get("uid", "")
         finding_uid: str = str(raw_finding_uid) if raw_finding_uid else ""
         if finding_uid:
             uid_hash: str = hashlib.sha256(finding_uid.encode()).hexdigest()[:12]
+        elif source_tag:
+            file_hash = hashlib.sha256(source_tag.encode()).hexdigest()[:8]
+            uid_hash = f"{file_hash}:idx{idx}"
         else:
             uid_hash = f"idx{idx}"
         observation_id = f"prowler:{check_id}:{uid_hash}"
