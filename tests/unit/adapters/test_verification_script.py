@@ -7,20 +7,9 @@ import json
 import pytest
 
 from gxassessms.core.contracts.verification import (
-    ModulePolicy,
     ModulePolicyOverride,
-    SignerIdentity,
 )
-
-
-def _policy() -> ModulePolicy:
-    return ModulePolicy(
-        module_name="TestModule",
-        version_range=">=1.0.0,<2.0.0",
-        allowed_signers=frozenset({SignerIdentity(subject="CN=Good", issuer="CN=Root")}),
-        approved_package_hashes=frozenset({"sha256tree:v1:" + "a" * 64}),
-        allow_package_hash_fallback=True,
-    )
+from tests.unit.adapters.conftest import make_test_policy
 
 
 class TestBuildInputBlob:
@@ -32,7 +21,7 @@ class TestBuildInputBlob:
 
     def test_preflight_mode_no_invocation(self) -> None:
         blob = self.build_input_blob(
-            policy=_policy(),
+            policy=make_test_policy(),
             override=None,
             mode="preflight",
             post_import_invocation=None,
@@ -49,7 +38,7 @@ class TestBuildInputBlob:
             "switches": {},
         }
         blob = self.build_input_blob(
-            policy=_policy(),
+            policy=make_test_policy(),
             override=None,
             mode="collection",
             post_import_invocation=invocation,
@@ -61,7 +50,7 @@ class TestBuildInputBlob:
     def test_override_narrows_version(self) -> None:
         override = ModulePolicyOverride(version_range="==1.5.0")
         blob = self.build_input_blob(
-            policy=_policy(),
+            policy=make_test_policy(),
             override=override,
             mode="preflight",
             post_import_invocation=None,
@@ -74,7 +63,7 @@ class TestBuildInputBlob:
             pinned_package_hashes=frozenset({"sha256tree:v1:" + "a" * 64})
         )
         blob = self.build_input_blob(
-            policy=_policy(),
+            policy=make_test_policy(),
             override=override,
             mode="preflight",
             post_import_invocation=None,
@@ -86,7 +75,7 @@ class TestBuildInputBlob:
         override = ModulePolicyOverride(version_range="==3.0.0")
         with pytest.raises(ValueError, match="does not satisfy"):
             self.build_input_blob(
-                policy=_policy(),
+                policy=make_test_policy(),
                 override=override,
                 mode="preflight",
                 post_import_invocation=None,
@@ -98,7 +87,7 @@ class TestBuildInputBlob:
         )
         with pytest.raises(ValueError, match=r"not in.*code-owned"):
             self.build_input_blob(
-                policy=_policy(),
+                policy=make_test_policy(),
                 override=override,
                 mode="preflight",
                 post_import_invocation=None,
