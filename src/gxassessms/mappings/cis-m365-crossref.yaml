@@ -55,7 +55,9 @@ cis:m365:1.1.3:  # Ensure between two and four global admins are designated
 cis:m365:1.1.4:  # Ensure admin accounts use licenses with reduced app footprint
   scubagear: ~   # Licensing check -- no ScubaGear automated check
   maester_cisa: ~
-  monkey365: "eid_pim_privileged_users_reduced_application_footprint_license"
+  monkey365:  # Two rules: PIM-enabled (entraid_1170) and non-PIM (entraid_1141)
+    - "eid_pim_privileged_users_reduced_application_footprint_license"
+    - "eid_privileged_users_reduced_application_footprint_license"
   m365_assess: ~
   semantic: "entra:admin_accounts:license_footprint"
 

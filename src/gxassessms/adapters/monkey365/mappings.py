@@ -85,6 +85,7 @@ DEDUP_KEY_RULES: dict[str, str] = {
     "eid_lack_emergency_account": "cis:m365:1.1.2",
     "eid_excessive_global_admins": "cis:m365:1.1.3",
     "eid_pim_privileged_users_reduced_application_footprint_license": "cis:m365:1.1.4",
+    "eid_privileged_users_reduced_application_footprint_license": "cis:m365:1.1.4",
     # CIS M365 Section 2.1 -- Defender: Email Security
     "m365_exo_safe_links_office_disabled": "cis:m365:2.1.1",
     "m365_exo_attachment_type_filter_disabled": "cis:m365:2.1.2",
