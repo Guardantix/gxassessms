@@ -151,7 +151,7 @@ class AzureAdvisorAdapter:
         self,
         config: EngagementConfig,
     ) -> AuthContext | None:
-        """Acquire an Azure Management API token via shared auth helper."""
+        """Acquire an Azure Management API token."""
         return acquire_azure_token(config, scope=_MANAGEMENT_SCOPE, adapter_name=self.tool_name)
 
     def collect(

@@ -83,7 +83,7 @@ class SecureScoreAdapter:
         )
 
     def authenticate(self, config: EngagementConfig) -> AuthContext | None:
-        """Acquire a Microsoft Graph API token via shared auth helper."""
+        """Acquire a Microsoft Graph API token."""
         return acquire_azure_token(config, scope=_GRAPH_SCOPE, adapter_name=self.tool_name)
 
     def collect(self, config: EngagementConfig, auth: AuthContext | None) -> CollectionOutput:
