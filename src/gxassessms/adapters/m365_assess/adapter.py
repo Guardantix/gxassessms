@@ -301,8 +301,8 @@ class M365AssessAdapter:
         registry_path = controls_dir / "registry.json"
 
         try:
-            severity_lookup = load_risk_severity(severity_path) if severity_path.exists() else {}
-            registry_lookup = load_registry(registry_path) if registry_path.exists() else {}
+            severity_lookup = load_risk_severity(severity_path)
+            registry_lookup = load_registry(registry_path)
         except RawOutputValidationError as exc:
             raise ParseError(
                 f"Failed to load M365-Assess metadata: {exc}",

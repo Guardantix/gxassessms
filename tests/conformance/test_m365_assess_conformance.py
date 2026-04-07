@@ -400,6 +400,80 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         observations = adapter.parse(raw)
         assert len(observations) > 0
 
+    def test_parse_raises_when_risk_severity_json_missing(
+        self,
+        adapter: M365AssessAdapter,
+        tmp_path: Path,
+    ) -> None:
+        """controls/ dir present but risk-severity.json absent must raise ParseError.
+
+        Previously, parse() silently substituted {} when the file was missing,
+        downgrading all severities to Medium without any validation error.
+        """
+        import hashlib
+        from datetime import UTC, datetime
+
+        from gxassessms.core.contracts.errors import ParseError
+        from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
+
+        csv_dst = tmp_path / f"Entra{_CSV_SUFFIX}"
+        shutil.copy2(FIXTURE_DIR / "entra_security_config.csv", csv_dst)
+
+        controls_dir = tmp_path / "controls"
+        controls_dir.mkdir()
+        shutil.copy2(FIXTURE_DIR / "registry_sample.json", controls_dir / "registry.json")
+        # risk-severity.json intentionally omitted
+
+        sha = hashlib.sha256(csv_dst.read_bytes()).hexdigest()
+        raw = ResolvedManifest(
+            tool=ToolSource.M365_ASSESS,
+            tool_slug="m365-assess",
+            schema_version="1.0.0",
+            manifest_version="1.0.0",
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            file_manifest={str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=sha)},
+            execution_metadata={},
+        )
+        with pytest.raises(ParseError, match="Failed to load M365-Assess metadata"):
+            adapter.parse(raw)
+
+    def test_parse_raises_when_registry_json_missing(
+        self,
+        adapter: M365AssessAdapter,
+        tmp_path: Path,
+    ) -> None:
+        """controls/ dir present but registry.json absent must raise ParseError.
+
+        Previously, parse() silently substituted {} when the file was missing,
+        dropping all benchmark references without any validation error.
+        """
+        import hashlib
+        from datetime import UTC, datetime
+
+        from gxassessms.core.contracts.errors import ParseError
+        from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
+
+        csv_dst = tmp_path / f"Entra{_CSV_SUFFIX}"
+        shutil.copy2(FIXTURE_DIR / "entra_security_config.csv", csv_dst)
+
+        controls_dir = tmp_path / "controls"
+        controls_dir.mkdir()
+        shutil.copy2(FIXTURE_DIR / "risk_severity_sample.json", controls_dir / "risk-severity.json")
+        # registry.json intentionally omitted
+
+        sha = hashlib.sha256(csv_dst.read_bytes()).hexdigest()
+        raw = ResolvedManifest(
+            tool=ToolSource.M365_ASSESS,
+            tool_slug="m365-assess",
+            schema_version="1.0.0",
+            manifest_version="1.0.0",
+            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
+            file_manifest={str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=sha)},
+            execution_metadata={},
+        )
+        with pytest.raises(ParseError, match="Failed to load M365-Assess metadata"):
+            adapter.parse(raw)
+
     def test_parse_raises_when_controls_unreachable(
         self,
         adapter: M365AssessAdapter,

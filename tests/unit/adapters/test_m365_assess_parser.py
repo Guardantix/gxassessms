@@ -250,6 +250,24 @@ class TestParseSecurityConfigCsv:
                 f"Expected 'Medium' default severity, got {obs.native_severity!r}"
             )
 
+    def test_truncated_row_missing_remediation_does_not_crash(self, tmp_path: Path) -> None:
+        """CSV row missing the trailing Remediation column must not raise AttributeError.
+
+        csv.DictReader restval=None causes row.get("Remediation", "") to return None
+        (key is present, default is ignored), and None.strip() crashes.
+        The parser uses restval="" to guarantee string values for all trailing fields.
+        """
+        truncated_csv = tmp_path / "Trunc-Security-Config.csv"
+        truncated_csv.write_text(
+            "Category,Setting,CurrentValue,RecommendedValue,Status,CheckId,Remediation\n"
+            "Config,Some Setting,On,Off,Fail,ENTRA-TEST-001.1\n"  # Remediation column absent
+        )
+        observations = parse_security_config_csv(
+            truncated_csv, severity_lookup={}, registry_lookup={}
+        )
+        assert len(observations) == 1
+        assert observations[0].raw_data["remediation"] == ""
+
     def test_category_hint_defaults_to_compliance_when_collector_unknown(
         self, tmp_path: Path
     ) -> None:

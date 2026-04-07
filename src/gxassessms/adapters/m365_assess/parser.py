@@ -98,7 +98,7 @@ def parse_security_config_csv(
     observations: list[ToolObservation] = []
 
     with open(csv_path, newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
+        reader = csv.DictReader(f, restval="")
         for row in reader:
             check_id = (row.get("CheckId") or "").strip()
             if not check_id:
