@@ -38,6 +38,7 @@ mseco = "gxassessms.cli.main:main"
 [project.entry-points."gxassessms.adapters"]
 scubagear = "gxassessms.adapters.scubagear:ScubaGearAdapter"
 maester = "gxassessms.adapters.maester:MaesterAdapter"
+monkey365 = "gxassessms.adapters.monkey365:Monkey365Adapter"
 securescore = "gxassessms.adapters.secure_score:SecureScoreAdapter"
 azureadvisor = "gxassessms.adapters.azure_advisor:AzureAdvisorAdapter"
 

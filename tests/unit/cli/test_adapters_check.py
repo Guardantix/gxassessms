@@ -85,7 +85,7 @@ class TestAdaptersCheckProvenance:
     def test_non_ps_adapter_returns_none(self) -> None:
         """Adapter without MODULE_POLICY falls through to check_prerequisites."""
         adapter = MagicMock()
-        adapter.tool_name = "monkey365"
+        adapter.tool_name = "custom_tool"
 
         result = _try_ps_adapter_baseline_check(adapter)
         assert result is None

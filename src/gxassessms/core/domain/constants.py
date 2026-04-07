@@ -166,7 +166,7 @@ EXECUTION_METADATA_ALLOWLIST: dict[str, dict[str, frozenset[str]]] = {
     "1.0.0": {
         "scubagear": frozenset({"modules", "module_provenance"}),
         "maester": frozenset({"module_provenance"}),
-        "monkey365": frozenset({"module_provenance"}),
+        "monkey365": frozenset({"output_dir", "module_provenance"}),
         "m365-assess": frozenset({"script", "tenant_id", "controls_dir"}),
         "prowler": frozenset({"output_dir", "auth_method", "checks"}),
         "azure-advisor": frozenset({"recommendation_count"}),
