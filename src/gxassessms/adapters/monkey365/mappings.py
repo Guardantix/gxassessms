@@ -105,7 +105,11 @@ DEDUP_KEY_RULES: dict[str, str] = {
     "eid_weak_auth_methods_enabled": "cis:m365:5.2.3.5",
     # CIS M365 Section 6 -- Exchange Online
     "m365_exo_mail_forwarding_enabled": "cis:m365:6.2.1",
-    # CIS Azure MFA controls
-    "aad_privileged_users_with_mfa_disabled": "cis:azure:2.1.2",
-    "aad_users_with_mfa_disabled": "cis:azure:2.1.3",
+    # CIS Azure MFA controls (Section 1.1, per-user MFA)
+    # Monkey365 rule metadata cites CIS Azure v3.0 refs 2.1.2/2.1.3; those
+    # map to MFA controls that are numbered 1.1.2/1.1.3 in our canonical
+    # CIS Azure v2.1 reference.  Using v2.1 numbers here avoids collision
+    # with Prowler's Defender plan checks (also at 2.1.x in v2.1).
+    "aad_privileged_users_with_mfa_disabled": "cis:azure:1.1.2",
+    "aad_users_with_mfa_disabled": "cis:azure:1.1.3",
 }
