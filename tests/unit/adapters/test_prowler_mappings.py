@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from gxassessms.adapters.prowler.mappings import (
+    AUTH_METHOD_MAP,
     CATEGORY_MAP,
     DEDUP_KEY_RULES,
     SEVERITY_MAP,
@@ -175,3 +176,24 @@ class TestDedupKeyRules:
             assert key == key.lower(), f"Dedup key {key} must be lowercase"
             assert "-" not in key, f"Dedup key {key} must not contain hyphens"
             assert "." not in key, f"Dedup key {key} must not contain dots"
+
+
+class TestAuthMethodMap:
+    """AUTH_METHOD_MAP maps engagement auth methods to Prowler CLI flags."""
+
+    def test_client_credential_maps_to_sp_env_auth(self) -> None:
+        assert AUTH_METHOD_MAP["client_credential"] == ["--sp-env-auth"]
+
+    def test_interactive_maps_to_browser_auth(self) -> None:
+        assert AUTH_METHOD_MAP["interactive"] == ["--browser-auth"]
+
+    def test_device_code_is_not_mapped(self) -> None:
+        """device_code must not be silently mapped to --browser-auth.
+
+        Prowler has no device-code (OAuth2 device authorization grant) flow.
+        --browser-auth opens a local browser -- an entirely different interaction
+        model.  Mapping device_code to --browser-auth would cause headless or
+        remote collectors to hang trying to open a browser window.
+        Operators must use extra_args to specify a supported Prowler auth flag.
+        """
+        assert "device_code" not in AUTH_METHOD_MAP

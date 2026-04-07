@@ -191,8 +191,15 @@ DEDUP_KEY_RULES: dict[str, str] = {
 #
 # Maps client-provided auth methods to Prowler command-line flags:
 #   client_credential -> --sp-env-auth (service principal via env vars)
-#   device_code       -> --browser-auth (closest Prowler equivalent)
-#   interactive       -> --browser-auth
+#   interactive       -> --browser-auth (opens a local browser)
+#
+# device_code is intentionally absent: Prowler has no device-code flow.
+# device_code uses the OAuth2 device authorization grant (non-interactive),
+# while --browser-auth opens a local browser -- they are not equivalent.
+# Silently mapping device_code to --browser-auth would cause headless/remote
+# collectors to hang trying to open a browser.
+# Operators should use extra_args: ["--az-cli-auth"] or
+# ["--managed-identity-auth"] instead, or reconfigure auth.method.
 #
 # For Prowler-specific methods (az_cli, managed_identity), the operator
 # overrides via extra_args: ["--az-cli-auth"] or ["--managed-identity-auth"].
@@ -200,7 +207,6 @@ DEDUP_KEY_RULES: dict[str, str] = {
 
 AUTH_METHOD_MAP: dict[str, list[str]] = {
     "client_credential": ["--sp-env-auth"],
-    "device_code": ["--browser-auth"],
     "interactive": ["--browser-auth"],
 }
 

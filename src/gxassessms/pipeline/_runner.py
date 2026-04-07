@@ -186,15 +186,33 @@ def run_stages(
                     _require_in_memory("observations", observations, stage)
                     assert observations is not None  # noqa: S101 -- narrowing for type checker
                     severity_map = _merge_adapter_map(adapters, "severity_map")
-                    category_map = _merge_adapter_map(adapters, "category_map")
                     dedup_keys = _merge_adapter_map(adapters, "dedup_key_rules", resolve_enum=False)
-                    findings = normalize(
-                        observations,
-                        normalization_policy,
-                        adapter_severity_map=severity_map,
-                        adapter_category_map=category_map,
-                        adapter_dedup_keys=dedup_keys,
-                    )
+                    # Build per-tool category maps to prevent cross-adapter prefix
+                    # collisions.  A flat-merged map silently overwrites shared keys --
+                    # e.g. "defender" means EMAIL_COLLABORATION for ScubaGear/M365 but
+                    # INFRASTRUCTURE_SECURITY for Prowler/Azure.  Normalizing each
+                    # tool's observations against only its own adapter's category map
+                    # eliminates that ambiguity without changing the Policy interface.
+                    per_tool_cat: dict[str, dict[str, str]] = {
+                        str(a.tool_source.value): _merge_adapter_map([a], "category_map")
+                        for a in adapters
+                        if hasattr(a, "tool_source") and hasattr(a, "category_map")
+                    }
+                    tool_obs_groups: dict[str, list[ToolObservation]] = {}
+                    for obs in observations:
+                        tool_obs_groups.setdefault(obs.tool.value, []).append(obs)
+                    findings_list: list[Finding] = []
+                    for tool_val, tool_obs in tool_obs_groups.items():
+                        findings_list.extend(
+                            normalize(
+                                tool_obs,
+                                normalization_policy,
+                                adapter_severity_map=severity_map,
+                                adapter_category_map=per_tool_cat.get(tool_val, {}),
+                                adapter_dedup_keys=dedup_keys,
+                            )
+                        )
+                    findings = findings_list
                     # Persist: replaces prior parsed findings in one transaction.
                     orchestrator._finding_repo.save_parsed_findings(engagement_id, findings)
 

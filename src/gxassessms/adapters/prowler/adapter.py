@@ -272,12 +272,11 @@ class ProwlerAdapter:
         # Populate those vars from the engagement config so operators don't
         # need a second set of manually-exported env vars.
         #
-        # Key off whether --sp-env-auth actually landed in cmd (from
-        # AUTH_METHOD_MAP) or was supplied explicitly via extra_args -- NOT off
-        # config.auth.method.  If extra_args overrides auth to --az-cli-auth
-        # or --managed-identity-auth, Prowler ignores AZURE_* and we must not
-        # require or inject credentials that aren't used.
-        sp_env_auth_active = "--sp-env-auth" in cmd or "--sp-env-auth" in extra_args
+        # Key ONLY off whether --sp-env-auth landed in cmd via AUTH_METHOD_MAP.
+        # If the operator supplied --sp-env-auth explicitly via extra_args they
+        # are asserting that AZURE_* are already exported; requiring
+        # client_secret_env or overwriting those vars would break that flow.
+        sp_env_auth_active = "--sp-env-auth" in cmd
         subprocess_env: dict[str, str] | None = None
         if sp_env_auth_active:
             if not config.auth.client_secret_env:

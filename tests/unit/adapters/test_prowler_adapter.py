@@ -816,32 +816,26 @@ class TestCollectAuthMethods:
     """Verify auth method handling in collect()."""
 
     @patch("gxassessms.adapters.prowler.adapter.shutil")
-    def test_device_code_auth_injects_tenant_id(
+    def test_device_code_auth_raises_unsupported(
         self, mock_shutil: MagicMock, tmp_path: Path
     ) -> None:
-        """device_code auth must inject --tenant-id into the Prowler command."""
+        """device_code auth must raise CollectionError -- Prowler has no device-code flow.
+
+        Prowler's --browser-auth is interactive-browser auth, not the OAuth2 device
+        authorization grant.  Silently mapping device_code to --browser-auth would
+        cause headless/remote collectors to hang trying to open a browser.
+        """
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
-        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
-        ocsf_file.write_text('[{"finding_info": {}}]')
         config = _make_config(auth_method="device_code", output_dir=str(tmp_path))
         adapter = ProwlerAdapter()
-        captured_cmd: list[str] = []
-
-        def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
-            captured_cmd.extend(cmd)
-            return MagicMock(returncode=0, stdout=b"", stderr=b"")
-
-        with patch("subprocess.run", side_effect=capture):
+        with pytest.raises(CollectionError, match="No Prowler auth mapping"):
             adapter.collect(config, None)
-        assert "--tenant-id" in captured_cmd
-        idx = captured_cmd.index("--tenant-id")
-        assert captured_cmd[idx + 1] != ""
 
     @patch("gxassessms.adapters.prowler.adapter.shutil")
-    def test_device_code_auth_without_tenant_id_raises(
+    def test_device_code_auth_raises_even_without_tenant_id(
         self, mock_shutil: MagicMock, tmp_path: Path
     ) -> None:
-        """device_code auth without tenant_id in config must raise CollectionError."""
+        """device_code must raise the unsupported-method error regardless of tenant_id."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
         config = EngagementConfig(
             client_name="test-client",
@@ -850,7 +844,7 @@ class TestCollectAuthMethods:
             tools={"prowler": ToolConfig(output_dir=str(tmp_path))},
         )
         adapter = ProwlerAdapter()
-        with pytest.raises(CollectionError, match="tenant_id"):
+        with pytest.raises(CollectionError, match="No Prowler auth mapping"):
             adapter.collect(config, None)
 
     @patch("gxassessms.adapters.prowler.adapter.shutil")
@@ -1123,6 +1117,39 @@ class TestCollectClientCredentialEnvInjection:
             adapter.collect(config, None)
 
         # env kwarg should be None (no injection) when auth is overridden
+        assert captured_kwargs.get("env") is None
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_sp_env_auth_via_extra_args_does_not_inject_env_vars(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """--sp-env-auth in extra_args must not overwrite already-exported AZURE_* vars.
+
+        Operators who pass --sp-env-auth explicitly are asserting that AZURE_*
+        env vars are already exported.  The adapter must pass subprocess.env=None
+        so the parent env is inherited as-is, not overwritten with config values.
+        This covers the scenario where client_credential auth is configured for
+        other adapters but Prowler should use pre-exported AZURE_* instead.
+        """
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        ocsf_file = tmp_path / "ProwlerResults.ocsf.json"
+        ocsf_file.write_text('[{"finding_info": {}}]')
+        # client_credential method normally injects from config, but when the
+        # operator also passes --sp-env-auth in extra_args, extra_has_auth=True
+        # prevents AUTH_METHOD_MAP from adding --sp-env-auth to cmd, so
+        # sp_env_auth_active (keyed off cmd) is False and injection is skipped.
+        config = _make_config(extra_args=["--sp-env-auth"], output_dir=str(tmp_path))
+        adapter = ProwlerAdapter()
+        captured_kwargs: dict[str, Any] = {}
+
+        def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
+            captured_kwargs.update(kwargs)
+            return MagicMock(returncode=0, stdout=b"", stderr=b"")
+
+        with patch("subprocess.run", side_effect=capture):
+            adapter.collect(config, None)
+
+        # env must be None: subprocess inherits the parent environment.
         assert captured_kwargs.get("env") is None
 
 
