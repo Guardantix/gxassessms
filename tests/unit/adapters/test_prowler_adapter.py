@@ -320,6 +320,67 @@ class TestValidateAndLoadFoundational:
 
 
 # ---------------------------------------------------------------------------
+# _validate_and_load -- status_code type and value validation
+# ---------------------------------------------------------------------------
+
+
+class TestValidateStatusCode:
+    def test_rejects_null_status_code(self, tmp_path: Path) -> None:
+        """status_code: null must be rejected (not coerced to FAIL)."""
+        import json
+
+        finding = _minimal_finding()
+        finding["status_code"] = None
+        raw = _make_manifest(tmp_path, json.dumps([finding]))
+        adapter = ProwlerAdapter()
+        with pytest.raises(RawOutputValidationError, match="status_code"):
+            adapter.validate_raw(raw)
+
+    def test_rejects_empty_string_status_code(self, tmp_path: Path) -> None:
+        """status_code: '' must be rejected (not coerced to FAIL)."""
+        import json
+
+        finding = _minimal_finding()
+        finding["status_code"] = ""
+        raw = _make_manifest(tmp_path, json.dumps([finding]))
+        adapter = ProwlerAdapter()
+        with pytest.raises(RawOutputValidationError, match="status_code"):
+            adapter.validate_raw(raw)
+
+    def test_rejects_non_string_status_code(self, tmp_path: Path) -> None:
+        """status_code must be a string, not an integer."""
+        import json
+
+        finding = _minimal_finding()
+        finding["status_code"] = 1
+        raw = _make_manifest(tmp_path, json.dumps([finding]))
+        adapter = ProwlerAdapter()
+        with pytest.raises(RawOutputValidationError, match="status_code"):
+            adapter.validate_raw(raw)
+
+    def test_rejects_unrecognized_status_code(self, tmp_path: Path) -> None:
+        """status_code values outside PASS/FAIL/MANUAL must be rejected."""
+        import json
+
+        finding = _minimal_finding()
+        finding["status_code"] = "UNKNOWN_VALUE"
+        raw = _make_manifest(tmp_path, json.dumps([finding]))
+        adapter = ProwlerAdapter()
+        with pytest.raises(RawOutputValidationError, match="status_code"):
+            adapter.validate_raw(raw)
+
+    @pytest.mark.parametrize("code", ["PASS", "FAIL", "MANUAL"])
+    def test_accepts_valid_status_codes(self, tmp_path: Path, code: str) -> None:
+        """PASS, FAIL, and MANUAL are all valid status_code values."""
+        import json
+
+        finding = _minimal_finding(status_code=code)
+        raw = _make_manifest(tmp_path, json.dumps([finding]))
+        adapter = ProwlerAdapter()
+        adapter.validate_raw(raw)  # should not raise
+
+
+# ---------------------------------------------------------------------------
 # _validate_and_load -- event_code
 # ---------------------------------------------------------------------------
 

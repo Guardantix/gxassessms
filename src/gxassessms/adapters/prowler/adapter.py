@@ -34,6 +34,7 @@ from gxassessms.adapters.prowler.mappings import (
     DEDUP_KEY_RULES,
     PROWLER_AUTH_FLAGS,
     SEVERITY_MAP,
+    STATUS_MAP,
 )
 from gxassessms.adapters.prowler.parser import parse_prowler_findings
 from gxassessms.adapters.prowler.policy import MINIMUM_PROWLER_MAJOR_VERSION
@@ -448,6 +449,18 @@ class ProwlerAdapter:
                 if "status_code" not in finding:
                     raise RawOutputValidationError(
                         f"Finding [{i}] missing 'status_code' field in {path}",
+                        adapter_name=self.tool_name,
+                    )
+                raw_sc: Any = cast(Any, finding["status_code"])
+                if not isinstance(raw_sc, str) or not raw_sc:
+                    raise RawOutputValidationError(
+                        f"Finding [{i}] 'status_code' must be a non-empty string in {path}",
+                        adapter_name=self.tool_name,
+                    )
+                if raw_sc not in STATUS_MAP:
+                    raise RawOutputValidationError(
+                        f"Finding [{i}] 'status_code' is {raw_sc!r}, expected one of"
+                        f" {sorted(STATUS_MAP)} in {path}",
                         adapter_name=self.tool_name,
                     )
                 if (
