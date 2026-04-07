@@ -158,10 +158,10 @@ class M365AssessAdapter:
         secure_mkdir(output_dir, parents=True, exist_ok=True)
         timeout = tc.timeout if tc.timeout is not None else _DEFAULT_TIMEOUT_SECONDS
 
-        # Resolve script path.  When script_dir is configured, build an absolute
-        # path so the script is discoverable regardless of the process CWD.
+        # Resolve script path.  When script_dir is configured, resolve to an
+        # absolute path so the script is discoverable regardless of the process CWD.
         if tc.script_dir:
-            script_path = f"{tc.script_dir}\\Invoke-M365Assessment.ps1"
+            script_path = str(Path(tc.script_dir).resolve() / "Invoke-M365Assessment.ps1")
         else:
             script_path = ".\\Invoke-M365Assessment.ps1"
 

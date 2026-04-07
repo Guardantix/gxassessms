@@ -32,8 +32,19 @@ logger = logging.getLogger(__name__)
 
 def load_risk_severity(path: Path) -> dict[str, str]:
     """Load risk-severity.json. Returns {base_check_id: severity_string}."""
-    data: dict[str, Any] = load_json_file(path, adapter_name="M365_Assess")
-    raw: Any = data.get("checks", {})
+    data: Any = load_json_file(path, adapter_name="M365_Assess")
+    if not isinstance(data, dict):
+        raise RawOutputValidationError(
+            f"risk-severity.json must be a JSON object, got {type(data).__name__}",
+            adapter_name="M365_Assess",
+        )
+    if "checks" not in data:
+        raise RawOutputValidationError(
+            "risk-severity.json is missing required 'checks' key",
+            adapter_name="M365_Assess",
+        )
+    obj: dict[str, Any] = cast(dict[str, Any], data)
+    raw: Any = obj["checks"]
     if not isinstance(raw, dict):
         raise RawOutputValidationError(
             f"risk-severity.json 'checks' must be a mapping, got {type(raw).__name__}",
@@ -49,8 +60,19 @@ def load_registry(path: Path) -> dict[str, dict[str, Any]]:
     Returns ``{check_id: entry_dict}`` keyed by ``checkId``.
     Raises RawOutputValidationError if any entry is missing the 'checkId' field.
     """
-    data: dict[str, Any] = load_json_file(path, adapter_name="M365_Assess")
-    raw: Any = data.get("checks", [])
+    data: Any = load_json_file(path, adapter_name="M365_Assess")
+    if not isinstance(data, dict):
+        raise RawOutputValidationError(
+            f"registry.json must be a JSON object, got {type(data).__name__}",
+            adapter_name="M365_Assess",
+        )
+    if "checks" not in data:
+        raise RawOutputValidationError(
+            "registry.json is missing required 'checks' key",
+            adapter_name="M365_Assess",
+        )
+    obj: dict[str, Any] = cast(dict[str, Any], data)
+    raw: Any = obj["checks"]
     if not isinstance(raw, list):
         raise RawOutputValidationError(
             f"registry.json 'checks' must be a list, got {type(raw).__name__}",
