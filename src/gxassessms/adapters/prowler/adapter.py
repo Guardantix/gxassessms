@@ -82,6 +82,7 @@ _PROWLER_ALLOWED_FLAGS: frozenset[str] = frozenset(
         "--azure-region",
         "--checks",
         "--checks-file",
+        "--mutelist-file",
         "--severity",
         "--services",
         "--scan-list",

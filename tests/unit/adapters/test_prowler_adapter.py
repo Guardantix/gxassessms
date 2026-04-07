@@ -1264,3 +1264,12 @@ class TestValidateProwlerExtraArgsWindowsPaths:
             _validate_prowler_extra_args(
                 ["--checks-file", r"C:\temp\checks.txt; rm -rf /"], "Prowler"
             )
+
+    def test_mutelist_file_windows_path_is_accepted(self) -> None:
+        """--mutelist-file with a Windows path must pass validation."""
+        from gxassessms.adapters.prowler.adapter import _validate_prowler_extra_args
+
+        result = _validate_prowler_extra_args(
+            ["--mutelist-file", r"C:\temp\mutelist.yaml"], "Prowler"
+        )
+        assert r"C:\temp\mutelist.yaml" in result
