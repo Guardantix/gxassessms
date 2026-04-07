@@ -114,6 +114,12 @@ class TestCLIGroup:
         result = runner.invoke(cli, ["nonexistent"])
         assert result.exit_code != 0
 
+    def test_cli_help_lists_compute_module_hash_command(self) -> None:
+        runner = CliRunner()
+        result = runner.invoke(cli, ["--help"])
+        assert result.exit_code == 0
+        assert "compute-module-hash" in result.output
+
 
 # ---------------------------------------------------------------------------
 # _try_register tests
