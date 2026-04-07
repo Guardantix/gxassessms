@@ -12,7 +12,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from gxassessms.core.config.config import AuthConfig, EngagementConfig, ToolConfig
-from gxassessms.core.contracts.errors import PipelineError
+from gxassessms.core.contracts.errors import PipelineError, ReportError
 from gxassessms.core.contracts.types import AdapterRunStatus
 from gxassessms.core.domain.enums import (
     Category,
@@ -38,6 +38,8 @@ from gxassessms.core.domain.models import (
 from gxassessms.pipeline._runner import (
     StageContext,
     _build_report_payload,
+    _describe_renderers,
+    _filter_renderers,
     _get_stage_output,
     _handle_qa_completion,
     _merge_adapter_map,
@@ -417,6 +419,7 @@ class TestRunStagesResumePaths:
                 "gxassessms.pipeline._runner._build_report_payload",
                 return_value=payload,
             ) as mock_build_payload,
+            patch("gxassessms.pipeline._runner._filter_renderers", return_value=[]),
             patch("gxassessms.pipeline._runner.render") as mock_render,
         ):
             run_stages(
@@ -462,6 +465,7 @@ class TestRunStagesResumePaths:
                 "gxassessms.pipeline._runner._build_report_payload",
                 return_value=payload,
             ),
+            patch("gxassessms.pipeline._runner._filter_renderers", return_value=[]),
             patch("gxassessms.pipeline._runner.render") as mock_render,
         ):
             run_stages(
@@ -920,6 +924,7 @@ class TestStageIntegration:
                 "gxassessms.pipeline._runner._build_report_payload",
                 return_value=MagicMock(),
             ),
+            patch("gxassessms.pipeline._runner._filter_renderers", return_value=[]),
             patch("gxassessms.pipeline._runner.render") as mock_render,
         ):
             harness.run(start_stage=Stage.QA_REVIEW, qa_strategy=qa_strategy, output_dir=tmp_path)
@@ -1168,6 +1173,7 @@ class TestRunRender:
                 "gxassessms.pipeline._runner._build_report_payload",
                 return_value=MagicMock(),
             ) as mock_build,
+            patch("gxassessms.pipeline._runner._filter_renderers", return_value=[]),
             patch("gxassessms.pipeline._runner.render") as mock_render,
         ):
             _run_render(ctx, [], tmp_path, _make_config(), "eng-001", harness.orchestrator)
@@ -1187,6 +1193,7 @@ class TestRunRender:
                 "gxassessms.pipeline._runner._build_report_payload",
                 return_value=MagicMock(),
             ) as mock_build,
+            patch("gxassessms.pipeline._runner._filter_renderers", return_value=[]),
             patch("gxassessms.pipeline._runner.render") as mock_render,
         ):
             _run_render(ctx, [], None, _make_config(), "eng-001", harness.orchestrator)
@@ -1203,6 +1210,7 @@ class TestRunRender:
                 "gxassessms.pipeline._runner._build_report_payload",
                 return_value=MagicMock(),
             ) as mock_build,
+            patch("gxassessms.pipeline._runner._filter_renderers", return_value=[]),
             patch("gxassessms.pipeline._runner.render"),
         ):
             _run_render(ctx, [], tmp_path, config, "eng-001", harness.orchestrator)
@@ -1268,3 +1276,170 @@ class TestHandleQaCompletion:
         assert state == EngagementState.QA_REVIEW
         assert should_break is True
         orch._transition_state.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Renderer filtering tests (Issue #38)
+# ---------------------------------------------------------------------------
+
+
+def _make_renderer(fmt: str = "docx", theme: str = "basic") -> MagicMock:
+    r = MagicMock()
+    r.format = fmt
+    r.theme = theme
+    return r
+
+
+def _make_filter_config(
+    report_formats: list[str] | None = None,
+    report_theme: str = "basic",
+) -> EngagementConfig:
+    """Minimal EngagementConfig for filter tests."""
+    return EngagementConfig(
+        client_name="Test",
+        tenant_id="t-1",
+        auth=AuthConfig(method="device_code", tenant_id="t-1", client_id="c-1"),
+        tools={},
+        report_formats=report_formats or ["docx"],
+        report_theme=report_theme,
+    )
+
+
+class TestFilterRenderers:
+    def test_filters_by_format(self) -> None:
+        docx = _make_renderer("docx", "basic")
+        pptx = _make_renderer("pptx", "basic")
+        config = _make_filter_config(report_formats=["docx"])
+
+        result = _filter_renderers([docx, pptx], config)
+
+        assert result == [docx]
+
+    def test_filters_by_theme(self) -> None:
+        basic = _make_renderer("docx", "basic")
+        gx = _make_renderer("docx", "guardantix")
+        config = _make_filter_config(report_formats=["docx"], report_theme="basic")
+
+        result = _filter_renderers([basic, gx], config)
+
+        assert result == [basic]
+
+    def test_theme_agnostic_via_no_attribute(self) -> None:
+        """Renderer with no theme attribute matches any config theme."""
+        r = MagicMock(spec=["format", "render"])
+        r.format = "docx"
+        config = _make_filter_config(report_formats=["docx"], report_theme="guardantix")
+
+        result = _filter_renderers([r], config)
+
+        assert result == [r]
+
+    def test_theme_agnostic_via_empty_string(self) -> None:
+        """Renderer with theme='' matches any config theme."""
+        r = _make_renderer("docx", "")
+        config = _make_filter_config(report_formats=["docx"], report_theme="guardantix")
+
+        result = _filter_renderers([r], config)
+
+        assert result == [r]
+
+    def test_combined_format_and_theme_filtering(self) -> None:
+        docx_basic = _make_renderer("docx", "basic")
+        docx_gx = _make_renderer("docx", "guardantix")
+        pptx_basic = _make_renderer("pptx", "basic")
+        config = _make_filter_config(report_formats=["docx"], report_theme="basic")
+
+        result = _filter_renderers([docx_basic, docx_gx, pptx_basic], config)
+
+        assert result == [docx_basic]
+
+    def test_multiple_formats_selected(self) -> None:
+        docx = _make_renderer("docx", "basic")
+        pptx = _make_renderer("pptx", "basic")
+        config = _make_filter_config(report_formats=["docx", "pptx"])
+
+        result = _filter_renderers([docx, pptx], config)
+
+        assert result == [docx, pptx]
+
+    def test_raises_report_error_when_no_renderers_match(self) -> None:
+        docx = _make_renderer("docx", "basic")
+        config = _make_filter_config(report_formats=["pdf"])
+
+        with pytest.raises(ReportError, match="No renderers match config"):
+            _filter_renderers([docx], config)
+
+    def test_raises_report_error_when_all_filtered_by_theme(self) -> None:
+        gx = _make_renderer("docx", "guardantix")
+        config = _make_filter_config(report_formats=["docx"], report_theme="basic")
+
+        with pytest.raises(ReportError, match="No renderers match config"):
+            _filter_renderers([gx], config)
+
+    def test_warns_for_unmatched_format(self, caplog: pytest.LogCaptureFixture) -> None:
+        docx = _make_renderer("docx", "basic")
+        config = _make_filter_config(report_formats=["docx", "pptx"])
+
+        with caplog.at_level("WARNING", logger="gxassessms.pipeline._runner"):
+            result = _filter_renderers([docx], config)
+
+        assert result == [docx]
+        assert any("pptx" in record.message for record in caplog.records)
+
+    def test_empty_renderer_list_raises_report_error(self) -> None:
+        config = _make_filter_config(report_formats=["docx"])
+
+        with pytest.raises(ReportError, match="No renderers match config"):
+            _filter_renderers([], config)
+
+    def test_logs_selection_summary(self, caplog: pytest.LogCaptureFixture) -> None:
+        docx = _make_renderer("docx", "basic")
+        pptx = _make_renderer("pptx", "basic")
+        config = _make_filter_config(report_formats=["docx"])
+
+        with caplog.at_level("INFO", logger="gxassessms.pipeline._runner"):
+            _filter_renderers([docx, pptx], config)
+
+        assert any("1 of 2 renderers match" in record.message for record in caplog.records)
+
+
+class TestDescribeRenderers:
+    def test_empty_list(self) -> None:
+        assert _describe_renderers([]) == "(none discovered)"
+
+    def test_with_theme(self) -> None:
+        r = _make_renderer("docx", "basic")
+        assert _describe_renderers([r]) == "format=docx,theme=basic"
+
+    def test_without_theme(self) -> None:
+        r = _make_renderer("docx", "")
+        assert _describe_renderers([r]) == "format=docx"
+
+    def test_multiple(self) -> None:
+        r1 = _make_renderer("docx", "basic")
+        r2 = _make_renderer("pptx", "guardantix")
+        result = _describe_renderers([r1, r2])
+        assert result == "format=docx,theme=basic; format=pptx,theme=guardantix"
+
+
+class TestRunRenderFilterIntegration:
+    def test_run_render_passes_only_filtered_renderers(
+        self, harness: RunnerHarness, tmp_path: Path
+    ) -> None:
+        """_run_render() must filter renderers before passing to render()."""
+        docx = _make_renderer("docx", "basic")
+        pptx = _make_renderer("pptx", "basic")
+        config = _make_filter_config(report_formats=["docx"])
+        ctx = StageContext(consolidated_findings=[_make_consolidated()])
+
+        with (
+            patch(
+                "gxassessms.pipeline._runner._build_report_payload",
+                return_value=MagicMock(),
+            ) as mock_build,
+            patch("gxassessms.pipeline._runner.render") as mock_render,
+        ):
+            _run_render(ctx, [docx, pptx], tmp_path, config, "eng-001", harness.orchestrator)
+
+        # render() should receive only the docx renderer, not both
+        mock_render.assert_called_once_with(mock_build.return_value, [docx], tmp_path)
