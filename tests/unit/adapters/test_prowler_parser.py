@@ -155,3 +155,21 @@ class TestParseProwlerFindings:
         assert len(observations) == 2
         assert observations[0].native_check_id == observations[1].native_check_id
         assert observations[0].observation_id != observations[1].observation_id
+
+    def test_missing_uid_produces_unique_observation_ids(self) -> None:
+        """Findings with absent finding_info.uid must not collide on observation_id."""
+        base = {
+            "finding_info": {"title": "T", "desc": "D"},  # no uid
+            "metadata": {"event_code": "some_check"},
+            "severity": "Medium",
+            "status_code": "FAIL",
+            "status": "New",
+            "resources": [],
+            "remediation": {"desc": "", "references": []},
+            "unmapped": {"compliance": {}, "provider": "azure"},
+            "cloud": {"provider": "azure"},
+        }
+        findings = [dict(base), dict(base)]
+        observations = parse_prowler_findings(findings)
+        assert len(observations) == 2
+        assert observations[0].observation_id != observations[1].observation_id

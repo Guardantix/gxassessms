@@ -472,6 +472,12 @@ class ProwlerAdapter:
                         f"Finding [{i}] missing 'metadata.event_code' field in {path}",
                         adapter_name=self.tool_name,
                     )
+                raw_event_code: Any = cast(Any, finding["metadata"]["event_code"])
+                if not isinstance(raw_event_code, str) or not raw_event_code.strip():
+                    raise RawOutputValidationError(
+                        f"Finding [{i}] 'metadata.event_code' must be a non-empty string in {path}",
+                        adapter_name=self.tool_name,
+                    )
 
             result[file_path] = findings
 

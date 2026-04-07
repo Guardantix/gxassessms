@@ -401,6 +401,36 @@ class TestValidateEventCode:
         with pytest.raises(RawOutputValidationError, match=r"metadata\.event_code"):
             adapter.validate_raw(raw)
 
+    def test_rejects_event_code_null(self, tmp_path: Path) -> None:
+        """event_code present but null fails validation."""
+        import json
+
+        finding = {
+            "finding_info": {"uid": "x", "title": "T", "desc": "D"},
+            "status_code": "PASS",
+            "metadata": {"event_code": None},
+        }
+        raw = _make_manifest(tmp_path, json.dumps([finding]))
+        adapter = ProwlerAdapter()
+
+        with pytest.raises(RawOutputValidationError, match=r"non-empty string"):
+            adapter.validate_raw(raw)
+
+    def test_rejects_event_code_whitespace(self, tmp_path: Path) -> None:
+        """event_code that is all whitespace fails validation."""
+        import json
+
+        finding = {
+            "finding_info": {"uid": "x", "title": "T", "desc": "D"},
+            "status_code": "PASS",
+            "metadata": {"event_code": "   "},
+        }
+        raw = _make_manifest(tmp_path, json.dumps([finding]))
+        adapter = ProwlerAdapter()
+
+        with pytest.raises(RawOutputValidationError, match=r"non-empty string"):
+            adapter.validate_raw(raw)
+
     def test_accepts_metadata_with_event_code(self, tmp_path: Path) -> None:
         import json
 

@@ -50,7 +50,7 @@ def parse_prowler_findings(
     """
     observations: list[ToolObservation] = []
 
-    for finding in findings:
+    for idx, finding in enumerate(findings):
         raw_metadata: Any = finding.get("metadata")
         metadata: dict[str, Any] = (
             cast(dict[str, Any], raw_metadata) if isinstance(raw_metadata, dict) else {}
@@ -86,10 +86,14 @@ def parse_prowler_findings(
 
         benchmark_refs = _extract_benchmark_refs(finding)
 
-        # Hash finding_info.uid to differentiate per-resource observations
+        # Hash finding_info.uid to differentiate per-resource observations.
+        # Fall back to index when uid is absent so observations never collide.
         raw_finding_uid: Any = finding_info.get("uid", "")
         finding_uid: str = str(raw_finding_uid) if raw_finding_uid else ""
-        uid_hash = hashlib.sha256(finding_uid.encode()).hexdigest()[:12]
+        if finding_uid:
+            uid_hash: str = hashlib.sha256(finding_uid.encode()).hexdigest()[:12]
+        else:
+            uid_hash = f"idx{idx}"
         observation_id = f"prowler:{check_id}:{uid_hash}"
 
         observation = ToolObservation(
