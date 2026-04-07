@@ -1,0 +1,355 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#security/secureScoreControlProfiles",
+  "value": [
+    {
+      "id": "MFARegistrationV2",
+      "azureTenantId": "00000000-0000-0000-0000-000000000000",
+      "controlCategory": "Identity",
+      "title": "Ensure all users are registered for multi-factor authentication",
+      "maxScore": 10.0,
+      "actionType": "Config",
+      "actionUrl": "https://entra.microsoft.com/#view/Microsoft_AAD_IAM/AuthenticationMethodsMenuBlade/~/AuthMethodsSettings",
+      "deprecated": false,
+      "lastModifiedDateTime": "2026-03-15T12:00:00Z",
+      "rank": 1,
+      "remediation": "Register all users for multi-factor authentication using Microsoft Entra ID MFA registration policy.",
+      "remediationImpact": "Users will need to register an additional authentication method.",
+      "service": "Microsoft Entra ID",
+      "tier": "Core",
+      "threats": [
+        "accountBreach",
+        "phishingOrWhaling",
+        "passwordCracking"
+      ],
+      "userImpact": "Moderate",
+      "implementationCost": "Low",
+      "controlStateUpdates": [
+        {
+          "state": "Default",
+          "assignedTo": "",
+          "updatedDateTime": "2026-03-01T00:00:00Z",
+          "comment": "",
+          "updatedBy": ""
+        }
+      ],
+      "complianceInformation": null,
+      "vendorInformation": {
+        "provider": "SecureScore",
+        "providerVersion": null,
+        "subProvider": null,
+        "vendor": "Microsoft"
+      }
+    },
+    {
+      "id": "AdminMFAV2",
+      "azureTenantId": "00000000-0000-0000-0000-000000000000",
+      "controlCategory": "Identity",
+      "title": "Ensure multifactor authentication is enabled for all administrative roles",
+      "maxScore": 10.0,
+      "actionType": "Config",
+      "actionUrl": "https://entra.microsoft.com/#view/Microsoft_AAD_ConditionalAccess/ConditionalAccessBlade/~/Policies",
+      "deprecated": false,
+      "lastModifiedDateTime": "2026-03-15T12:00:00Z",
+      "rank": 2,
+      "remediation": "Create a conditional access policy requiring MFA for all users with administrative roles.",
+      "remediationImpact": "Administrative users will be required to complete MFA on every sign-in.",
+      "service": "Microsoft Entra ID",
+      "tier": "Core",
+      "threats": [
+        "accountBreach",
+        "elevationOfPrivilege",
+        "passwordCracking"
+      ],
+      "userImpact": "Moderate",
+      "implementationCost": "Low",
+      "controlStateUpdates": [
+        {
+          "state": "Default",
+          "assignedTo": "",
+          "updatedDateTime": "2026-03-01T00:00:00Z",
+          "comment": "",
+          "updatedBy": ""
+        }
+      ],
+      "complianceInformation": null,
+      "vendorInformation": {
+        "provider": "SecureScore",
+        "providerVersion": null,
+        "subProvider": null,
+        "vendor": "Microsoft"
+      }
+    },
+    {
+      "id": "BlockLegacyAuthentication",
+      "azureTenantId": "00000000-0000-0000-0000-000000000000",
+      "controlCategory": "Identity",
+      "title": "Block legacy authentication",
+      "maxScore": 8.0,
+      "actionType": "Config",
+      "actionUrl": "https://entra.microsoft.com/#view/Microsoft_AAD_ConditionalAccess/ConditionalAccessBlade/~/Policies",
+      "deprecated": false,
+      "lastModifiedDateTime": "2026-03-15T12:00:00Z",
+      "rank": 5,
+      "remediation": "Create a conditional access policy to block legacy authentication protocols.",
+      "remediationImpact": "Users relying on legacy authentication clients will no longer be able to sign in.",
+      "service": "Microsoft Entra ID",
+      "tier": "Core",
+      "threats": [
+        "accountBreach",
+        "passwordCracking",
+        "phishingOrWhaling"
+      ],
+      "userImpact": "Moderate",
+      "implementationCost": "Low",
+      "controlStateUpdates": [
+        {
+          "state": "Default",
+          "assignedTo": "",
+          "updatedDateTime": "2026-03-01T00:00:00Z",
+          "comment": "",
+          "updatedBy": ""
+        }
+      ],
+      "complianceInformation": null,
+      "vendorInformation": {
+        "provider": "SecureScore",
+        "providerVersion": null,
+        "subProvider": null,
+        "vendor": "Microsoft"
+      }
+    },
+    {
+      "id": "DLPEnabled",
+      "azureTenantId": "00000000-0000-0000-0000-000000000000",
+      "controlCategory": "Data",
+      "title": "Enable Data Loss Prevention policies",
+      "maxScore": 20.0,
+      "actionType": "Config",
+      "actionUrl": "https://compliance.microsoft.com/datalossprevention/policies",
+      "deprecated": false,
+      "lastModifiedDateTime": "2026-03-15T12:00:00Z",
+      "rank": 35,
+      "remediation": "Create and enable Data Loss Prevention policies in Microsoft Purview to protect sensitive data.",
+      "remediationImpact": "Users may be prevented from sharing content containing sensitive information.",
+      "service": "Microsoft Purview",
+      "tier": "Core",
+      "threats": [
+        "dataExfiltration",
+        "dataSpillage"
+      ],
+      "userImpact": "Moderate",
+      "implementationCost": "Moderate",
+      "controlStateUpdates": [
+        {
+          "state": "Default",
+          "assignedTo": "",
+          "updatedDateTime": "2026-03-01T00:00:00Z",
+          "comment": "",
+          "updatedBy": ""
+        }
+      ],
+      "complianceInformation": null,
+      "vendorInformation": {
+        "provider": "SecureScore",
+        "providerVersion": null,
+        "subProvider": null,
+        "vendor": "Microsoft"
+      }
+    },
+    {
+      "id": "NonOwnerAccess",
+      "azureTenantId": "00000000-0000-0000-0000-000000000000",
+      "controlCategory": "Data",
+      "title": "Review mailbox access by non-owners on a periodic basis",
+      "maxScore": 4.0,
+      "actionType": "Review",
+      "actionUrl": "https://compliance.microsoft.com/auditlogsearch",
+      "deprecated": false,
+      "lastModifiedDateTime": "2026-03-15T12:00:00Z",
+      "rank": 55,
+      "remediation": "Periodically review non-owner mailbox access reports and investigate any unauthorized access.",
+      "remediationImpact": "Administrators will need to allocate time for periodic reviews.",
+      "service": "Exchange",
+      "tier": "Defense in Depth",
+      "threats": [
+        "dataExfiltration",
+        "maliciousInsider"
+      ],
+      "userImpact": "Low",
+      "implementationCost": "Low",
+      "controlStateUpdates": [
+        {
+          "state": "Default",
+          "assignedTo": "",
+          "updatedDateTime": "2026-03-01T00:00:00Z",
+          "comment": "",
+          "updatedBy": ""
+        }
+      ],
+      "complianceInformation": null,
+      "vendorInformation": {
+        "provider": "SecureScore",
+        "providerVersion": null,
+        "subProvider": null,
+        "vendor": "Microsoft"
+      }
+    },
+    {
+      "id": "OneAdmin",
+      "azureTenantId": "00000000-0000-0000-0000-000000000000",
+      "controlCategory": "Identity",
+      "title": "Designate more than one global admin",
+      "maxScore": 4.0,
+      "actionType": "Config",
+      "actionUrl": "https://entra.microsoft.com/#view/Microsoft_AAD_IAM/RolesManagementMenuBlade/~/AllRoles",
+      "deprecated": false,
+      "lastModifiedDateTime": "2026-03-15T12:00:00Z",
+      "rank": 10,
+      "remediation": "Assign the Global Administrator role to more than one user to ensure administrative continuity.",
+      "remediationImpact": "Additional users will have full administrative access to the tenant.",
+      "service": "Microsoft Entra ID",
+      "tier": "Core",
+      "threats": [
+        "accountBreach",
+        "elevationOfPrivilege"
+      ],
+      "userImpact": "Low",
+      "implementationCost": "Low",
+      "controlStateUpdates": [
+        {
+          "state": "Default",
+          "assignedTo": "",
+          "updatedDateTime": "2026-03-01T00:00:00Z",
+          "comment": "",
+          "updatedBy": ""
+        }
+      ],
+      "complianceInformation": null,
+      "vendorInformation": {
+        "provider": "SecureScore",
+        "providerVersion": null,
+        "subProvider": null,
+        "vendor": "Microsoft"
+      }
+    },
+    {
+      "id": "RoleOverlap",
+      "azureTenantId": "00000000-0000-0000-0000-000000000000",
+      "controlCategory": "Identity",
+      "title": "Reduce role overlap between administrative accounts",
+      "maxScore": 2.0,
+      "actionType": "Behavior",
+      "actionUrl": "https://entra.microsoft.com/#view/Microsoft_AAD_IAM/RolesManagementMenuBlade/~/AllRoles",
+      "deprecated": false,
+      "lastModifiedDateTime": "2026-03-15T12:00:00Z",
+      "rank": 42,
+      "remediation": "Review and reduce overlapping administrative role assignments to follow least-privilege principles.",
+      "remediationImpact": "Some administrators may lose secondary role assignments.",
+      "service": "Microsoft Entra ID",
+      "tier": "Advanced",
+      "threats": [
+        "elevationOfPrivilege",
+        "maliciousInsider"
+      ],
+      "userImpact": "Low",
+      "implementationCost": "Low",
+      "controlStateUpdates": [
+        {
+          "state": "Default",
+          "assignedTo": "",
+          "updatedDateTime": "2026-03-01T00:00:00Z",
+          "comment": "",
+          "updatedBy": ""
+        }
+      ],
+      "complianceInformation": null,
+      "vendorInformation": {
+        "provider": "SecureScore",
+        "providerVersion": null,
+        "subProvider": null,
+        "vendor": "Microsoft"
+      }
+    },
+    {
+      "id": "DeprecatedControl",
+      "azureTenantId": "00000000-0000-0000-0000-000000000000",
+      "controlCategory": "Apps",
+      "title": "Review app permissions granted to third-party applications",
+      "maxScore": 5.0,
+      "actionType": "Config",
+      "actionUrl": "https://admin.microsoft.com/Adminportal/Home#/Settings/Services",
+      "deprecated": true,
+      "lastModifiedDateTime": "2026-01-10T12:00:00Z",
+      "rank": 99,
+      "remediation": "This control has been deprecated. No remediation action is required.",
+      "remediationImpact": "None.",
+      "service": "Microsoft 365",
+      "tier": "Advanced",
+      "threats": [],
+      "userImpact": "Low",
+      "implementationCost": "Low",
+      "controlStateUpdates": [
+        {
+          "state": "Default",
+          "assignedTo": "",
+          "updatedDateTime": "2026-01-10T00:00:00Z",
+          "comment": "Control deprecated",
+          "updatedBy": "System"
+        }
+      ],
+      "complianceInformation": null,
+      "vendorInformation": {
+        "provider": "SecureScore",
+        "providerVersion": null,
+        "subProvider": null,
+        "vendor": "Microsoft"
+      }
+    },
+    {
+      "id": "ThirdPartyIgnored",
+      "azureTenantId": "00000000-0000-0000-0000-000000000000",
+      "controlCategory": "Device",
+      "title": "Ensure endpoint protection is deployed to all managed devices",
+      "maxScore": 10.0,
+      "actionType": "Config",
+      "actionUrl": "https://security.microsoft.com/securitysettings/endpoints/onboarding",
+      "deprecated": false,
+      "lastModifiedDateTime": "2026-03-15T12:00:00Z",
+      "rank": 25,
+      "remediation": "Deploy Microsoft Defender for Endpoint to all managed devices in the organization.",
+      "remediationImpact": "Endpoint protection agent will be installed on all managed devices.",
+      "service": "Microsoft Defender for Endpoint",
+      "tier": "Defense in Depth",
+      "threats": [
+        "accountBreach",
+        "elevationOfPrivilege",
+        "dataExfiltration"
+      ],
+      "userImpact": "Low",
+      "implementationCost": "Moderate",
+      "controlStateUpdates": [
+        {
+          "state": "Default",
+          "assignedTo": "",
+          "updatedDateTime": "2026-02-01T00:00:00Z",
+          "comment": "",
+          "updatedBy": ""
+        },
+        {
+          "state": "thirdParty",
+          "assignedTo": "admin@contoso.onmicrosoft.com",
+          "updatedDateTime": "2026-03-10T14:30:00Z",
+          "comment": "Managed by CrowdStrike Falcon -- scored by third-party solution",
+          "updatedBy": "admin@contoso.onmicrosoft.com"
+        }
+      ],
+      "complianceInformation": null,
+      "vendorInformation": {
+        "provider": "SecureScore",
+        "providerVersion": null,
+        "subProvider": null,
+        "vendor": "Microsoft"
+      }
+    }
+  ]
+}

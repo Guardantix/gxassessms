@@ -458,6 +458,7 @@ class TestValidateConfig:
         assert len(errors) == 5
 
     def test_device_code_with_secret_env_warns(self) -> None:
+        """device_code method with client_secret_env produces advisory warning."""
         cfg = EngagementConfig(
             client_name="Test",
             tenant_id="t1",
@@ -470,9 +471,10 @@ class TestValidateConfig:
             tools={},
         )
         _errors, warnings = validate_config(cfg)
-        assert any("device_code" in w and "client_secret_env" in w for w in warnings)
+        assert any("ignores client_secret_env" in w for w in warnings)
 
     def test_interactive_with_certificate_path_warns(self) -> None:
+        """interactive method with certificate_path produces advisory warning."""
         cfg = EngagementConfig(
             client_name="Test",
             tenant_id="t1",
@@ -485,7 +487,7 @@ class TestValidateConfig:
             tools={},
         )
         _errors, warnings = validate_config(cfg)
-        assert any("interactive" in w and "certificate_path" in w for w in warnings)
+        assert any("ignores certificate_path" in w for w in warnings)
 
     def test_client_credential_does_not_warn_on_secret(self) -> None:
         cfg = EngagementConfig(
@@ -501,3 +503,18 @@ class TestValidateConfig:
         )
         _errors, warnings = validate_config(cfg)
         assert not any("ignores" in w for w in warnings)
+
+    def test_device_code_without_credentials_passes(self) -> None:
+        """device_code without secret/cert produces zero errors (unlike client_credential)."""
+        cfg = EngagementConfig(
+            client_name="Test",
+            tenant_id="t1",
+            auth=AuthConfig(
+                method="device_code",
+                tenant_id="t1",
+                client_id="c1",
+            ),
+            tools={},
+        )
+        errors, _warnings = validate_config(cfg)
+        assert errors == []
