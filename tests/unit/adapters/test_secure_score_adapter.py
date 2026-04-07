@@ -1,9 +1,8 @@
 """Unit tests for SecureScoreAdapter guards that don't require network calls."""
 
-import sys
 from datetime import timedelta
-from types import ModuleType, SimpleNamespace
-from unittest.mock import MagicMock
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from pydantic import SecretStr
@@ -58,211 +57,39 @@ class TestAdapterProperties:
         assert adapter.tool_name.lower() == "securescore"
 
 
-def _mock_azure_identity(
-    monkeypatch: pytest.MonkeyPatch,
-) -> tuple[MagicMock, MagicMock, MagicMock, MagicMock]:
-    """Inject mock azure.identity and azure.core.exceptions into sys.modules.
-
-    Returns (ClientSecretCredential, CertificateCredential,
-             DeviceCodeCredential, InteractiveBrowserCredential) constructor mocks.
-    """
-    fake_token = SimpleNamespace(token="tok", expires_on=9_999_999_999)
-
-    sp_cred = MagicMock()
-    sp_cred.get_token.return_value = fake_token
-    ClientSecretCredential = MagicMock(return_value=sp_cred)
-
-    cert_cred = MagicMock()
-    cert_cred.get_token.return_value = fake_token
-    CertificateCredential = MagicMock(return_value=cert_cred)
-
-    dc_cred = MagicMock()
-    dc_cred.get_token.return_value = fake_token
-    DeviceCodeCredential = MagicMock(return_value=dc_cred)
-
-    ib_cred = MagicMock()
-    ib_cred.get_token.return_value = fake_token
-    InteractiveBrowserCredential = MagicMock(return_value=ib_cred)
-
-    mock_identity = ModuleType("azure.identity")
-    mock_identity.ClientSecretCredential = ClientSecretCredential  # type: ignore[attr-defined]
-    mock_identity.CertificateCredential = CertificateCredential  # type: ignore[attr-defined]
-    mock_identity.DeviceCodeCredential = DeviceCodeCredential  # type: ignore[attr-defined]
-    mock_identity.InteractiveBrowserCredential = InteractiveBrowserCredential  # type: ignore[attr-defined]
-
-    mock_azure_core = ModuleType("azure.core.exceptions")
-    mock_azure_core.AzureError = Exception  # type: ignore[attr-defined]
-
-    monkeypatch.setitem(sys.modules, "azure.identity", mock_identity)
-    monkeypatch.setitem(sys.modules, "azure.core.exceptions", mock_azure_core)
-
-    return (
-        ClientSecretCredential,
-        CertificateCredential,
-        DeviceCodeCredential,
-        InteractiveBrowserCredential,
-    )
-
-
-def _auth_config(
-    *,
-    method: str = "client_credential",
-    client_secret_env: str = "",
-    certificate_path: str | None = None,
-) -> SimpleNamespace:
-    return SimpleNamespace(
-        auth=SimpleNamespace(
-            method=method,
-            client_id="app-id",
-            client_secret_env=client_secret_env,
-            certificate_path=certificate_path,
-            tenant_id="tenant-id",
-        )
-    )
-
-
 class TestAuthenticate:
-    def test_client_credential_without_secret_or_cert_raises(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """authenticate() raises CollectionError for client_credential without credentials.
-
-        validate_config catches this at load time; authenticate() is fail-closed.
-        """
-        _mock_azure_identity(monkeypatch)
+    def test_delegates_to_acquire_azure_token(self) -> None:
+        """authenticate() delegates to shared acquire_azure_token with correct args."""
         adapter = SecureScoreAdapter()
-        with pytest.raises(CollectionError, match="client_credential auth requires"):
-            adapter.authenticate(  # type: ignore[arg-type]
-                _auth_config(method="client_credential", client_secret_env="")
-            )
+        config = SimpleNamespace()  # opaque; passed through to mock
+        sentinel = AuthContext(
+            token=SecretStr("test-token"),  # pragma: allowlist secret
+            extra={"scope": "https://graph.microsoft.com/.default"},
+            expires_at=utc_now(),
+        )
+        with patch(
+            "gxassessms.adapters.secure_score.adapter.acquire_azure_token",
+            return_value=sentinel,
+        ) as mock_acquire:
+            result = adapter.authenticate(config)  # type: ignore[arg-type]
+        mock_acquire.assert_called_once_with(
+            config,
+            scope="https://graph.microsoft.com/.default",
+            adapter_name="SecureScore",
+        )
+        assert result is sentinel
 
-    def test_uses_client_secret_credential_when_secret_env_set(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """authenticate() uses ClientSecretCredential when client_secret_env is set."""
-        ClientSecretCredential, _, _, _ = _mock_azure_identity(monkeypatch)
-        monkeypatch.setenv("GX_TEST_SECRET", "s3cr3t")
+    def test_propagates_collection_error(self) -> None:
+        """CollectionError from acquire_azure_token propagates unchanged."""
         adapter = SecureScoreAdapter()
-        result = adapter.authenticate(  # type: ignore[arg-type]
-            _auth_config(client_secret_env="GX_TEST_SECRET")  # pragma: allowlist secret
-        )
-        assert result is not None
-        ClientSecretCredential.assert_called_once_with(
-            tenant_id="tenant-id",
-            client_id="app-id",
-            client_secret="s3cr3t",  # pragma: allowlist secret
-        )
-
-    def test_raises_if_secret_env_set_but_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """authenticate() raises CollectionError when secret env var is set but empty."""
-        _mock_azure_identity(monkeypatch)
-        monkeypatch.delenv("GX_MISSING_SECRET", raising=False)
-        adapter = SecureScoreAdapter()
-        with pytest.raises(CollectionError, match="not set or empty"):
-            adapter.authenticate(  # type: ignore[arg-type]
-                _auth_config(client_secret_env="GX_MISSING_SECRET")  # pragma: allowlist secret
-            )
-
-    def test_uses_certificate_credential_when_certificate_path_set(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """authenticate() uses CertificateCredential when certificate_path is set."""
-        _, CertificateCredential, _, _ = _mock_azure_identity(monkeypatch)
-        adapter = SecureScoreAdapter()
-        result = adapter.authenticate(  # type: ignore[arg-type]
-            _auth_config(certificate_path="/path/to/cert.pem")
-        )
-        assert result is not None
-        CertificateCredential.assert_called_once_with(
-            tenant_id="tenant-id",
-            client_id="app-id",
-            certificate_path="/path/to/cert.pem",
-        )
-
-    def test_client_secret_takes_precedence_over_certificate(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """client_secret_env is preferred when both secret and certificate are configured."""
-        ClientSecretCredential, CertificateCredential, _, _ = _mock_azure_identity(monkeypatch)
-        monkeypatch.setenv("GX_TEST_SECRET", "s3cr3t")
-        adapter = SecureScoreAdapter()
-        result = adapter.authenticate(  # type: ignore[arg-type]
-            _auth_config(
-                client_secret_env="GX_TEST_SECRET",  # pragma: allowlist secret
-                certificate_path="/path/to/cert.pem",
-            )
-        )
-        assert result is not None
-        ClientSecretCredential.assert_called_once()
-        CertificateCredential.assert_not_called()
-
-    def test_device_code_uses_device_code_credential(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """method='device_code' dispatches to DeviceCodeCredential."""
-        _, _, DeviceCodeCredential, _ = _mock_azure_identity(monkeypatch)
-        adapter = SecureScoreAdapter()
-        result = adapter.authenticate(  # type: ignore[arg-type]
-            _auth_config(method="device_code")
-        )
-        assert result is not None
-        DeviceCodeCredential.assert_called_once_with(
-            client_id="app-id",
-            tenant_id="tenant-id",
-        )
-
-    def test_interactive_uses_interactive_browser_credential(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """method='interactive' dispatches to InteractiveBrowserCredential."""
-        _, _, _, InteractiveBrowserCredential = _mock_azure_identity(monkeypatch)
-        adapter = SecureScoreAdapter()
-        result = adapter.authenticate(  # type: ignore[arg-type]
-            _auth_config(method="interactive")
-        )
-        assert result is not None
-        InteractiveBrowserCredential.assert_called_once_with(
-            tenant_id="tenant-id",
-            client_id="app-id",
-        )
-
-    def test_device_code_ignores_client_secret_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """method='device_code' with leftover client_secret_env still uses DeviceCodeCredential."""
-        ClientSecretCredential, _, DeviceCodeCredential, _ = _mock_azure_identity(monkeypatch)
-        monkeypatch.setenv("GX_TEST_SECRET", "s3cr3t")
-        adapter = SecureScoreAdapter()
-        result = adapter.authenticate(  # type: ignore[arg-type]
-            _auth_config(
-                method="device_code",
-                client_secret_env="GX_TEST_SECRET",  # pragma: allowlist secret
-            )
-        )
-        assert result is not None
-        DeviceCodeCredential.assert_called_once()
-        ClientSecretCredential.assert_not_called()
-
-    def test_interactive_ignores_certificate_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """method='interactive' with leftover certificate_path uses InteractiveBrowserCredential."""
-        _, CertificateCredential, _, InteractiveBrowserCredential = _mock_azure_identity(
-            monkeypatch
-        )
-        adapter = SecureScoreAdapter()
-        result = adapter.authenticate(  # type: ignore[arg-type]
-            _auth_config(
-                method="interactive",
-                certificate_path="/path/to/cert.pem",
-            )
-        )
-        assert result is not None
-        InteractiveBrowserCredential.assert_called_once()
-        CertificateCredential.assert_not_called()
-
-    def test_unsupported_method_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Unsupported auth method raises CollectionError."""
-        _mock_azure_identity(monkeypatch)
-        adapter = SecureScoreAdapter()
-        with pytest.raises(CollectionError, match="Unsupported auth method"):
-            adapter.authenticate(  # type: ignore[arg-type]
-                _auth_config(method="bogus")
-            )
+        with (
+            patch(
+                "gxassessms.adapters.secure_score.adapter.acquire_azure_token",
+                side_effect=CollectionError("boom", adapter_name="SecureScore"),
+            ),
+            pytest.raises(CollectionError, match="boom"),
+        ):
+            adapter.authenticate(SimpleNamespace())  # type: ignore[arg-type]
 
 
 class TestCollectGuards:
