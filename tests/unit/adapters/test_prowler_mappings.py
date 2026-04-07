@@ -169,9 +169,9 @@ class TestDedupKeyRules:
             assert ":" in value, f"Dedup key for {key} must be namespaced (contain ':')"
 
     def test_known_mappings_present(self) -> None:
-        """Verified against Prowler check definitions and CIS Azure crossref."""
+        """Verified against Prowler cis_2.1_azure.json and CIS Azure Foundations v2.1.0."""
         assert (
-            DEDUP_KEY_RULES["defender_ensure_defender_for_app_services_is_on"] == "cis:azure:5.3.1"
+            DEDUP_KEY_RULES["defender_ensure_defender_for_app_services_is_on"] == "cis:azure:2.1.2"
         )
         assert DEDUP_KEY_RULES["storage_secure_transfer_required_is_enabled"] == "cis:azure:3.1"
 

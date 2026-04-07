@@ -1098,6 +1098,29 @@ class TestCollectClientCredentialEnvInjection:
             adapter.collect(config, None)
 
     @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_client_credential_certificate_path_raises(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """collect() must raise with a clear message when certificate_path is set
+        but client_secret_env is absent -- Prowler --sp-env-auth requires a secret."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        config = EngagementConfig(
+            client_name="test-client",
+            tenant_id="test-tenant",
+            auth=AuthConfig(
+                method="client_credential",
+                tenant_id="test-tenant",
+                client_id="test-client-id",
+                client_secret_env="",
+                certificate_path="/path/to/cert.pem",
+            ),
+            tools={"prowler": ToolConfig(output_dir=str(tmp_path))},
+        )
+        adapter = ProwlerAdapter()
+        with pytest.raises(CollectionError, match="certificate"):
+            adapter.collect(config, None)
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
     def test_client_credential_secret_env_var_not_set_raises(
         self, mock_shutil: MagicMock, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

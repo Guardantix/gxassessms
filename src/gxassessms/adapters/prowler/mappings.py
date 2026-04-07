@@ -162,21 +162,26 @@ CATEGORY_MAP: dict[str, Category] = {
 # ---------------------------------------------------------------------------
 
 DEDUP_KEY_RULES: dict[str, str] = {
-    # Defender checks (CIS Azure 2.1 Section 5.3)
-    "defender_ensure_defender_for_app_services_is_on": "cis:azure:5.3.1",
-    "defender_ensure_defender_for_arm_is_on": "cis:azure:5.3.2",
-    "defender_ensure_defender_for_azure_sql_databases_is_on": "cis:azure:5.3.3",
-    "defender_ensure_defender_for_containers_is_on": "cis:azure:5.3.4",
-    "defender_ensure_defender_for_cosmosdb_is_on": "cis:azure:5.3.5",
-    "defender_ensure_defender_for_databases_is_on": "cis:azure:5.3.6",
-    "defender_ensure_defender_for_dns_is_on": "cis:azure:5.3.7",
-    "defender_ensure_defender_for_keyvault_is_on": "cis:azure:5.3.8",
-    "defender_ensure_defender_for_os_relational_databases_is_on": "cis:azure:5.3.9",
-    "defender_ensure_defender_for_server_is_on": "cis:azure:5.3.10",
-    "defender_ensure_defender_for_sql_servers_is_on": "cis:azure:5.3.11",
-    "defender_ensure_defender_for_storage_is_on": "cis:azure:5.1.7",
+    # Defender checks (CIS Azure 2.1 Section 2.1)
+    # Control numbers verified against Prowler cis_2.1_azure.json and
+    # CIS Microsoft Azure Foundations Benchmark v2.1.0.
+    "defender_ensure_defender_for_server_is_on": "cis:azure:2.1.1",
+    "defender_ensure_defender_for_app_services_is_on": "cis:azure:2.1.2",
+    "defender_ensure_defender_for_azure_sql_databases_is_on": "cis:azure:2.1.3",
+    "defender_ensure_defender_for_sql_servers_is_on": "cis:azure:2.1.4",
+    "defender_ensure_defender_for_os_relational_databases_is_on": "cis:azure:2.1.5",
+    "defender_ensure_defender_for_cosmosdb_is_on": "cis:azure:2.1.6",
+    "defender_ensure_defender_for_storage_is_on": "cis:azure:2.1.7",
+    "defender_ensure_defender_for_containers_is_on": "cis:azure:2.1.8",
+    "defender_ensure_defender_for_keyvault_is_on": "cis:azure:2.1.9",
+    "defender_ensure_defender_for_dns_is_on": "cis:azure:2.1.10",
+    "defender_ensure_defender_for_arm_is_on": "cis:azure:2.1.11",
+    # Not in CIS Azure 2.1 -- Prowler-specific check for the parent Databases plan
+    "defender_ensure_defender_for_databases_is_on": (
+        "prowler:defender_ensure_defender_for_databases_is_on"
+    ),
     # IAM checks (CIS Azure 2.1 Section 1)
-    "iam_subscription_roles_owner_custom_not_created": "cis:azure:1.23",
+    "iam_subscription_roles_owner_custom_not_created": "cis:azure:1.22",
     # SQL Server checks (CIS Azure 2.1 Section 4.1)
     "sqlserver_auditing_enabled": "cis:azure:4.1.1",
     "sqlserver_azuread_administrator_enabled": "cis:azure:4.1.4",

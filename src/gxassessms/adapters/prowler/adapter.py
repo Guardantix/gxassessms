@@ -278,6 +278,12 @@ class ProwlerAdapter:
         sp_env_auth_active = "--sp-env-auth" in cmd
         subprocess_env: dict[str, str] | None = None
         if sp_env_auth_active:
+            if config.auth.certificate_path and not config.auth.client_secret_env:
+                raise CollectionError(
+                    "Prowler --sp-env-auth does not support certificate-based credentials; "
+                    "provide 'client_secret_env' instead of 'certificate_path'",
+                    adapter_name=self.tool_name,
+                )
             if not config.auth.client_secret_env:
                 raise CollectionError(
                     "client_credential auth requires 'client_secret_env' in engagement config",
