@@ -28,7 +28,9 @@ class TestComputeModuleHashCommand:
         result = runner.invoke(cli, ["compute-module-hash", "--manifest-path", str(manifest)])
 
         assert result.exit_code == 0
-        all_printed = "\n".join(str(c.args[0]) for c in mock_console.print.call_args_list if c.args)
+        all_printed = "\n".join(
+            " ".join(map(str, c.args)) for c in mock_console.print.call_args_list if c.args
+        )
         assert "Module:" in all_printed
         assert "MyModule" in all_printed
         assert "Path:" in all_printed
@@ -47,7 +49,9 @@ class TestComputeModuleHashCommand:
         result = runner.invoke(cli, ["compute-module-hash", "--manifest-path", str(bad_file)])
 
         assert result.exit_code == 1
-        all_printed = "\n".join(str(c.args[0]) for c in mock_console.print.call_args_list if c.args)
+        all_printed = "\n".join(
+            " ".join(map(str, c.args)) for c in mock_console.print.call_args_list if c.args
+        )
         assert "Expected a .psd1 file" in all_printed
         assert "not_manifest.txt" in all_printed  # command includes the bad filename in the message
 
@@ -83,7 +87,9 @@ class TestComputeModuleHashCommand:
         result = runner.invoke(cli, ["compute-module-hash", "--manifest-path", str(manifest)])
 
         assert result.exit_code == 1
-        all_printed = "\n".join(str(c.args[0]) for c in mock_console.print.call_args_list if c.args)
+        all_printed = "\n".join(
+            " ".join(map(str, c.args)) for c in mock_console.print.call_args_list if c.args
+        )
         assert "Error:" in all_printed
         assert "Symlink/junction detected" in all_printed  # exc message propagated verbatim
 
@@ -102,7 +108,9 @@ class TestComputeModuleHashCommand:
         result = runner.invoke(cli, ["compute-module-hash", "--manifest-path", str(manifest)])
 
         assert result.exit_code == 1
-        all_printed = "\n".join(str(c.args[0]) for c in mock_console.print.call_args_list if c.args)
+        all_printed = "\n".join(
+            " ".join(map(str, c.args)) for c in mock_console.print.call_args_list if c.args
+        )
         assert "Cannot read module:" in all_printed
         assert "permission denied" in all_printed  # OSError string follows the prefix
 
