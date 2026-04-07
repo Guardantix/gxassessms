@@ -50,6 +50,10 @@ _VALID_PRODUCT_NAMES: frozenset[str] = frozenset(
 _PRODUCT_NAME_MAP: dict[str, str] = {name.lower(): name for name in _VALID_PRODUCT_NAMES}
 _OUTPUT_DIR_PREFIX = "M365BaselineConformance"
 
+# Args the adapter controls -- user cannot override via extra_args.
+# Allowing overrides would redirect ScubaGear output to an attacker-controlled path.
+_RESERVED_ARGS: frozenset[str] = frozenset({"OutPath"})
+
 
 class ScubaGearAdapter:
     """ToolAdapter implementation for ScubaGear (CISA SCuBA baseline assessor for M365)."""
@@ -107,6 +111,19 @@ class ScubaGearAdapter:
         if tc.extra_args:
             validated = validate_extra_args(tc.extra_args)
             extra_named, switches = parse_extra_args(validated)
+            _reserved_lower = frozenset(r.lower() for r in _RESERVED_ARGS)
+            reserved_conflicts = {
+                k for k in extra_named if any(r.startswith(k.lower()) for r in _reserved_lower)
+            }
+            reserved_conflicts |= {
+                k for k in switches if any(r.startswith(k.lower()) for r in _reserved_lower)
+            }
+            if reserved_conflicts:
+                raise CollectionError(
+                    f"extra_args contains reserved ScubaGear args that cannot be overridden: "
+                    f"{sorted(reserved_conflicts)}",
+                    adapter_name=self.tool_name,
+                )
             named_args.update(extra_named)
 
         if modules:
