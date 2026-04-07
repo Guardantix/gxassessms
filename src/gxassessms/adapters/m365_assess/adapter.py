@@ -346,7 +346,7 @@ class M365AssessAdapter:
                 with open(csv_path, newline="", encoding="utf-8-sig") as f:
                     reader = csv.DictReader(f)
                     for row in reader:
-                        check_id = row.get("CheckId", "").strip()
+                        check_id = (row.get("CheckId") or "").strip()
                         if not check_id:
                             continue
                         base_id = extract_base_check_id(check_id)
