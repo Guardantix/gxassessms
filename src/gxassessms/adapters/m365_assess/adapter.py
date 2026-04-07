@@ -251,9 +251,9 @@ class M365AssessAdapter:
         #   3. CWD/controls (best-effort: script likely ran from here when no script_dir)
         #   4. output_dir/controls (last resort)
         if tc.controls_dir:
-            controls_dir = Path(tc.controls_dir)
+            controls_dir = Path(tc.controls_dir).resolve()
         elif tc.script_dir:
-            controls_dir = Path(tc.script_dir) / "controls"
+            controls_dir = (Path(tc.script_dir) / "controls").resolve()
         else:
             cwd_controls = Path.cwd() / "controls"
             controls_dir = cwd_controls if cwd_controls.is_dir() else output_dir / "controls"
@@ -359,8 +359,10 @@ class M365AssessAdapter:
     def coverage(self, raw: ResolvedManifest) -> list[CoverageRecord]:
         """Extract per-control coverage records, deduplicated by base CheckId.
 
-        All M365-Assess checks with a valid CheckId are marked ASSESSED.
-        Sub-checks (.N suffix) are collapsed to their base CheckId.
+        Status=Review rows are mapped to NOT_ASSESSED because they require human
+        review and have not been fully evaluated by the tool.  All other statuses
+        with a valid CheckId are marked ASSESSED.  Sub-checks (.N suffix) are
+        collapsed to their base CheckId.
         """
         self.validate_raw(raw)
 
@@ -381,11 +383,17 @@ class M365AssessAdapter:
                             continue
                         seen_base_ids.add(base_id)
 
+                        raw_status = (row.get("Status") or "").strip()
+                        cov_status = (
+                            CoverageStatus.NOT_ASSESSED
+                            if raw_status == "Review"
+                            else CoverageStatus.ASSESSED
+                        )
                         records.append(
                             CoverageRecord(
                                 control_id=base_id,
                                 tool=ToolSource.M365_ASSESS,
-                                status=CoverageStatus.ASSESSED,
+                                status=cov_status,
                                 reason=None,
                             )
                         )
