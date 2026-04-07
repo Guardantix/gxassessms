@@ -36,12 +36,20 @@ from gxassessms.core.domain.models import (
     ToolObservation,
 )
 from gxassessms.pipeline._runner import (
+    StageContext,
     _build_report_payload,
     _get_stage_output,
+    _handle_qa_completion,
     _merge_adapter_map,
     _recover_stale_state,
     _rehydrate_upstream_state,
     _require_in_memory,
+    _run_collect,
+    _run_consolidate,
+    _run_normalize,
+    _run_parse,
+    _run_qa_review,
+    _run_render,
     _verify_stage_completed,
     run_stages,
 )
@@ -655,8 +663,7 @@ class TestGetStageOutput:
         consolidated = _make_consolidated()
         qa_results = [{"finding_instance_id": "finding-001", "flags": ["manual-review"]}]
 
-        result = _get_stage_output(
-            stage,
+        ctx = StageContext(
             collection_results=[collection_result],
             adapter_results=[adapter_result],
             observations=[observation],
@@ -664,6 +671,7 @@ class TestGetStageOutput:
             consolidated_findings=[consolidated],
             qa_results=qa_results,
         )
+        result = _get_stage_output(stage, ctx)
 
         assert result == _expected_stage_output(
             stage,
@@ -678,17 +686,10 @@ class TestGetStageOutput:
     def test_raises_for_invalid_stage(self) -> None:
         # Use a minimal fake stage so this trips the runner guard instead of enum construction.
         invalid_stage = SimpleNamespace(value="UNKNOWN_STAGE")
+        ctx = StageContext()
 
         with pytest.raises(ValueError, match="Unhandled stage for hashing: UNKNOWN_STAGE"):
-            _get_stage_output(
-                invalid_stage,
-                collection_results=[],
-                adapter_results=[],
-                observations=[],
-                findings=[],
-                consolidated_findings=[],
-                qa_results=[],
-            )
+            _get_stage_output(invalid_stage, ctx)
 
 
 class TestFailureFallbacks:
@@ -816,6 +817,11 @@ class TestRehydrateEntries:
             result = _rehydrate_upstream_state(Stage.RENDER, "eng-001", [], harness.orchestrator)
         assert result == (None, None, consolidated)
         mock_verify.assert_called_once_with("eng-001")
+
+    def test_unhandled_stage_raises(self, harness: RunnerHarness) -> None:
+        bogus_stage = SimpleNamespace(value="FUTURE_STAGE")
+        with pytest.raises(PipelineError, match="Unhandled start_stage"):
+            _rehydrate_upstream_state(bogus_stage, "eng-001", [], harness.orchestrator)
 
 
 class TestVerifyStageCompleted:
@@ -975,3 +981,290 @@ class TestStageIntegration:
         assert EngagementState.PARSING in state_calls
         assert EngagementState.NORMALIZING in state_calls
         assert EngagementState.CONSOLIDATED in state_calls
+
+
+# ---------------------------------------------------------------------------
+# Direct handler tests (commit 2)
+# ---------------------------------------------------------------------------
+
+
+class TestRunCollect:
+    def test_populates_ctx_and_persists_raw_outputs(self, harness: RunnerHarness) -> None:
+        collection_results = [_make_collection_result()]
+        loaded_manifests = [MagicMock()]
+        harness.artifact_manager.save_raw_outputs.return_value = loaded_manifests
+        ctx = StageContext()
+
+        with patch("gxassessms.pipeline._runner.collect", return_value=collection_results):
+            _run_collect(ctx, _make_config(), [], harness.orchestrator, "eng-001")
+
+        assert ctx.collection_results == collection_results
+        assert ctx.loaded_manifests == loaded_manifests
+        harness.artifact_manager.save_raw_outputs.assert_called_once_with(
+            "eng-001", "Test Client", collection_results
+        )
+
+    def test_empty_adapters_still_calls_save(self, harness: RunnerHarness) -> None:
+        harness.artifact_manager.save_raw_outputs.return_value = []
+        ctx = StageContext()
+
+        with patch("gxassessms.pipeline._runner.collect", return_value=[]):
+            _run_collect(ctx, _make_config(), [], harness.orchestrator, "eng-001")
+
+        assert ctx.collection_results == []
+        assert ctx.loaded_manifests == []
+        harness.artifact_manager.save_raw_outputs.assert_called_once()
+
+
+class TestRunParse:
+    def test_raises_when_loaded_manifests_is_none(self, harness: RunnerHarness) -> None:
+        ctx = StageContext()  # loaded_manifests defaults to None
+        with pytest.raises(PipelineError, match="requires loaded_manifests"):
+            _run_parse(ctx, [], harness.orchestrator, "eng-001")
+
+    def test_wraps_resolved_in_adapter_results_and_sets_observations(
+        self, harness: RunnerHarness
+    ) -> None:
+        resolved = [_make_raw_output()]
+        observations = [_make_observation()]
+        ctx = StageContext(loaded_manifests=[MagicMock()])
+        harness.artifact_manager.get_engagement_dir.return_value = Path("/fake/eng")
+
+        with (
+            patch("gxassessms.pipeline.confinement.confine_and_resolve", return_value=resolved),
+            patch("gxassessms.pipeline._runner.parse", return_value=observations),
+            patch("gxassessms.pipeline._runner.collect_coverage", return_value=[]),
+        ):
+            _run_parse(ctx, [], harness.orchestrator, "eng-001")
+
+        assert ctx.observations == observations
+        assert len(ctx.adapter_results) == 1
+        assert ctx.adapter_results[0].status == AdapterRunStatus.SUCCESS
+        assert ctx.adapter_results[0].duration_seconds == 0.0
+        assert ctx.adapter_results[0].raw_output == resolved[0]
+
+    def test_coverage_persisted_when_nonempty(self, harness: RunnerHarness) -> None:
+        coverage = [_make_coverage_record()]
+        ctx = StageContext(loaded_manifests=[MagicMock()])
+        harness.artifact_manager.get_engagement_dir.return_value = Path("/fake/eng")
+
+        with (
+            patch(
+                "gxassessms.pipeline.confinement.confine_and_resolve",
+                return_value=[_make_raw_output()],
+            ),
+            patch("gxassessms.pipeline._runner.parse", return_value=[]),
+            patch("gxassessms.pipeline._runner.collect_coverage", return_value=coverage),
+        ):
+            _run_parse(ctx, [], harness.orchestrator, "eng-001")
+
+        harness.coverage_repo.delete_for_engagement.assert_called_once_with("eng-001")
+        harness.coverage_repo.save.assert_called_once()
+
+    def test_empty_coverage_skips_save(self, harness: RunnerHarness) -> None:
+        ctx = StageContext(loaded_manifests=[MagicMock()])
+        harness.artifact_manager.get_engagement_dir.return_value = Path("/fake/eng")
+
+        with (
+            patch(
+                "gxassessms.pipeline.confinement.confine_and_resolve",
+                return_value=[_make_raw_output()],
+            ),
+            patch("gxassessms.pipeline._runner.parse", return_value=[]),
+            patch("gxassessms.pipeline._runner.collect_coverage", return_value=[]),
+        ):
+            _run_parse(ctx, [], harness.orchestrator, "eng-001")
+
+        harness.coverage_repo.delete_for_engagement.assert_called_once()
+        harness.coverage_repo.save.assert_not_called()
+
+
+class TestRunNormalize:
+    def test_raises_when_observations_is_none(self, harness: RunnerHarness) -> None:
+        ctx = StageContext()
+        with pytest.raises(PipelineError, match="requires observations"):
+            _run_normalize(ctx, [], MagicMock(), harness.orchestrator, "eng-001")
+
+    def test_sets_findings_and_persists(self, harness: RunnerHarness) -> None:
+        findings = [_make_finding()]
+        ctx = StageContext(observations=[_make_observation()])
+
+        with patch("gxassessms.pipeline._runner.normalize", return_value=findings):
+            _run_normalize(ctx, [], MagicMock(), harness.orchestrator, "eng-001")
+
+        assert ctx.findings == findings
+        harness.finding_repo.save_parsed_findings.assert_called_once_with("eng-001", findings)
+
+    def test_groups_observations_by_tool_and_normalizes_per_group(
+        self, harness: RunnerHarness
+    ) -> None:
+        obs_scuba = _make_observation(tool=ToolSource.SCUBAGEAR, check_id="MS.AAD.1")
+        obs_prowler = _make_observation(tool=ToolSource.PROWLER, check_id="prowler-1")
+        ctx = StageContext(observations=[obs_scuba, obs_prowler])
+
+        with patch("gxassessms.pipeline._runner.normalize", return_value=[]) as mock_norm:
+            _run_normalize(ctx, [], MagicMock(), harness.orchestrator, "eng-001")
+
+        assert mock_norm.call_count == 2
+        # Each call gets only its tool's observations
+        call_obs_lists = [c.args[0] for c in mock_norm.call_args_list]
+        assert any(obs_scuba in obs_list for obs_list in call_obs_lists)
+        assert any(obs_prowler in obs_list for obs_list in call_obs_lists)
+        assert not any(
+            obs_scuba in obs_list and obs_prowler in obs_list for obs_list in call_obs_lists
+        )
+
+
+class TestRunConsolidate:
+    def test_raises_when_findings_is_none(self, harness: RunnerHarness) -> None:
+        ctx = StageContext()
+        with pytest.raises(PipelineError, match="requires findings"):
+            _run_consolidate(ctx, MagicMock(), harness.orchestrator, "eng-001")
+
+    def test_sets_consolidated_and_persists(self, harness: RunnerHarness) -> None:
+        consolidated = [_make_consolidated()]
+        rule = MagicMock()
+        rule.consolidate.return_value = consolidated
+        ctx = StageContext(findings=[_make_finding()])
+
+        _run_consolidate(ctx, rule, harness.orchestrator, "eng-001")
+
+        assert ctx.consolidated_findings == consolidated
+        harness.finding_repo.save_consolidated_findings.assert_called_once_with(
+            "eng-001", consolidated
+        )
+
+
+class TestRunQaReview:
+    def test_raises_when_consolidated_is_none(self) -> None:
+        ctx = StageContext()
+        with pytest.raises(PipelineError, match="requires consolidated_findings"):
+            _run_qa_review(ctx, MagicMock())
+
+    def test_sets_qa_results(self) -> None:
+        qa_results = [{"finding_instance_id": "f-1", "flags": []}]
+        strategy = MagicMock()
+        strategy.review_findings.return_value = qa_results
+        consolidated = [_make_consolidated()]
+        ctx = StageContext(consolidated_findings=consolidated)
+
+        _run_qa_review(ctx, strategy)
+
+        assert ctx.qa_results == qa_results
+        strategy.review_findings.assert_called_once_with(consolidated)
+
+
+class TestRunRender:
+    def test_raises_when_consolidated_is_none(self, harness: RunnerHarness) -> None:
+        ctx = StageContext()
+        with pytest.raises(PipelineError, match="requires consolidated_findings"):
+            _run_render(ctx, [], None, _make_config(), "eng-001", harness.orchestrator)
+
+    def test_uses_provided_output_dir(self, harness: RunnerHarness, tmp_path: Path) -> None:
+        ctx = StageContext(consolidated_findings=[_make_consolidated()])
+
+        with (
+            patch(
+                "gxassessms.pipeline._runner._build_report_payload",
+                return_value=MagicMock(),
+            ) as mock_build,
+            patch("gxassessms.pipeline._runner.render") as mock_render,
+        ):
+            _run_render(ctx, [], tmp_path, _make_config(), "eng-001", harness.orchestrator)
+
+        mock_render.assert_called_once_with(mock_build.return_value, [], tmp_path)
+
+    def test_defaults_to_engagement_reports_dir(
+        self, harness: RunnerHarness, tmp_path: Path
+    ) -> None:
+        eng_dir = tmp_path / "acme-eng-001"
+        eng_dir.mkdir()
+        harness.artifact_manager.get_engagement_dir.return_value = eng_dir
+        ctx = StageContext(consolidated_findings=[_make_consolidated()])
+
+        with (
+            patch(
+                "gxassessms.pipeline._runner._build_report_payload",
+                return_value=MagicMock(),
+            ) as mock_build,
+            patch("gxassessms.pipeline._runner.render") as mock_render,
+        ):
+            _run_render(ctx, [], None, _make_config(), "eng-001", harness.orchestrator)
+
+        mock_render.assert_called_once_with(mock_build.return_value, [], eng_dir / "reports")
+
+    def test_builds_payload_with_correct_args(self, harness: RunnerHarness, tmp_path: Path) -> None:
+        consolidated = [_make_consolidated()]
+        config = _make_config()
+        ctx = StageContext(consolidated_findings=consolidated)
+
+        with (
+            patch(
+                "gxassessms.pipeline._runner._build_report_payload",
+                return_value=MagicMock(),
+            ) as mock_build,
+            patch("gxassessms.pipeline._runner.render"),
+        ):
+            _run_render(ctx, [], tmp_path, config, "eng-001", harness.orchestrator)
+
+        mock_build.assert_called_once_with(
+            "eng-001", config, consolidated, harness.orchestrator._coverage_repo
+        )
+
+
+class TestHandleQaCompletion:
+    def test_noop_transitions_and_returns_continue(self) -> None:
+        orch = MagicMock()
+        strategy = MagicMock(is_noop=True)
+
+        state, should_break = _handle_qa_completion(
+            orch,
+            "eng-001",
+            strategy,
+            EngagementState.QA_REVIEW,
+            EngagementState.QA_APPROVED,
+            "abc123",
+        )
+
+        assert state == EngagementState.QA_APPROVED
+        assert should_break is False
+        orch._transition_state.assert_called_once_with(
+            "eng-001",
+            EngagementState.QA_REVIEW,
+            EngagementState.QA_APPROVED,
+            content_hash="abc123",
+        )
+
+    def test_non_noop_holds_and_returns_break(self) -> None:
+        orch = MagicMock()
+        strategy = MagicMock(is_noop=False)
+
+        state, should_break = _handle_qa_completion(
+            orch,
+            "eng-001",
+            strategy,
+            EngagementState.QA_REVIEW,
+            EngagementState.QA_APPROVED,
+            "abc123",
+        )
+
+        assert state == EngagementState.QA_REVIEW
+        assert should_break is True
+        orch._transition_state.assert_not_called()
+
+    def test_missing_is_noop_treated_as_non_noop(self) -> None:
+        orch = MagicMock()
+        strategy = MagicMock(spec=[])  # no attributes at all
+
+        state, should_break = _handle_qa_completion(
+            orch,
+            "eng-001",
+            strategy,
+            EngagementState.QA_REVIEW,
+            EngagementState.QA_APPROVED,
+            "abc123",
+        )
+
+        assert state == EngagementState.QA_REVIEW
+        assert should_break is True
+        orch._transition_state.assert_not_called()
