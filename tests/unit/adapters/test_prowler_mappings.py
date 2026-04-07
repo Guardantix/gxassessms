@@ -116,6 +116,29 @@ class TestCategoryMap:
             CATEGORY_MAP["storage_secure_transfer_required_is_enabled"] == Category.DATA_PROTECTION
         )
 
+    def test_service_prefix_entries_present(self) -> None:
+        """Prefix entries must cover all Prowler Azure service groups for full-scan mode."""
+        required_prefixes = {
+            "defender": Category.INFRASTRUCTURE_SECURITY,
+            "entra": Category.IDENTITY_ACCESS,
+            "iam": Category.IDENTITY_ACCESS,
+            "storage": Category.DATA_PROTECTION,
+            "sqlserver": Category.DATA_PROTECTION,
+            "keyvault": Category.DATA_PROTECTION,
+            "network": Category.NETWORK_SECURITY,
+            "aks": Category.INFRASTRUCTURE_SECURITY,
+            "vm": Category.INFRASTRUCTURE_SECURITY,
+        }
+        for prefix, expected_category in required_prefixes.items():
+            assert prefix in CATEGORY_MAP, f"Prefix {prefix!r} missing from CATEGORY_MAP"
+            assert CATEGORY_MAP[prefix] == expected_category, (
+                f"Prefix {prefix!r}: expected {expected_category}, got {CATEGORY_MAP[prefix]}"
+            )
+
+    def test_defender_prefix_is_infrastructure_not_email(self) -> None:
+        """Azure Defender prefix must map to INFRASTRUCTURE_SECURITY, not EMAIL_COLLABORATION."""
+        assert CATEGORY_MAP["defender"] == Category.INFRASTRUCTURE_SECURITY
+
     def test_all_dedup_keys_have_category(self) -> None:
         """Every check in DEDUP_KEY_RULES should have a CATEGORY_MAP entry."""
         missing = set(DEDUP_KEY_RULES) - set(CATEGORY_MAP)

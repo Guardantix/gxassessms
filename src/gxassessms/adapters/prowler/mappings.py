@@ -60,15 +60,60 @@ STATUS_MAP: dict[str, FindingStatus] = {
 }
 
 # ---------------------------------------------------------------------------
-# Category mapping: check ID (metadata.event_code) -> Category
+# Category mapping: check ID prefix or full check ID -> Category
 #
-# Keyed by full check ID because _extract_module_prefix uses dot-delimited
-# parsing which doesn't apply to Prowler's underscore-delimited IDs.
-# Service grouping: defender -> INFRASTRUCTURE_SECURITY, iam -> IDENTITY_ACCESS,
-# sqlserver/storage -> DATA_PROTECTION.
+# _extract_module_prefix() extracts the first underscore segment from
+# Prowler's underscore-delimited check IDs (e.g., "defender_*" -> "defender").
+# Prefix entries cover all checks under a service without enumerating each one.
+# Full check-ID entries are kept for documentation clarity but are redundant
+# once a matching prefix entry exists (prefix is tried first).
+#
+# NOTE: The global default_category_map maps "defender" -> EMAIL_COLLABORATION
+# (correct for M365 ScubaGear/Monkey365 context).  Prowler's prefix entries
+# here override that for Azure Defender checks.
+#
+# Service prefixes from Prowler's Azure provider (prowler/providers/azure/services/):
+#   defender -> INFRASTRUCTURE_SECURITY (Microsoft Defender for Cloud)
+#   entra/iam -> IDENTITY_ACCESS
+#   storage/sqlserver/cosmosdb/keyvault/mysql/postgresql/databricks -> DATA_PROTECTION
+#   aks/containerregistry/vm/recovery -> INFRASTRUCTURE_SECURITY
+#   network -> NETWORK_SECURITY
+#   app/apim/aisearch -> APPLICATION_SECURITY
+#   appinsights/monitor/logs/policy -> LOGGING_MONITORING / COMPLIANCE
 # ---------------------------------------------------------------------------
 
 CATEGORY_MAP: dict[str, Category] = {
+    # ---- Prefix entries (cover all checks under each Azure service) ----
+    # Identity & Access
+    "entra": Category.IDENTITY_ACCESS,
+    "iam": Category.IDENTITY_ACCESS,
+    # Data Protection (databases, secrets, storage)
+    "cosmosdb": Category.DATA_PROTECTION,
+    "databricks": Category.DATA_PROTECTION,
+    "keyvault": Category.DATA_PROTECTION,
+    "mysql": Category.DATA_PROTECTION,
+    "postgresql": Category.DATA_PROTECTION,
+    "sqlserver": Category.DATA_PROTECTION,
+    "storage": Category.DATA_PROTECTION,
+    # Infrastructure Security (Defender for Cloud, compute, containers, backup)
+    "aks": Category.INFRASTRUCTURE_SECURITY,
+    "containerregistry": Category.INFRASTRUCTURE_SECURITY,
+    "defender": Category.INFRASTRUCTURE_SECURITY,
+    "recovery": Category.INFRASTRUCTURE_SECURITY,
+    "vm": Category.INFRASTRUCTURE_SECURITY,
+    # Network Security
+    "network": Category.NETWORK_SECURITY,
+    # Application Security (app platform, API management, AI search)
+    "aisearch": Category.APPLICATION_SECURITY,
+    "apim": Category.APPLICATION_SECURITY,
+    "app": Category.APPLICATION_SECURITY,
+    # Logging & Monitoring
+    "appinsights": Category.LOGGING_MONITORING,
+    "logs": Category.LOGGING_MONITORING,
+    "monitor": Category.LOGGING_MONITORING,
+    # Compliance & Governance
+    "policy": Category.COMPLIANCE,
+    # ---- Full check-ID entries (documentation; prefix already resolves these) ----
     # Defender checks (12)
     "defender_ensure_defender_for_app_services_is_on": Category.INFRASTRUCTURE_SECURITY,
     "defender_ensure_defender_for_arm_is_on": Category.INFRASTRUCTURE_SECURITY,

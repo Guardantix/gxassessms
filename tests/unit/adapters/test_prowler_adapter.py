@@ -247,6 +247,85 @@ class TestCollectExtraArgs:
         assert "--sp-env-auth" in cmd
 
     @patch("gxassessms.adapters.prowler.adapter.shutil")
+    @patch("subprocess.run")
+    def test_subscription_id_injected_when_set(
+        self, mock_run: MagicMock, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """subscription_id in EngagementConfig must be passed as --subscription-ids."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        mock_run.return_value = MagicMock(returncode=0, stderr=b"")
+        tc = ToolConfig(enabled=True, output_dir=str(tmp_path))
+        config = EngagementConfig(
+            client_name="TestClient",
+            tenant_id="00000000-0000-0000-0000-000000000000",
+            subscription_id="sub-1234",
+            auth=AuthConfig(
+                method="client_credential",
+                tenant_id="00000000-0000-0000-0000-000000000000",
+                client_id="test-client-id",
+                client_secret_env=_TEST_SECRET_ENV,
+            ),
+            tools={"prowler": tc},
+        )
+        (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"test": true}]')
+        adapter = ProwlerAdapter()
+        with patch("gxassessms.core.hashing.sha256_file", return_value="a" * 64):
+            adapter.collect(config, None)
+        cmd = mock_run.call_args[0][0]
+        assert "--subscription-ids" in cmd
+        assert "sub-1234" in cmd
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    @patch("subprocess.run")
+    def test_subscription_id_not_injected_when_empty(
+        self, mock_run: MagicMock, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """When subscription_id is empty, --subscription-ids must not appear in cmd."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        mock_run.return_value = MagicMock(returncode=0, stderr=b"")
+        config = _make_config(output_dir=str(tmp_path))
+        (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"test": true}]')
+        adapter = ProwlerAdapter()
+        with patch("gxassessms.core.hashing.sha256_file", return_value="a" * 64):
+            adapter.collect(config, None)
+        cmd = mock_run.call_args[0][0]
+        assert "--subscription-ids" not in cmd
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    @patch("subprocess.run")
+    def test_subscription_id_not_duplicated_when_in_extra_args(
+        self, mock_run: MagicMock, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """If --subscription-ids is in extra_args, config value must not also be injected."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        mock_run.return_value = MagicMock(returncode=0, stderr=b"")
+        tc = ToolConfig(
+            enabled=True,
+            output_dir=str(tmp_path),
+            extra_args=["--az-cli-auth", "--subscription-ids", "sub-explicit"],
+        )
+        config = EngagementConfig(
+            client_name="TestClient",
+            tenant_id="00000000-0000-0000-0000-000000000000",
+            subscription_id="sub-from-config",
+            auth=AuthConfig(
+                method="client_credential",
+                tenant_id="00000000-0000-0000-0000-000000000000",
+                client_id="test-client-id",
+                client_secret_env=_TEST_SECRET_ENV,
+            ),
+            tools={"prowler": tc},
+        )
+        (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"test": true}]')
+        adapter = ProwlerAdapter()
+        with patch("gxassessms.core.hashing.sha256_file", return_value="a" * 64):
+            adapter.collect(config, None)
+        cmd = mock_run.call_args[0][0]
+        assert cmd.count("--subscription-ids") == 1
+        assert "sub-explicit" in cmd
+        assert "sub-from-config" not in cmd
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
     def test_no_auth_mapping_and_no_extra_args_raises(self, mock_shutil: MagicMock) -> None:
         """No auth mapping + no extra_args = CollectionError."""
         mock_shutil.which.return_value = "/usr/local/bin/prowler"
@@ -915,6 +994,24 @@ class TestValidateProwlerExtraArgs:
         adapter = ProwlerAdapter()
         with pytest.raises(CollectionError, match=r"[Uu]nsafe"):
             adapter.collect(config, None)
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_azure_region_flag_is_accepted(self, mock_shutil: MagicMock, tmp_path: Path) -> None:
+        """--azure-region must be in the allowlist to support sovereign cloud scans."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"finding_info": {}}]')
+        config = _make_config(
+            auth_method="client_credential",
+            extra_args=["--azure-region", "AzureUSGovernment"],
+            output_dir=str(tmp_path),
+        )
+        adapter = ProwlerAdapter()
+        with patch(
+            "subprocess.run",
+            return_value=MagicMock(returncode=0, stdout=b"", stderr=b""),
+        ):
+            result = adapter.collect(config, None)
+        assert result is not None
 
     @patch("gxassessms.adapters.prowler.adapter.shutil")
     def test_valid_flag_value_pair_is_accepted(

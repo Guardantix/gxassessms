@@ -79,6 +79,7 @@ _PROWLER_ALLOWED_FLAGS: frozenset[str] = frozenset(
         "--managed-identity-auth",
         "--tenant-id",
         "--subscription-ids",
+        "--azure-region",
         "--checks",
         "--checks-file",
         "--severity",
@@ -297,6 +298,12 @@ class ProwlerAdapter:
                 "AZURE_TENANT_ID": config.auth.tenant_id,
                 "AZURE_CLIENT_SECRET": secret,
             }
+
+        # Inject subscription scope from engagement config if set and not already
+        # in extra_args.  Prowler defaults to all accessible subscriptions when
+        # --subscription-ids is absent, which violates per-engagement scoping.
+        if config.subscription_id and "--subscription-ids" not in extra_args:
+            cmd.extend(["--subscription-ids", config.subscription_id])
 
         cmd.extend(["-o", str(output_dir)])
         cmd.extend(["-F", output_filename])
