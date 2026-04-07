@@ -1,0 +1,110 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#security/secureScores",
+  "value": [
+    {
+      "id": "00000000-0000-0000-0000-000000000000_2026-03-30",
+      "azureTenantId": "00000000-0000-0000-0000-000000000000",
+      "currentScore": 42.5,
+      "maxScore": 78.0,
+      "createdDateTime": "2026-03-30T00:00:00Z",
+      "activeUserCount": 150,
+      "licensedUserCount": 200,
+      "enabledServices": [
+        "HasExchange",
+        "HasSharePoint",
+        "HasInTune",
+        "HasAzureAD"
+      ],
+      "averageComparativeScores": [
+        {
+          "basis": "AllTenants",
+          "averageScore": 38.2
+        },
+        {
+          "basis": "TotalSeats",
+          "averageScore": 41.0
+        }
+      ],
+      "controlScores": [
+        {
+          "controlName": "MFARegistrationV2",
+          "score": 10.0,
+          "controlCategory": "Identity",
+          "description": "Ensure all users are registered for multi-factor authentication",
+          "count": 95,
+          "total": 100,
+          "on": "2026-03-30T00:00:00Z"
+        },
+        {
+          "controlName": "AdminMFAV2",
+          "score": 10.0,
+          "controlCategory": "Identity",
+          "description": "Ensure multifactor authentication is enabled for all administrative roles",
+          "count": 5,
+          "total": 5,
+          "on": "2026-03-30T00:00:00Z"
+        },
+        {
+          "controlName": "BlockLegacyAuthentication",
+          "score": 0.0,
+          "controlCategory": "Identity",
+          "description": "Block legacy authentication",
+          "count": 0,
+          "total": 1,
+          "on": "2026-03-30T00:00:00Z"
+        },
+        {
+          "controlName": "DLPEnabled",
+          "score": 0.0,
+          "controlCategory": "Data",
+          "description": "Enable Data Loss Prevention policies",
+          "count": 0,
+          "total": 1,
+          "on": "2026-03-30T00:00:00Z"
+        },
+        {
+          "controlName": "NonOwnerAccess",
+          "score": 4.0,
+          "controlCategory": "Data",
+          "description": "Review mailbox access by non-owners on a periodic basis",
+          "count": 1,
+          "total": 1,
+          "on": "2026-03-30T00:00:00Z"
+        },
+        {
+          "controlName": "OneAdmin",
+          "score": 4.0,
+          "controlCategory": "Identity",
+          "description": "Designate more than one global admin",
+          "count": 3,
+          "total": 3,
+          "on": "2026-03-30T00:00:00Z"
+        },
+        {
+          "controlName": "RoleOverlap",
+          "score": 0.0,
+          "controlCategory": "Identity",
+          "description": "Reduce role overlap between administrative accounts",
+          "count": 0,
+          "total": 5,
+          "on": "2026-03-30T00:00:00Z"
+        },
+        {
+          "controlName": "ThirdPartyIgnored",
+          "score": 0.0,
+          "controlCategory": "Device",
+          "description": "Ensure endpoint protection is deployed to all managed devices",
+          "count": 0,
+          "total": 100,
+          "on": "2026-03-30T00:00:00Z"
+        }
+      ],
+      "vendorInformation": {
+        "provider": "SecureScore",
+        "providerVersion": null,
+        "subProvider": null,
+        "vendor": "Microsoft"
+      }
+    }
+  ]
+}

@@ -1,0 +1,211 @@
+"""Secure Score Graph API parser.
+
+Joins two separate Microsoft Graph API responses into ToolObservation
+instances. Join key: controlProfiles[].id == controlScores[].controlName
+"""
+
+from __future__ import annotations
+
+import logging
+from typing import Any
+
+from gxassessms.adapters.secure_score.mappings import (
+    CONTROL_STATE_PASS_THROUGH,
+    derive_severity,
+)
+from gxassessms.core.config.datetime_utils import parse_utc
+from gxassessms.core.domain.enums import (
+    FindingStatus,
+    Severity,
+    ToolSource,
+)
+from gxassessms.core.domain.models import ToolObservation
+
+logger = logging.getLogger(__name__)
+
+
+def get_latest_control_state(
+    control_state_updates: list[dict[str, Any]] | None,
+) -> str:
+    """Return the most recent control state from update history.
+
+    Args:
+        control_state_updates: List of state update dicts from the
+            controlProfiles API, each with ``state`` and ``updatedDateTime``.
+
+    Returns:
+        The ``state`` string from the most recent update, or ``"Default"``
+        if no updates are available.
+    """
+    if not control_state_updates:
+        return "Default"
+    try:
+        sorted_updates = sorted(
+            control_state_updates,
+            key=lambda u: parse_utc(u.get("updatedDateTime", "")),
+            reverse=True,
+        )
+        return sorted_updates[0].get("state", "Default")
+    except (TypeError, IndexError, KeyError, AttributeError, ValueError) as exc:
+        logger.warning(
+            "Failed to parse controlStateUpdates; defaulting to 'Default': %s",
+            exc,
+        )
+        return "Default"
+
+
+def _derive_status(
+    score: float | None,
+    max_score: float | None,
+    latest_state: str,
+) -> FindingStatus:
+    """Derive finding status from score, max score, and control state.
+
+    Decision order:
+        1. No score or maxScore data  -> MANUAL (needs human review)
+        2. Third-party/ignored        -> NOT_APPLICABLE (state overrides score)
+        3. Score >= maxScore           -> PASS (includes maxScore=0 non-scored controls)
+        4. Otherwise                  -> FAIL
+    """
+    if score is None or max_score is None:
+        return FindingStatus.MANUAL
+    if latest_state in CONTROL_STATE_PASS_THROUGH:
+        return FindingStatus.NOT_APPLICABLE
+    if score >= max_score:
+        return FindingStatus.PASS
+    return FindingStatus.FAIL
+
+
+def _build_description(profile: dict[str, Any]) -> str:
+    """Build a human-readable description from profile fields."""
+    parts: list[str] = []
+    remediation = profile.get("remediation", "")
+    if remediation:
+        parts.append(remediation)
+    remediation_impact = profile.get("remediationImpact", "")
+    if remediation_impact:
+        parts.append(f"Impact: {remediation_impact}")
+    threats = profile.get("threats", [])
+    if threats:
+        parts.append(f"Threats: {', '.join(threats)}")
+    service = profile.get("service", "")
+    if service:
+        parts.append(f"Service: {service}")
+    action_url = profile.get("actionUrl", "")
+    if action_url:
+        parts.append(f"Action URL: {action_url}")
+    return "\n".join(parts) if parts else ""
+
+
+def parse_secure_score(
+    profiles_response: dict[str, Any],
+    scores_response: dict[str, Any],
+) -> list[ToolObservation]:
+    """Join control profiles and score snapshot into ToolObservations.
+
+    Args:
+        profiles_response: Full JSON from
+            ``GET /security/secureScoreControlProfiles``.
+        scores_response: Full JSON from
+            ``GET /security/secureScores``. When multiple snapshots are
+            present, the most recent by ``createdDateTime`` is used.
+
+    Returns:
+        List of :class:`ToolObservation` instances, one per non-deprecated
+        control profile. Deprecated profiles are silently skipped.
+    """
+    profiles = profiles_response.get("value", [])
+    if not profiles:
+        logger.warning(
+            "Secure Score control profiles returned an empty list. "
+            "Verify SecurityEvents.Read.All is granted for this tenant."
+        )
+        return []
+
+    score_lookup: dict[str, dict[str, Any]] = {}
+    scores_list = scores_response.get("value", [])
+    if not scores_list:
+        logger.warning(
+            "Secure Score snapshot returned no records; all controls will be MANUAL. "
+            "Verify SecurityEvents.Read.All is granted and Secure Score is enabled."
+        )
+    else:
+        latest_snapshot = max(
+            scores_list,
+            key=lambda s: parse_utc(s.get("createdDateTime", "")),
+        )
+        for cs in latest_snapshot.get("controlScores", []):
+            control_name = cs.get("controlName", "")
+            if control_name:
+                score_lookup[control_name] = cs
+
+    observations: list[ToolObservation] = []
+
+    for profile in profiles:
+        if profile.get("deprecated", False):
+            logger.debug("Skipping deprecated control: %s", profile.get("id"))
+            continue
+
+        control_id = profile.get("id", "")
+        if not control_id:
+            logger.warning("Control profile missing 'id' field, skipping")
+            continue
+
+        score_data = score_lookup.get(control_id)
+        current_score: float | None = None
+        if score_data is not None:
+            current_score = score_data.get("score")
+
+        max_score: float | None = profile.get("maxScore")
+        if max_score is None:
+            logger.warning(
+                "Control '%s' missing 'maxScore' field; status will be MANUAL",
+                control_id,
+            )
+        rank_raw = profile.get("rank")
+        if rank_raw is None:
+            logger.warning(
+                "Control '%s' missing 'rank' field; severity will be INFO",
+                control_id,
+            )
+
+        tier_raw = profile.get("tier")
+        if tier_raw is None:
+            logger.warning(
+                "Control '%s' missing 'tier' field; severity will be INFO",
+                control_id,
+            )
+
+        if rank_raw is None or tier_raw is None:
+            severity = Severity.INFO
+        else:
+            severity = derive_severity(rank=rank_raw, tier=tier_raw)
+        latest_state = get_latest_control_state(
+            profile.get("controlStateUpdates"),
+        )
+        status = _derive_status(current_score, max_score, latest_state)
+        description = _build_description(profile)
+
+        observation = ToolObservation(
+            observation_id=f"secure_score:{control_id}",
+            tool=ToolSource.SECURE_SCORE,
+            native_check_id=control_id,
+            title=profile.get("title", ""),
+            description=description,
+            native_severity=severity,
+            native_status=status,
+            native_category=profile.get("controlCategory"),
+            raw_data={
+                "profile": profile,
+                "score_data": score_data if score_data is not None else {},
+            },
+        )
+        observations.append(observation)
+
+    logger.info(
+        "Parsed %d observations from Secure Score (%d profiles, %d scores)",
+        len(observations),
+        len(profiles),
+        len(score_lookup),
+    )
+    return observations
