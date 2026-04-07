@@ -1,0 +1,115 @@
+# CIS Microsoft Azure Foundations Benchmark cross-reference mappings.
+#
+# Maps CIS Azure control IDs (v2.1.0 numbering) to tool-native check IDs
+# across all supported tools that cover Azure infrastructure.
+#
+# Format:
+#   cis:azure:{control_id}:
+#     prowler: "{check_id}"       (metadata.event_code value)
+#     monkey365: "{idSuffix}"     (if Monkey365 covers this Azure control)
+#     semantic: "{human-readable description}"
+#
+# Maintenance:
+# - Prowler check IDs are from metadata.event_code in OCSF output
+# - CIS control numbers reference CIS Azure Foundations Benchmark v2.1.0
+# - When adding a new tool adapter, add its check IDs to existing entries
+
+# --- Section 1: Identity and Access Management ---
+
+cis:azure:1.23:
+  prowler: "iam_subscription_roles_owner_custom_not_created"
+  semantic: "iam:custom_roles:no_custom_owner"
+
+# --- Section 3: Storage Accounts ---
+
+cis:azure:3.1:
+  prowler: "storage_secure_transfer_required_is_enabled"
+  semantic: "storage:transfer:secure_required"
+
+cis:azure:3.2:
+  prowler: "storage_ensure_encryption_with_customer_managed_keys"
+  semantic: "storage:encryption:customer_managed_keys"
+
+cis:azure:3.3:
+  prowler: "storage_infrastructure_encryption_is_enabled"
+  semantic: "storage:encryption:infrastructure"
+
+cis:azure:3.7:
+  prowler: "storage_blob_public_access_level_is_disabled"
+  semantic: "storage:access:no_public_blob"
+
+cis:azure:3.8:
+  prowler: "storage_default_network_access_rule_is_denied"
+  semantic: "storage:network:default_deny"
+
+cis:azure:3.9:
+  prowler: "storage_ensure_azure_services_are_trusted_to_access_is_enabled"
+  semantic: "storage:network:trusted_services"
+
+cis:azure:3.15:
+  prowler: "storage_ensure_minimum_tls_version_12"
+  semantic: "storage:tls:minimum_1_2"
+
+# --- Section 4: Database Services ---
+
+cis:azure:4.1.1:
+  prowler: "sqlserver_auditing_enabled"
+  semantic: "sql:auditing:enabled"
+
+cis:azure:4.1.2:
+  prowler: "sqlserver_unrestricted_inbound_access"
+  semantic: "sql:network:no_unrestricted_inbound"
+
+cis:azure:4.1.4:
+  prowler: "sqlserver_azuread_administrator_enabled"
+  semantic: "sql:auth:aad_admin_enabled"
+
+# --- Section 5: Logging and Monitoring / Defender ---
+
+cis:azure:5.3.1:
+  prowler: "defender_ensure_defender_for_app_services_is_on"
+  semantic: "defender:app_services:enabled"
+
+cis:azure:5.3.2:
+  prowler: "defender_ensure_defender_for_arm_is_on"
+  semantic: "defender:arm:enabled"
+
+cis:azure:5.3.3:
+  prowler: "defender_ensure_defender_for_azure_sql_databases_is_on"
+  semantic: "defender:sql_databases:enabled"
+
+cis:azure:5.3.4:
+  prowler: "defender_ensure_defender_for_containers_is_on"
+  semantic: "defender:containers:enabled"
+
+cis:azure:5.3.5:
+  prowler: "defender_ensure_defender_for_cosmosdb_is_on"
+  semantic: "defender:cosmosdb:enabled"
+
+cis:azure:5.3.6:
+  prowler: "defender_ensure_defender_for_databases_is_on"
+  semantic: "defender:databases:enabled"
+
+cis:azure:5.3.7:
+  prowler: "defender_ensure_defender_for_dns_is_on"
+  semantic: "defender:dns:enabled"
+
+cis:azure:5.3.8:
+  prowler: "defender_ensure_defender_for_keyvault_is_on"
+  semantic: "defender:keyvault:enabled"
+
+cis:azure:5.3.9:
+  prowler: "defender_ensure_defender_for_os_relational_databases_is_on"
+  semantic: "defender:os_rdbms:enabled"
+
+cis:azure:5.3.10:
+  prowler: "defender_ensure_defender_for_server_is_on"
+  semantic: "defender:server:enabled"
+
+cis:azure:5.3.11:
+  prowler: "defender_ensure_defender_for_sql_servers_is_on"
+  semantic: "defender:sql_servers:enabled"
+
+cis:azure:5.1.7:
+  prowler: "defender_ensure_defender_for_storage_is_on"
+  semantic: "defender:storage:enabled"

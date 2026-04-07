@@ -185,16 +185,40 @@ def run_stages(
                 elif stage == Stage.NORMALIZE:
                     _require_in_memory("observations", observations, stage)
                     assert observations is not None  # noqa: S101 -- narrowing for type checker
-                    severity_map = _merge_adapter_map(adapters, "severity_map")
-                    category_map = _merge_adapter_map(adapters, "category_map")
                     dedup_keys = _merge_adapter_map(adapters, "dedup_key_rules", resolve_enum=False)
-                    findings = normalize(
-                        observations,
-                        normalization_policy,
-                        adapter_severity_map=severity_map,
-                        adapter_category_map=category_map,
-                        adapter_dedup_keys=dedup_keys,
-                    )
+                    # Build per-tool severity and category maps to prevent cross-adapter
+                    # key collisions.  A flat-merged map silently overwrites shared keys
+                    # on collision -- e.g. ("Informational", FAIL) maps to INFO for
+                    # Monkey365 but LOW for Prowler; ("Unknown", FAIL) maps to INFO for
+                    # Monkey365 but MEDIUM for Prowler.  The same collision risk applies
+                    # to category keys such as "defender".  Normalizing each tool's
+                    # observations against only its own adapter's maps eliminates that
+                    # ambiguity without changing the Policy interface.
+                    per_tool_sev: dict[str, dict[Any, str]] = {
+                        str(a.tool_source.value): _merge_adapter_map([a], "severity_map")
+                        for a in adapters
+                        if hasattr(a, "tool_source") and hasattr(a, "severity_map")
+                    }
+                    per_tool_cat: dict[str, dict[str, str]] = {
+                        str(a.tool_source.value): _merge_adapter_map([a], "category_map")
+                        for a in adapters
+                        if hasattr(a, "tool_source") and hasattr(a, "category_map")
+                    }
+                    tool_obs_groups: dict[str, list[ToolObservation]] = {}
+                    for obs in observations:
+                        tool_obs_groups.setdefault(obs.tool.value, []).append(obs)
+                    findings_list: list[Finding] = []
+                    for tool_val, tool_obs in tool_obs_groups.items():
+                        findings_list.extend(
+                            normalize(
+                                tool_obs,
+                                normalization_policy,
+                                adapter_severity_map=per_tool_sev.get(tool_val, {}),
+                                adapter_category_map=per_tool_cat.get(tool_val, {}),
+                                adapter_dedup_keys=dedup_keys,
+                            )
+                        )
+                    findings = findings_list
                     # Persist: replaces prior parsed findings in one transaction.
                     orchestrator._finding_repo.save_parsed_findings(engagement_id, findings)
 

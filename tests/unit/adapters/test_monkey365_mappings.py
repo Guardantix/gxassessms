@@ -132,6 +132,11 @@ class TestDedupKeyRules:
         """Verified against Monkey365 rule definitions and CIS crossref."""
         assert DEDUP_KEY_RULES["aad_cap_force_mfa_high_users"] == "cis:m365:5.2.2.1"
         assert DEDUP_KEY_RULES["aad_cap_force_mfa_all_users"] == "cis:m365:5.2.2.2"
+        # Per-user MFA controls use CIS Azure v2.1 Section 1.1 numbers.
+        # Monkey365 rule metadata cites CIS Azure v3.0 refs 2.1.2/2.1.3, but
+        # those collide with Prowler's Defender plan checks (v2.1 numbering).
+        assert DEDUP_KEY_RULES["aad_privileged_users_with_mfa_disabled"] == "cis:azure:1.1.2"
+        assert DEDUP_KEY_RULES["aad_users_with_mfa_disabled"] == "cis:azure:1.1.3"
 
     def test_keys_are_monkey365_idsuffix_format(self) -> None:
         """Monkey365 idSuffix values use underscore-separated lowercase."""

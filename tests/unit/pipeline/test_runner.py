@@ -539,6 +539,31 @@ class TestAdapterMapMerging:
             Severity.CRITICAL,
         )
 
+    def test_merge_adapter_map_single_adapter_does_not_collide(self) -> None:
+        """Per-tool category maps built from a single adapter avoid cross-tool collisions.
+
+        ScubaGear maps "defender" -> EMAIL_COLLABORATION (M365 Defender for Office 365).
+        Prowler maps "defender" -> INFRASTRUCTURE_SECURITY (Azure Defender for Cloud).
+        A flat-merged map would let one overwrite the other.  Building per-tool maps
+        via _merge_adapter_map([adapter]) keeps each tool's mapping isolated.
+        """
+        scubagear_adapter = SimpleNamespace(
+            tool_source=ToolSource.SCUBAGEAR,
+            category_map={"defender": Category.EMAIL_COLLABORATION},
+        )
+        prowler_adapter = SimpleNamespace(
+            tool_source=ToolSource.PROWLER,
+            category_map={"defender": Category.INFRASTRUCTURE_SECURITY},
+        )
+
+        scuba_map = _merge_adapter_map([scubagear_adapter], "category_map")
+        prowler_map = _merge_adapter_map([prowler_adapter], "category_map")
+
+        assert scuba_map["defender"] == Category.EMAIL_COLLABORATION.value
+        assert prowler_map["defender"] == Category.INFRASTRUCTURE_SECURITY.value
+        # The two per-tool maps are independent -- no collision.
+        assert scuba_map["defender"] != prowler_map["defender"]
+
 
 class TestReportPayloadBridge:
     def test_build_report_payload_wraps_in_memory_repos(self) -> None:
