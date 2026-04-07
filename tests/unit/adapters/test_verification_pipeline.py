@@ -132,6 +132,7 @@ class TestVerifyModule:
         self.mocks["run"].side_effect = subprocess.TimeoutExpired(cmd="pwsh", timeout=120)
         with pytest.raises(VerificationInfrastructureError, match="timed out"):
             verify_module(policy=make_test_policy(), adapter_name="test", timeout_seconds=120)
+        assert self.mocks["run"].call_args[1]["timeout"] == 120
 
     def test_oserror_raises_infrastructure_error(self) -> None:
         self.mocks["run"].side_effect = OSError("No such file")
