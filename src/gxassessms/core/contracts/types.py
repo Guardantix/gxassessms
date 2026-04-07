@@ -104,7 +104,7 @@ class ReportRenderer(Protocol):
     format: str = ""
     supported_payload_versions: str = ""
 
-    def render(self, payload: ReportPayload, output_path: Path) -> Path: ...
+    def render(self, payload: ReportPayload, output_dir: Path) -> Path: ...
 
 
 @runtime_checkable

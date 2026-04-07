@@ -75,7 +75,6 @@ def assemble_payload(
     raw_coverage = coverage_repo.get_for_engagement(engagement_id)
 
     findings = [_deserialize_json_fields(f) for f in raw_findings]
-    coverage = raw_coverage
 
     merged_narratives: dict[str, str | None] = {
         "executive_summary": None,
@@ -95,7 +94,7 @@ def assemble_payload(
         assessment_date=assessment_date,
         tool_sources=tool_sources,
         findings=findings,
-        coverage=coverage,
+        coverage=raw_coverage,
         narratives=merged_narratives,
         metadata=metadata,
     )
@@ -103,7 +102,7 @@ def assemble_payload(
     logger.info(
         "Payload assembled: %d findings, %d coverage records, %d tools",
         len(findings),
-        len(coverage),
+        len(raw_coverage),
         len(tool_sources),
     )
     return payload

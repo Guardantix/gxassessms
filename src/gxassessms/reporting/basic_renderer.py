@@ -57,7 +57,7 @@ class BasicDocxRenderer:
             name="basic_docx",
         )
 
-    def render(self, payload: ReportPayload, output_path: Path) -> Path:
+    def render(self, payload: ReportPayload, output_dir: Path) -> Path:
         """Render the payload to an unbranded .docx document."""
-        logger.info("BasicDocxRenderer: rendering to %s", output_path)
-        return self._node_renderer.render(payload, output_path)
+        logger.info("BasicDocxRenderer: rendering to %s", output_dir)
+        return self._node_renderer.render(payload, output_dir)
