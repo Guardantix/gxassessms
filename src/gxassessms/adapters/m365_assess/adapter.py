@@ -53,6 +53,17 @@ logger = logging.getLogger(__name__)
 
 _SCHEMA_VERSION = "1.0.0"
 _DEFAULT_TIMEOUT_SECONDS = 1800  # 30 minutes
+
+
+def _ps_sq(s: str) -> str:
+    """Escape a value for embedding inside a PowerShell single-quoted string.
+
+    PowerShell treats '' as a literal single quote inside '...' strings.
+    Without this, paths like C:\\Users\\O'Neil\\... terminate the string early.
+    """
+    return s.replace("'", "''")
+
+
 _CSV_SUFFIX = "-Security-Config.csv"
 _EXPECTED_COLUMNS: frozenset[str] = frozenset(
     {"Category", "Setting", "CurrentValue", "RecommendedValue", "Status", "CheckId", "Remediation"}
@@ -158,8 +169,8 @@ class M365AssessAdapter:
         # path so PowerShell treats it as a literal string rather than splitting
         # on spaces -- necessary for paths that include spaces in directory names.
         script_parts: list[str] = [
-            f"& '{script_path}' -TenantId '{config.tenant_id}'",
-            f"-OutputPath '{output_dir}'",
+            f"& '{_ps_sq(script_path)}' -TenantId '{_ps_sq(config.tenant_id)}'",
+            f"-OutputPath '{_ps_sq(str(output_dir))}'",
         ]
 
         switches: dict[str, bool] = {}
@@ -167,7 +178,7 @@ class M365AssessAdapter:
             validated = validate_extra_args(tc.extra_args)
             extra_named, switches = parse_extra_args(validated)
             for name, value in extra_named.items():
-                script_parts.append(f"-{name} '{value}'")
+                script_parts.append(f"-{name} '{_ps_sq(value)}'")
             for name in switches:
                 script_parts.append(f"-{name}")
 
