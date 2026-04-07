@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import csv
 import logging
-import time
 from pathlib import Path
 
 from gxassessms.adapters._base import (
@@ -168,6 +167,11 @@ class M365AssessAdapter:
         # Build script invocation.  Use the call operator (&) with single-quoted
         # path so PowerShell treats it as a literal string rather than splitting
         # on spaces -- necessary for paths that include spaces in directory names.
+        # -TenantId identifies the M365 tenant to scan (the client's tenant).
+        # config.tenant_id is the correct field for this purpose; config.auth.tenant_id
+        # is the authentication tenant, which could differ in delegated-admin/MSP
+        # scenarios.  validate_config() enforces that they are equal until cross-tenant
+        # delegation is explicitly supported.
         script_parts: list[str] = [
             f"& '{_ps_sq(script_path)}' -TenantId '{_ps_sq(config.tenant_id)}'",
             f"-OutputPath '{_ps_sq(str(output_dir))}'",
@@ -184,11 +188,22 @@ class M365AssessAdapter:
 
         script = " ".join(script_parts)
 
-        # Record wall-clock time before invoking the script so we can detect
-        # new or overwritten CSVs by mtime comparison.  M365-Assess uses stable
+        # Snapshot existing CSV mtimes before invoking the script so we can
+        # detect new or overwritten output afterwards.  M365-Assess uses stable
         # filenames (e.g. Entra-Security-Config.csv), so path-presence alone
         # cannot distinguish a fresh run from a pre-existing stale file.
-        pre_run_ts = time.time()
+        # Comparing against the pre-run snapshot avoids false positives from a
+        # rapid rerun (where time.time() - 1 could accept files written by the
+        # previous run) and false negatives from coarse filesystem timestamps.
+        pre_run_state: dict[str, float] = (
+            {
+                f.name: f.stat().st_mtime
+                for f in output_dir.iterdir()
+                if f.is_file() and f.name.endswith(_CSV_SUFFIX)
+            }
+            if output_dir.exists()
+            else {}
+        )
 
         run_powershell(
             script=script,
@@ -198,13 +213,14 @@ class M365AssessAdapter:
             engagement_id="",
         )
 
-        # Discover CSV output files written or updated during this run.
-        # A small clock-skew allowance (1 s) guards against filesystem
-        # timestamp granularity on FAT/exFAT volumes.
+        # Accept CSVs that are new (not in the snapshot) or have been updated
+        # (mtime strictly after the snapshot value).
         csv_files = [
             f
             for f in output_dir.iterdir()
-            if f.is_file() and f.name.endswith(_CSV_SUFFIX) and f.stat().st_mtime >= pre_run_ts - 1
+            if f.is_file()
+            and f.name.endswith(_CSV_SUFFIX)
+            and (f.name not in pre_run_state or f.stat().st_mtime > pre_run_state[f.name])
         ]
 
         new_csvs = csv_files

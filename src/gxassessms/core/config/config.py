@@ -248,6 +248,12 @@ def validate_config(config: EngagementConfig) -> tuple[list[str], list[str]]:
         if config.auth.certificate_path:
             warnings.append(f"auth: {config.auth.method} method ignores certificate_path")
 
+    if config.tenant_id and config.auth.tenant_id and config.tenant_id != config.auth.tenant_id:
+        errors.append(
+            "tenant_id and auth.tenant_id must be the same value; "
+            "cross-tenant delegation is not currently supported"
+        )
+
     if not any(tc.enabled for tc in config.tools.values()):
         warnings.append("No tools are enabled -- pipeline will produce no findings")
 

@@ -369,6 +369,21 @@ class TestValidateConfig:
         errors, _warnings = validate_config(cfg)
         assert any("tenant_id" in e for e in errors)
 
+    def test_mismatched_tenant_ids_is_error(self) -> None:
+        cfg = EngagementConfig(
+            client_name="Test",
+            tenant_id="aaaaaaaa-0000-0000-0000-000000000001",
+            auth=AuthConfig(
+                method="client_credential",
+                tenant_id="bbbbbbbb-0000-0000-0000-000000000002",
+                client_id="c1",
+                client_secret_env="GX_SECRET",
+            ),
+            tools={},
+        )
+        errors, _warnings = validate_config(cfg)
+        assert any("tenant_id" in e and "auth.tenant_id" in e for e in errors)
+
     def test_no_enabled_tools_is_warning(self) -> None:
         cfg = EngagementConfig(
             client_name="Test",
