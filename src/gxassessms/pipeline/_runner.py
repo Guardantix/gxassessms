@@ -6,6 +6,8 @@ Separated from orchestrator.py to keep both files under 400 lines.
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -51,6 +53,214 @@ if TYPE_CHECKING:
     from gxassessms.pipeline.orchestrator import Orchestrator
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class StageContext:
+    """Mutable carrier for cross-stage pipeline data.
+
+    None = "upstream never ran"; empty list = "upstream ran, zero results".
+    """
+
+    collection_results: list[CollectionResult] | None = None
+    loaded_manifests: list[LoadedManifest] | None = None
+    adapter_results: list[AdapterResult] | None = None
+    observations: list[ToolObservation] | None = None
+    findings: list[Finding] | None = None
+    consolidated_findings: list[ConsolidatedFinding] | None = None
+    qa_results: list[QAResult] | None = None
+
+
+def _run_collect(
+    ctx: StageContext,
+    config: EngagementConfig,
+    adapters: list[ToolAdapter],
+    orchestrator: Orchestrator,
+    engagement_id: str,
+) -> None:
+    """Execute COLLECT stage: run adapters and persist raw outputs."""
+    ctx.collection_results = collect(config, adapters)
+    # Persist raw outputs so replay/consolidate --reparse can
+    # load them later via load_raw_outputs().
+    ctx.loaded_manifests = orchestrator._artifact_manager.save_raw_outputs(
+        engagement_id, config.client_name, ctx.collection_results
+    )
+
+
+def _run_parse(
+    ctx: StageContext,
+    adapters: list[ToolAdapter],
+    orchestrator: Orchestrator,
+    engagement_id: str,
+) -> None:
+    """Execute PARSE stage: confine manifests, parse, collect coverage."""
+    _require_in_memory("loaded_manifests", ctx.loaded_manifests, Stage.PARSE)
+    assert ctx.loaded_manifests is not None  # noqa: S101 -- narrowing for type checker
+    from gxassessms.pipeline.confinement import confine_and_resolve
+
+    eng_dir = orchestrator._artifact_manager.get_engagement_dir(engagement_id)
+    resolved = confine_and_resolve(ctx.loaded_manifests, eng_dir, adapters)
+    # duration_seconds=0.0 is synthetic: confinement is a
+    # batch operation, not timed per-manifest.
+    ctx.adapter_results = [
+        AdapterResult(
+            adapter_name=r.tool_slug,
+            status=AdapterRunStatus.SUCCESS,
+            raw_output=r,
+            duration_seconds=0.0,
+        )
+        for r in resolved
+    ]
+    ctx.observations = parse(ctx.adapter_results, adapters)
+    # Collect coverage from adapters that declare coverage_export.
+    # Delete-then-insert matches the finding repo pattern and
+    # prevents duplicates on reparse.
+    coverage_records = collect_coverage(ctx.adapter_results, adapters)
+    orchestrator._coverage_repo.delete_for_engagement(engagement_id)
+    if coverage_records:
+        orchestrator._coverage_repo.save(
+            engagement_id,
+            [
+                {
+                    "control_id": r.control_id,
+                    "tool_source": r.tool.value,
+                    "status": r.status.value,
+                    "reason": r.reason,
+                }
+                for r in coverage_records
+            ],
+        )
+
+
+def _run_normalize(
+    ctx: StageContext,
+    adapters: list[ToolAdapter],
+    normalization_policy: NormalizationPolicy,
+    orchestrator: Orchestrator,
+    engagement_id: str,
+) -> None:
+    """Execute NORMALIZE stage: normalize observations into findings."""
+    _require_in_memory("observations", ctx.observations, Stage.NORMALIZE)
+    assert ctx.observations is not None  # noqa: S101 -- narrowing for type checker
+    dedup_keys = _merge_adapter_map(adapters, "dedup_key_rules", resolve_enum=False)
+    # Build per-tool severity and category maps to prevent cross-adapter
+    # key collisions.  A flat-merged map silently overwrites shared keys
+    # on collision -- e.g. ("Informational", FAIL) maps to INFO for
+    # Monkey365 but LOW for Prowler; ("Unknown", FAIL) maps to INFO for
+    # Monkey365 but MEDIUM for Prowler.  The same collision risk applies
+    # to category keys such as "defender".  Normalizing each tool's
+    # observations against only its own adapter's maps eliminates that
+    # ambiguity without changing the Policy interface.
+    per_tool_sev: dict[str, dict[Any, str]] = {
+        a.tool_source.value: _merge_adapter_map([a], "severity_map")
+        for a in adapters
+        if hasattr(a, "tool_source") and hasattr(a, "severity_map")
+    }
+    per_tool_cat: dict[str, dict[str, str]] = {
+        a.tool_source.value: _merge_adapter_map([a], "category_map")
+        for a in adapters
+        if hasattr(a, "tool_source") and hasattr(a, "category_map")
+    }
+    tool_obs_groups: dict[str, list[ToolObservation]] = {}
+    for obs in ctx.observations:
+        tool_obs_groups.setdefault(obs.tool.value, []).append(obs)
+    findings_list: list[Finding] = []
+    for tool_val, tool_obs in tool_obs_groups.items():
+        findings_list.extend(
+            normalize(
+                tool_obs,
+                normalization_policy,
+                adapter_severity_map=per_tool_sev.get(tool_val, {}),
+                adapter_category_map=per_tool_cat.get(tool_val, {}),
+                adapter_dedup_keys=dedup_keys,
+            )
+        )
+    ctx.findings = findings_list
+    orchestrator._finding_repo.save_parsed_findings(engagement_id, ctx.findings)
+
+
+def _run_consolidate(
+    ctx: StageContext,
+    consolidation_rule: ConsolidationRule,
+    orchestrator: Orchestrator,
+    engagement_id: str,
+) -> None:
+    """Execute CONSOLIDATE stage: consolidate findings."""
+    _require_in_memory("findings", ctx.findings, Stage.CONSOLIDATE)
+    assert ctx.findings is not None  # noqa: S101 -- narrowing for type checker
+    ctx.consolidated_findings = consolidate(ctx.findings, consolidation_rule)
+    orchestrator._finding_repo.save_consolidated_findings(engagement_id, ctx.consolidated_findings)
+
+
+def _run_qa_review(
+    ctx: StageContext,
+    qa_strategy: QAStrategy,
+) -> None:
+    """Execute QA_REVIEW stage: run QA strategy on consolidated findings."""
+    _require_in_memory("consolidated_findings", ctx.consolidated_findings, Stage.QA_REVIEW)
+    assert ctx.consolidated_findings is not None  # noqa: S101 -- narrowing for type checker
+    ctx.qa_results = qa_review(ctx.consolidated_findings, qa_strategy)
+
+
+def _run_render(
+    ctx: StageContext,
+    renderers: list[ReportRenderer],
+    output_dir: Path | None,
+    config: EngagementConfig,
+    engagement_id: str,
+    orchestrator: Orchestrator,
+) -> None:
+    """Execute RENDER stage: build report payload and render."""
+    _require_in_memory("consolidated_findings", ctx.consolidated_findings, Stage.RENDER)
+    assert ctx.consolidated_findings is not None  # noqa: S101 -- narrowing for type checker
+    if output_dir is None:
+        eng_dir = orchestrator._artifact_manager.get_engagement_dir(engagement_id)
+        report_dir = eng_dir / "reports"
+    else:
+        report_dir = output_dir
+    secure_mkdir(report_dir, parents=True, exist_ok=True)
+    warn_broad_permissions(report_dir, "report output directory")
+    payload = _build_report_payload(
+        engagement_id,
+        config,
+        ctx.consolidated_findings,
+        orchestrator._coverage_repo,
+    )
+    render(payload, renderers, report_dir)
+
+
+def _handle_qa_completion(
+    orchestrator: Orchestrator,
+    engagement_id: str,
+    qa_strategy: QAStrategy,
+    running_state: EngagementState,
+    completed_state: EngagementState,
+    stage_hash: str,
+) -> tuple[EngagementState, bool]:
+    """Handle QA_REVIEW post-execution: auto-advance or human gate.
+
+    Returns (new_current_state, should_break).
+    """
+    # getattr required: Protocol defaults are not
+    # inherited by implementations at runtime.
+    if getattr(qa_strategy, "is_noop", False) is True:
+        logger.info(
+            "No-op QA strategy -- auto-advancing QA_REVIEW -> QA_APPROVED for %s",
+            engagement_id,
+        )
+        orchestrator._transition_state(
+            engagement_id,
+            running_state,
+            completed_state,
+            content_hash=stage_hash,
+        )
+        return completed_state, False
+
+    logger.info(
+        "QA review complete for %s. Engagement held at QA_REVIEW for human approval.",
+        engagement_id,
+    )
+    return running_state, True
 
 
 def run_stages(
@@ -113,22 +323,35 @@ def run_stages(
             current_state = orchestrator._get_current_state(engagement_id)
             stages = get_stages_from(recovery_stage)
 
-        # None = "upstream never ran"; [] = "upstream ran, produced zero results".
-        collection_results: list[CollectionResult] | None = None
-        loaded_manifests: list[LoadedManifest] | None = None
-        adapter_results: list[AdapterResult] | None = None
-        observations: list[ToolObservation] | None = None
-        findings: list[Finding] | None = None
-        consolidated_findings: list[ConsolidatedFinding] | None = None
-        qa_results: list[QAResult] | None = None
+        ctx = StageContext()
 
         _lm, _f, _cf = _rehydrate_upstream_state(start_stage, engagement_id, adapters, orchestrator)
         if _lm is not None:
-            loaded_manifests = _lm
+            ctx.loaded_manifests = _lm
         if _f is not None:
-            findings = _f
+            ctx.findings = _f
         if _cf is not None:
-            consolidated_findings = _cf
+            ctx.consolidated_findings = _cf
+
+        # partial() captures ctx by reference -- mutations by one handler
+        # (e.g. _run_collect setting ctx.loaded_manifests) are visible to
+        # subsequent handlers in the same loop iteration sequence.
+        dispatch = {
+            Stage.COLLECT: partial(
+                _run_collect, ctx, config, adapters, orchestrator, engagement_id
+            ),
+            Stage.PARSE: partial(_run_parse, ctx, adapters, orchestrator, engagement_id),
+            Stage.NORMALIZE: partial(
+                _run_normalize, ctx, adapters, normalization_policy, orchestrator, engagement_id
+            ),
+            Stage.CONSOLIDATE: partial(
+                _run_consolidate, ctx, consolidation_rule, orchestrator, engagement_id
+            ),
+            Stage.QA_REVIEW: partial(_run_qa_review, ctx, qa_strategy),
+            Stage.RENDER: partial(
+                _run_render, ctx, renderers, output_dir, config, engagement_id, orchestrator
+            ),
+        }
 
         for stage in stages:
             running_state, completed_state = STAGE_STATE_MAP[stage]
@@ -136,160 +359,21 @@ def run_stages(
             try:
                 orchestrator._transition_state(engagement_id, current_state, running_state)
 
-                if stage == Stage.COLLECT:
-                    collection_results = collect(config, adapters)
-                    # Persist raw outputs so replay/consolidate --reparse can
-                    # load them later via load_raw_outputs().
-                    loaded_manifests = orchestrator._artifact_manager.save_raw_outputs(
-                        engagement_id, config.client_name, collection_results
-                    )
+                dispatch[stage]()
 
-                elif stage == Stage.PARSE:
-                    _require_in_memory("loaded_manifests", loaded_manifests, stage)
-                    assert loaded_manifests is not None  # noqa: S101 -- narrowing for type checker
-                    from gxassessms.pipeline.confinement import confine_and_resolve
-
-                    eng_dir = orchestrator._artifact_manager.get_engagement_dir(engagement_id)
-                    resolved = confine_and_resolve(loaded_manifests, eng_dir, adapters)
-                    # duration_seconds=0.0 is synthetic: confinement is a
-                    # batch operation, not timed per-manifest.
-                    adapter_results = [
-                        AdapterResult(
-                            adapter_name=r.tool_slug,
-                            status=AdapterRunStatus.SUCCESS,
-                            raw_output=r,
-                            duration_seconds=0.0,
-                        )
-                        for r in resolved
-                    ]
-                    observations = parse(adapter_results, adapters)
-                    # Collect coverage from adapters that declare coverage_export.
-                    # Delete-then-insert matches the finding repo pattern and
-                    # prevents duplicates on reparse.
-                    coverage_records = collect_coverage(adapter_results, adapters)
-                    orchestrator._coverage_repo.delete_for_engagement(engagement_id)
-                    if coverage_records:
-                        orchestrator._coverage_repo.save(
-                            engagement_id,
-                            [
-                                {
-                                    "control_id": r.control_id,
-                                    "tool_source": r.tool.value,
-                                    "status": r.status.value,
-                                    "reason": r.reason,
-                                }
-                                for r in coverage_records
-                            ],
-                        )
-
-                elif stage == Stage.NORMALIZE:
-                    _require_in_memory("observations", observations, stage)
-                    assert observations is not None  # noqa: S101 -- narrowing for type checker
-                    dedup_keys = _merge_adapter_map(adapters, "dedup_key_rules", resolve_enum=False)
-                    # Build per-tool severity and category maps to prevent cross-adapter
-                    # key collisions.  A flat-merged map silently overwrites shared keys
-                    # on collision -- e.g. ("Informational", FAIL) maps to INFO for
-                    # Monkey365 but LOW for Prowler; ("Unknown", FAIL) maps to INFO for
-                    # Monkey365 but MEDIUM for Prowler.  The same collision risk applies
-                    # to category keys such as "defender".  Normalizing each tool's
-                    # observations against only its own adapter's maps eliminates that
-                    # ambiguity without changing the Policy interface.
-                    per_tool_sev: dict[str, dict[Any, str]] = {
-                        str(a.tool_source.value): _merge_adapter_map([a], "severity_map")
-                        for a in adapters
-                        if hasattr(a, "tool_source") and hasattr(a, "severity_map")
-                    }
-                    per_tool_cat: dict[str, dict[str, str]] = {
-                        str(a.tool_source.value): _merge_adapter_map([a], "category_map")
-                        for a in adapters
-                        if hasattr(a, "tool_source") and hasattr(a, "category_map")
-                    }
-                    tool_obs_groups: dict[str, list[ToolObservation]] = {}
-                    for obs in observations:
-                        tool_obs_groups.setdefault(obs.tool.value, []).append(obs)
-                    findings_list: list[Finding] = []
-                    for tool_val, tool_obs in tool_obs_groups.items():
-                        findings_list.extend(
-                            normalize(
-                                tool_obs,
-                                normalization_policy,
-                                adapter_severity_map=per_tool_sev.get(tool_val, {}),
-                                adapter_category_map=per_tool_cat.get(tool_val, {}),
-                                adapter_dedup_keys=dedup_keys,
-                            )
-                        )
-                    findings = findings_list
-                    # Persist: replaces prior parsed findings in one transaction.
-                    orchestrator._finding_repo.save_parsed_findings(engagement_id, findings)
-
-                elif stage == Stage.CONSOLIDATE:
-                    _require_in_memory("findings", findings, stage)
-                    assert findings is not None  # noqa: S101 -- narrowing for type checker
-                    consolidated_findings = consolidate(findings, consolidation_rule)
-                    # Persist: replaces prior consolidated findings in one transaction.
-                    orchestrator._finding_repo.save_consolidated_findings(
-                        engagement_id, consolidated_findings
-                    )
-
-                elif stage == Stage.QA_REVIEW:
-                    _require_in_memory("consolidated_findings", consolidated_findings, stage)
-                    assert consolidated_findings is not None  # noqa: S101 -- narrowing for type checker
-                    qa_results = qa_review(consolidated_findings, qa_strategy)
-
-                elif stage == Stage.RENDER:
-                    _require_in_memory("consolidated_findings", consolidated_findings, stage)
-                    assert consolidated_findings is not None  # noqa: S101 -- narrowing for type checker
-                    if output_dir is None:
-                        eng_dir = orchestrator._artifact_manager.get_engagement_dir(engagement_id)
-                        report_dir = eng_dir / "reports"
-                    else:
-                        report_dir = output_dir
-                    secure_mkdir(report_dir, parents=True, exist_ok=True)
-                    warn_broad_permissions(report_dir, "report output directory")
-                    payload = _build_report_payload(
-                        engagement_id,
-                        config,
-                        consolidated_findings,
-                        orchestrator._coverage_repo,
-                    )
-                    render(payload, renderers, report_dir)
-
-                stage_data = _get_stage_output(
-                    stage,
-                    collection_results=collection_results,
-                    adapter_results=adapter_results,
-                    observations=observations,
-                    findings=findings,
-                    consolidated_findings=consolidated_findings,
-                    qa_results=qa_results,
-                )
+                stage_data = _get_stage_output(stage, ctx)
                 stage_hash = orchestrator._compute_content_hash(stage_data)
 
-                # QA_REVIEW: only advance to QA_APPROVED if noop strategy.
-                # Real QA strategies leave the engagement at QA_REVIEW
-                # for human review; the pipeline stops here.
                 if stage == Stage.QA_REVIEW:
-                    # getattr required: Protocol defaults are not
-                    # inherited by implementations at runtime.
-                    if getattr(qa_strategy, "is_noop", False) is True:
-                        logger.info(
-                            "No-op QA strategy -- auto-advancing QA_REVIEW -> QA_APPROVED for %s",
-                            engagement_id,
-                        )
-                        orchestrator._transition_state(
-                            engagement_id,
-                            running_state,
-                            completed_state,
-                            content_hash=stage_hash,
-                        )
-                        current_state = completed_state
-                    else:
-                        logger.info(
-                            "QA review complete for %s. Engagement held "
-                            "at QA_REVIEW for human approval.",
-                            engagement_id,
-                        )
-                        current_state = running_state
+                    current_state, should_break = _handle_qa_completion(
+                        orchestrator,
+                        engagement_id,
+                        qa_strategy,
+                        running_state,
+                        completed_state,
+                        stage_hash,
+                    )
+                    if should_break:
                         break
                 else:
                     orchestrator._transition_state(
@@ -439,11 +523,18 @@ def _rehydrate_upstream_state(
         consolidated = orchestrator._finding_repo.get_consolidated_as_findings(engagement_id)
         return None, None, consolidated
 
-    # RENDER: _verify_qa_for_render already confirms CONSOLIDATED was reached
-    # (QA_APPROVED cannot exist without a prior CONSOLIDATED transition).
-    orchestrator._verify_qa_for_render(engagement_id)
-    consolidated = orchestrator._finding_repo.get_consolidated_as_findings(engagement_id)
-    return None, None, consolidated
+    if start_stage == Stage.RENDER:
+        # _verify_qa_for_render already confirms CONSOLIDATED was reached
+        # (QA_APPROVED cannot exist without a prior CONSOLIDATED transition).
+        orchestrator._verify_qa_for_render(engagement_id)
+        consolidated = orchestrator._finding_repo.get_consolidated_as_findings(engagement_id)
+        return None, None, consolidated
+
+    raise PipelineError(
+        message=f"Unhandled start_stage: {start_stage.value}",
+        engagement_id=engagement_id,
+        stage=str(start_stage.value),
+    )
 
 
 def _verify_stage_completed(
@@ -487,14 +578,14 @@ def _merge_adapter_map(
     attr: str,
     *,
     resolve_enum: bool = True,
-) -> dict[Any, str]:
+) -> dict[Any, Any]:
     """Merge per-adapter mappings into a flat lookup table.
 
     Each adapter may expose an ``attr`` property whose value is a dict.
     We merge all adapters into one flat dict, warning on collisions.
     When *resolve_enum* is True, enum-like values are resolved via ``.value``.
     """
-    result: dict[Any, str] = {}
+    result: dict[Any, Any] = {}
     for adapter in adapters:
         mapping = getattr(adapter, attr, None)
         if mapping is None:
@@ -545,27 +636,18 @@ def _build_report_payload(
     )
 
 
-def _get_stage_output(
-    stage: Stage,
-    *,
-    collection_results: list[CollectionResult] | None,
-    adapter_results: list[AdapterResult] | None,
-    observations: list[ToolObservation] | None,
-    findings: list[Finding] | None,
-    consolidated_findings: list[ConsolidatedFinding] | None,
-    qa_results: list[QAResult] | None,
-) -> list[Any]:
+def _get_stage_output(stage: Stage, ctx: StageContext) -> list[Any]:
     """Return the serializable output list for a given stage."""
     if stage == Stage.COLLECT:
-        return [r.model_dump() for r in (collection_results or [])]
+        return [r.model_dump() for r in (ctx.collection_results or [])]
     if stage == Stage.PARSE:
-        return [o.model_dump() for o in (observations or [])]
+        return [o.model_dump() for o in (ctx.observations or [])]
     if stage == Stage.NORMALIZE:
-        return [f.model_dump() for f in (findings or [])]
+        return [f.model_dump() for f in (ctx.findings or [])]
     if stage == Stage.CONSOLIDATE:
-        return [f.model_dump() for f in (consolidated_findings or [])]
+        return [f.model_dump() for f in (ctx.consolidated_findings or [])]
     if stage == Stage.QA_REVIEW:
-        return qa_results or []
+        return ctx.qa_results or []
     if stage == Stage.RENDER:
         return []
     raise ValueError(f"Unhandled stage for hashing: {stage.value}")
