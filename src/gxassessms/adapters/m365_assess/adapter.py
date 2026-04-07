@@ -64,6 +64,8 @@ def _ps_sq(s: str) -> str:
 
 
 _CSV_SUFFIX = "-Security-Config.csv"
+# Parameters that the adapter sets itself; extra_args must not override them.
+_ADAPTER_OWNED_PARAMS: frozenset[str] = frozenset({"tenantid", "outputpath"})
 _EXPECTED_COLUMNS: frozenset[str] = frozenset(
     {"Category", "Setting", "CurrentValue", "RecommendedValue", "Status", "CheckId", "Remediation"}
 )
@@ -184,6 +186,13 @@ class M365AssessAdapter:
         if tc.extra_args:
             validated = validate_extra_args(tc.extra_args)
             extra_named, switches = parse_extra_args(validated)
+            blocked = {k for k in extra_named if k.lower() in _ADAPTER_OWNED_PARAMS}
+            blocked |= {k for k in switches if k.lower() in _ADAPTER_OWNED_PARAMS}
+            if blocked:
+                raise CollectionError(
+                    f"extra_args must not override adapter-owned parameters: {sorted(blocked)}",
+                    adapter_name=self.tool_name,
+                )
             for name, value in extra_named.items():
                 script_parts.append(f"-{name} '{_ps_sq(value)}'")
             for name in switches:
@@ -191,16 +200,16 @@ class M365AssessAdapter:
 
         script = " ".join(script_parts)
 
-        # Snapshot existing CSV mtimes before invoking the script so we can
-        # detect new or overwritten output afterwards.  M365-Assess uses stable
-        # filenames (e.g. Entra-Security-Config.csv), so path-presence alone
-        # cannot distinguish a fresh run from a pre-existing stale file.
-        # Comparing against the pre-run snapshot avoids false positives from a
-        # rapid rerun (where time.time() - 1 could accept files written by the
-        # previous run) and false negatives from coarse filesystem timestamps.
-        pre_run_state: dict[str, float] = (
+        # Snapshot existing CSV (mtime, size) pairs before invoking the script so
+        # we can detect new or overwritten output afterwards.  M365-Assess uses
+        # stable filenames (e.g. Entra-Security-Config.csv), so path-presence
+        # alone cannot distinguish a fresh run from a pre-existing stale file.
+        # Comparing both mtime and size against the pre-run snapshot handles
+        # filesystems with coarse timestamp granularity (FAT, some NFS mounts)
+        # where a successful rewrite may not advance st_mtime.
+        pre_run_state: dict[str, tuple[float, int]] = (
             {
-                f.name: f.stat().st_mtime
+                f.name: (f.stat().st_mtime, f.stat().st_size)
                 for f in output_dir.iterdir()
                 if f.is_file() and f.name.endswith(_CSV_SUFFIX)
             }
@@ -217,13 +226,17 @@ class M365AssessAdapter:
         )
 
         # Accept CSVs that are new (not in the snapshot) or have been updated
-        # (mtime strictly after the snapshot value).
+        # (mtime advanced or size changed vs. the snapshot).
         csv_files = [
             f
             for f in output_dir.iterdir()
             if f.is_file()
             and f.name.endswith(_CSV_SUFFIX)
-            and (f.name not in pre_run_state or f.stat().st_mtime > pre_run_state[f.name])
+            and (
+                f.name not in pre_run_state
+                or f.stat().st_mtime > pre_run_state[f.name][0]
+                or f.stat().st_size != pre_run_state[f.name][1]
+            )
         ]
 
         new_csvs = csv_files
