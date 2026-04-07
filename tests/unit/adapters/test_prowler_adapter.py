@@ -332,6 +332,38 @@ class TestCollectExtraArgs:
         assert "sub-explicit" in cmd
         assert "sub-from-config" not in cmd
 
+    @patch("subprocess.run")
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_subscription_id_singular_in_extra_args_suppresses_injection(
+        self, mock_shutil: MagicMock, mock_run: MagicMock, tmp_path: Path
+    ) -> None:
+        """--subscription-id (singular) in extra_args must suppress config injection."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        mock_run.side_effect = _make_collector(tmp_path)
+        tc = ToolConfig(
+            enabled=True,
+            output_dir=str(tmp_path),
+            extra_args=["--az-cli-auth", "--subscription-id", "sub-explicit"],
+        )
+        config = EngagementConfig(
+            client_name="TestClient",
+            tenant_id="00000000-0000-0000-0000-000000000000",
+            subscription_id="sub-from-config",
+            auth=AuthConfig(
+                method="client_credential",
+                tenant_id="00000000-0000-0000-0000-000000000000",
+                client_id="test-client-id",
+                client_secret_env=_TEST_SECRET_ENV,
+            ),
+            tools={"prowler": tc},
+        )
+        adapter = ProwlerAdapter()
+        with patch("gxassessms.core.hashing.sha256_file", return_value="a" * 64):
+            adapter.collect(config, None)
+        cmd = mock_run.call_args[0][0]
+        assert "--subscription-ids" not in cmd
+        assert "sub-from-config" not in cmd
+
     @patch("gxassessms.adapters.prowler.adapter.shutil")
     def test_no_auth_mapping_and_no_extra_args_raises(self, mock_shutil: MagicMock) -> None:
         """No auth mapping + no extra_args = CollectionError."""
@@ -896,6 +928,31 @@ class TestCollectAuthMethods:
         assert "--tenant-id" in captured_cmd
         idx = captured_cmd.index("--tenant-id")
         assert captured_cmd[idx + 1] == "00000000-0000-0000-0000-000000000000"
+
+    @patch("gxassessms.adapters.prowler.adapter.shutil")
+    def test_browser_auth_with_tenant_id_in_extra_args_no_duplicate(
+        self, mock_shutil: MagicMock, tmp_path: Path
+    ) -> None:
+        """--tenant-id already in extra_args must not be injected a second time."""
+        mock_shutil.which.return_value = "/usr/local/bin/prowler"
+        config = _make_config(
+            auth_method="interactive",
+            extra_args=["--tenant-id", "explicit-tenant"],
+            output_dir=str(tmp_path),
+        )
+        adapter = ProwlerAdapter()
+        captured_cmd: list[str] = []
+
+        def capture(cmd: list[str], **kwargs: Any) -> MagicMock:
+            captured_cmd.extend(cmd)
+            (tmp_path / "ProwlerResults.ocsf.json").write_text('[{"finding_info": {}}]')
+            return MagicMock(returncode=0, stdout=b"", stderr=b"")
+
+        with patch("subprocess.run", side_effect=capture):
+            adapter.collect(config, None)
+        assert captured_cmd.count("--tenant-id") == 1
+        idx = captured_cmd.index("--tenant-id")
+        assert captured_cmd[idx + 1] == "explicit-tenant"
 
 
 # ---------------------------------------------------------------------------

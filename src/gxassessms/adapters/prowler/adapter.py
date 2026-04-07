@@ -264,7 +264,9 @@ class ProwlerAdapter:
                     "Browser auth requires tenant_id in engagement config",
                     adapter_name=self.tool_name,
                 )
-            cmd.extend(["--tenant-id", tenant_id])
+            # Only inject --tenant-id if extra_args doesn't already supply one.
+            if "--tenant-id" not in extra_args:
+                cmd.extend(["--tenant-id", tenant_id])
 
         # Service-principal auth: Prowler's --sp-env-auth reads credentials
         # from AZURE_CLIENT_ID / AZURE_TENANT_ID / AZURE_CLIENT_SECRET.
@@ -306,7 +308,8 @@ class ProwlerAdapter:
         # Inject subscription scope from engagement config if set and not already
         # in extra_args.  Prowler defaults to all accessible subscriptions when
         # --subscription-ids is absent, which violates per-engagement scoping.
-        if config.subscription_id and "--subscription-ids" not in extra_args:
+        _sub_flags = {"--subscription-id", "--subscription-ids"}
+        if config.subscription_id and not (_sub_flags & set(extra_args)):
             cmd.extend(["--subscription-ids", config.subscription_id])
 
         cmd.extend(["-o", str(output_dir)])
