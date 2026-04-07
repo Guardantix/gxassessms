@@ -1,0 +1,139 @@
+{
+  "value": [
+    {
+      "category": "HighAvailability",
+      "extendedProperties": {
+        "maturityLevel": "GA",
+        "recommendationOfferingId": "ed05f3b7-8949-4698-9b38-49ab8abb5ee0",
+        "recommendationSubCategory": "MonitoringAndAlerting"
+      },
+      "id": "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.Advisor/recommendations/b7762bb1-933d-32af-983e-74455d2943ae",
+      "impact": "High",
+      "impactedField": "Microsoft.Subscriptions/subscriptions",
+      "impactedValue": "00000000-0000-0000-0000-000000000000",
+      "lastUpdated": "2026-04-02T01:23:47.363534+00:00",
+      "metadata": null,
+      "name": "b7762bb1-933d-32af-983e-74455d2943ae",
+      "recommendationTypeId": "242639fd-cd73-4be2-8f55-70478db8d1a5",
+      "resourceMetadata": {
+        "resourceId": "/subscriptions/00000000-0000-0000-0000-000000000000",
+        "source": null
+      },
+      "risk": null,
+      "shortDescription": {
+        "problem": "Create an Azure Service Health alert",
+        "solution": "Create an Azure Service Health alert"
+      },
+      "suppressionIds": null,
+      "type": "Microsoft.Advisor/recommendations"
+    },
+    {
+      "category": "Security",
+      "extendedProperties": {
+        "maturityLevel": "GA",
+        "recommendationOfferingId": "a3c70b2a-e4f0-4b6c-91d8-5f12c8a1e7d3",
+        "recommendationSubCategory": "IdentityAndAccess"
+      },
+      "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-production/providers/Microsoft.KeyVault/vaults/kv-contoso-prod/providers/Microsoft.Advisor/recommendations/c8d3e4f5-1234-5678-abcd-ef0123456789",
+      "impact": "High",
+      "impactedField": "Microsoft.KeyVault/vaults",
+      "impactedValue": "kv-contoso-prod",
+      "lastUpdated": "2026-04-01T18:45:22.123456+00:00",
+      "metadata": null,
+      "name": "c8d3e4f5-1234-5678-abcd-ef0123456789",
+      "recommendationTypeId": "88bb9079-1e5b-4e1c-857d-0c7afd8a9892",
+      "resourceMetadata": {
+        "resourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-production/providers/Microsoft.KeyVault/vaults/kv-contoso-prod",
+        "source": null
+      },
+      "risk": "Error",
+      "shortDescription": {
+        "problem": "Key Vault should use a virtual network service endpoint",
+        "solution": "Configure virtual network service endpoints for Key Vault"
+      },
+      "suppressionIds": null,
+      "type": "Microsoft.Advisor/recommendations"
+    },
+    {
+      "category": "Cost",
+      "extendedProperties": {
+        "maturityLevel": "GA",
+        "recommendationOfferingId": "d7e8f9a0-b1c2-3456-7890-abcdef012345",
+        "recommendationSubCategory": "RightSizeOrShutDown"
+      },
+      "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-development/providers/Microsoft.Compute/virtualMachines/vm-dev-01/providers/Microsoft.Advisor/recommendations/a1b2c3d4-e5f6-7890-abcd-ef0123456789",
+      "impact": "Medium",
+      "impactedField": "Microsoft.Compute/virtualMachines",
+      "impactedValue": "vm-dev-01",
+      "lastUpdated": "2026-03-31T12:00:00.000000+00:00",
+      "metadata": null,
+      "name": "a1b2c3d4-e5f6-7890-abcd-ef0123456789",
+      "recommendationTypeId": "e10b1381-5f0a-47ad-b718-4c5a85d7a8c1",
+      "resourceMetadata": {
+        "resourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-development/providers/Microsoft.Compute/virtualMachines/vm-dev-01",
+        "source": null
+      },
+      "risk": "Warning",
+      "shortDescription": {
+        "problem": "Right-size or shutdown underutilized virtual machines",
+        "solution": "Resize the virtual machine to a smaller SKU or shut it down"
+      },
+      "suppressionIds": null,
+      "type": "Microsoft.Advisor/recommendations"
+    },
+    {
+      "category": "HighAvailability",
+      "extendedProperties": {
+        "maturityLevel": "GA",
+        "recommendationOfferingId": "f0a1b2c3-d4e5-6789-0abc-def012345678",
+        "recommendationSubCategory": "ServiceUpgradeAndRetirement"
+      },
+      "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-production/providers/Microsoft.Sql/servers/sql-contoso-prod/providers/Microsoft.Advisor/recommendations/d4e5f6a7-b8c9-0123-4567-890abcdef012",
+      "impact": "Low",
+      "impactedField": "Microsoft.Sql/servers",
+      "impactedValue": "sql-contoso-prod",
+      "lastUpdated": "2026-03-30T09:15:33.456789+00:00",
+      "metadata": null,
+      "name": "d4e5f6a7-b8c9-0123-4567-890abcdef012",
+      "recommendationTypeId": "f5a3c2b1-e4d6-4789-8abc-1234567890ab",
+      "resourceMetadata": {
+        "resourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-production/providers/Microsoft.Sql/servers/sql-contoso-prod",
+        "source": null
+      },
+      "risk": "None",
+      "shortDescription": {
+        "problem": "Upgrade to the latest SQL Database SDK version",
+        "solution": "Upgrade to the latest SQL Database SDK version for reliability improvements"
+      },
+      "suppressionIds": null,
+      "type": "Microsoft.Advisor/recommendations"
+    },
+    {
+      "category": "Security",
+      "extendedProperties": {
+        "maturityLevel": "GA",
+        "recommendationOfferingId": "b9c0d1e2-f3a4-5678-9012-345678abcdef",
+        "recommendationSubCategory": "NetworkSecurity"
+      },
+      "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-production/providers/Microsoft.Storage/storageAccounts/stcontosoprod/providers/Microsoft.Advisor/recommendations/e5f6a7b8-c9d0-1234-5678-90abcdef0123",
+      "impact": "Medium",
+      "impactedField": "Microsoft.Storage/storageAccounts",
+      "impactedValue": "stcontosoprod",
+      "lastUpdated": "2026-04-01T22:30:15.789012+00:00",
+      "metadata": null,
+      "name": "e5f6a7b8-c9d0-1234-5678-90abcdef0123",
+      "recommendationTypeId": "a4d1e2f3-b5c6-7890-1234-567890abcdef",
+      "resourceMetadata": {
+        "resourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-production/providers/Microsoft.Storage/storageAccounts/stcontosoprod",
+        "source": null
+      },
+      "risk": "Error",
+      "shortDescription": {
+        "problem": "Storage account should use a private link connection",
+        "solution": "Configure private link connections for storage account"
+      },
+      "suppressionIds": null,
+      "type": "Microsoft.Advisor/recommendations"
+    }
+  ]
+}
