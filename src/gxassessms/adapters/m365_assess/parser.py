@@ -29,6 +29,10 @@ from gxassessms.core.domain.models import ToolObservation
 
 logger = logging.getLogger(__name__)
 
+# Framework keys validated and extracted from registry entries.
+# Must stay in sync with the frameworks emitted by M365-Assess's registry.json.
+_REGISTRY_FRAMEWORK_KEYS: tuple[str, ...] = ("cis-m365-v6", "nist-800-53", "soc2")
+
 
 def load_risk_severity(path: Path) -> dict[str, str]:
     """Load risk-severity.json. Returns {base_check_id: severity_string}."""
@@ -119,7 +123,7 @@ def _validate_registry_frameworks(check_id: str, entry: dict[str, Any]) -> None:
             adapter_name="M365_Assess",
         )
     frameworks_dict: dict[str, Any] = cast(dict[str, Any], raw_fw)
-    for fw_key in ("cis-m365-v6", "nist-800-53", "soc2"):
+    for fw_key in _REGISTRY_FRAMEWORK_KEYS:
         raw_val: Any = frameworks_dict.get(fw_key)
         if raw_val is None:
             continue

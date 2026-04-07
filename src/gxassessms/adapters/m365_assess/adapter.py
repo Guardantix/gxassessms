@@ -37,6 +37,7 @@ from gxassessms.core.contracts.errors import (
     RawOutputValidationError,
 )
 from gxassessms.core.contracts.types import PrerequisiteResult
+from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import Category, CoverageStatus, Severity, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
@@ -81,7 +82,7 @@ class M365AssessAdapter:
     tool_name: str = "M365_Assess"
     storage_slug: str = "m365-assess"
     tool_source: ToolSource = ToolSource.M365_ASSESS
-    capabilities: frozenset[str] = frozenset(
+    capabilities: frozenset[AdapterCapability] = frozenset(
         {"collect", "parse", "prerequisites", "coverage_export", "benchmark_mapping"}
     )
 
@@ -209,7 +210,7 @@ class M365AssessAdapter:
         # where a successful rewrite may not advance st_mtime.
         pre_run_state: dict[str, tuple[float, int]] = (
             {
-                f.name: (f.stat().st_mtime, f.stat().st_size)
+                f.name: ((s := f.stat()).st_mtime, s.st_size)
                 for f in output_dir.iterdir()
                 if f.is_file() and f.name.endswith(_CSV_SUFFIX)
             }
@@ -234,20 +235,19 @@ class M365AssessAdapter:
             and f.name.endswith(_CSV_SUFFIX)
             and (
                 f.name not in pre_run_state
-                or f.stat().st_mtime > pre_run_state[f.name][0]
-                or f.stat().st_size != pre_run_state[f.name][1]
+                or (s := f.stat()).st_mtime > pre_run_state[f.name][0]
+                or s.st_size != pre_run_state[f.name][1]
             )
         ]
 
-        new_csvs = csv_files
-        if not new_csvs:
+        if not csv_files:
             raise CollectionError(
                 f"M365-Assess did not produce new CSV output in {output_dir}",
                 adapter_name=self.tool_name,
             )
 
         artifacts: list[CollectedArtifact] = []
-        for csv_file in sorted(new_csvs, key=lambda f: f.name):
+        for csv_file in sorted(csv_files, key=lambda f: f.name):
             sha = sha256_file(csv_file)
             artifacts.append(
                 CollectedArtifact(
@@ -304,7 +304,7 @@ class M365AssessAdapter:
         )
 
         execution_metadata: dict[str, str] = {
-            "script": "Invoke-M365Assessment.ps1",
+            "script_path": script_path,
             "tenant_id": config.tenant_id,
         }
         if tc.controls_dir:
@@ -463,7 +463,6 @@ class M365AssessAdapter:
                         adapter_name=self.tool_name,
                     )
 
-                # Check for at least one data row
                 first_row = next(reader, None)
                 if first_row is None:
                     raise RawOutputValidationError(

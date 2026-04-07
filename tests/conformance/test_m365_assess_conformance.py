@@ -15,7 +15,8 @@ import yaml
 
 from gxassessms.adapters.m365_assess import M365AssessAdapter
 from gxassessms.adapters.m365_assess.adapter import _CSV_SUFFIX
-from gxassessms.core.domain.enums import ToolSource
+from gxassessms.core.contracts.errors import ParseError, RawOutputValidationError
+from gxassessms.core.domain.enums import FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
     ArtifactRecord,
     ResolvedManifest,
@@ -30,6 +31,23 @@ FIXTURE_DIR = (
     / "m365_assess"
     / "fixtures"
 )
+
+_MANIFEST_TIMESTAMP = datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC)
+
+
+def _make_manifest(
+    file_manifest: dict[str, ArtifactRecord],
+    execution_metadata: dict[str, str] | None = None,
+) -> ResolvedManifest:
+    return ResolvedManifest(
+        tool=ToolSource.M365_ASSESS,
+        tool_slug="m365-assess",
+        schema_version="1.0.0",
+        manifest_version="1.0.0",
+        timestamp=_MANIFEST_TIMESTAMP,
+        file_manifest=file_manifest,
+        execution_metadata=execution_metadata or {},
+    )
 
 
 class TestM365AssessConformance(AdapterConformanceSuite):
@@ -115,7 +133,6 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         """Fixture covers Pass, Fail, Warning, Review, Info statuses."""
         observations = adapter.parse(resolved_manifest)
         statuses = {o.native_status for o in observations}
-        from gxassessms.core.domain.enums import FindingStatus
 
         assert FindingStatus.PASS in statuses
         assert FindingStatus.FAIL in statuses
@@ -141,11 +158,6 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         Uses a subclass with no-op validate_raw to isolate coverage() I/O error handling,
         since coverage() normally calls validate_raw() first (which also opens the file).
         """
-        from datetime import UTC, datetime
-
-        from gxassessms.core.contracts.errors import ParseError
-        from gxassessms.core.domain.enums import ToolSource
-        from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
 
         class BypassValidation(M365AssessAdapter):
             def validate_raw(self, raw: ResolvedManifest) -> None:
@@ -155,15 +167,7 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         ghost_csv = tmp_path / f"Ghost{_CSV_SUFFIX}"
         # File does not exist: open() inside coverage() will raise FileNotFoundError (OSError)
 
-        raw = ResolvedManifest(
-            tool=ToolSource.M365_ASSESS,
-            tool_slug="m365-assess",
-            schema_version="1.0.0",
-            manifest_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={str(ghost_csv): ArtifactRecord(encoding="utf-8", sha256="a" * 64)},
-            execution_metadata={},
-        )
+        raw = _make_manifest({str(ghost_csv): ArtifactRecord(encoding="utf-8", sha256="a" * 64)})
         with pytest.raises(ParseError, match="Failed to read coverage data"):
             adapter_under_test.coverage(raw)
 
@@ -188,24 +192,9 @@ class TestM365AssessConformance(AdapterConformanceSuite):
     def test_validate_raw_rejects_empty_manifest(
         self,
         adapter: M365AssessAdapter,
-        tmp_path: Path,
     ) -> None:
         """Empty file_manifest must raise RawOutputValidationError."""
-        from datetime import UTC, datetime
-
-        from gxassessms.core.contracts.errors import RawOutputValidationError
-        from gxassessms.core.domain.enums import ToolSource
-        from gxassessms.core.domain.models import ResolvedManifest
-
-        raw = ResolvedManifest(
-            tool=ToolSource.M365_ASSESS,
-            tool_slug="m365-assess",
-            schema_version="1.0.0",
-            manifest_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={},
-            execution_metadata={},
-        )
+        raw = _make_manifest({})
         with pytest.raises(RawOutputValidationError, match="empty"):
             adapter.validate_raw(raw)
 
@@ -215,25 +204,10 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         tmp_path: Path,
     ) -> None:
         """Manifest with only JSON files (no CSVs) must raise RawOutputValidationError."""
-        import hashlib
-        from datetime import UTC, datetime
-
-        from gxassessms.core.contracts.errors import RawOutputValidationError
-        from gxassessms.core.domain.enums import ToolSource
-        from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
-
         json_file = tmp_path / "registry.json"
         json_file.write_text('{"checks": []}')
         sha = hashlib.sha256(json_file.read_bytes()).hexdigest()
-        raw = ResolvedManifest(
-            tool=ToolSource.M365_ASSESS,
-            tool_slug="m365-assess",
-            schema_version="1.0.0",
-            manifest_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={str(json_file): ArtifactRecord(encoding="utf-8", sha256=sha)},
-            execution_metadata={},
-        )
+        raw = _make_manifest({str(json_file): ArtifactRecord(encoding="utf-8", sha256=sha)})
         with pytest.raises(RawOutputValidationError, match=r"Security-Config\.csv"):
             adapter.validate_raw(raw)
 
@@ -243,27 +217,12 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         tmp_path: Path,
     ) -> None:
         """CSV with headers but no data rows must raise RawOutputValidationError."""
-        import hashlib
-        from datetime import UTC, datetime
-
-        from gxassessms.core.contracts.errors import RawOutputValidationError
-        from gxassessms.core.domain.enums import ToolSource
-        from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
-
         header_csv = tmp_path / f"Entra{_CSV_SUFFIX}"
         header_csv.write_text(
             "Category,Setting,CurrentValue,RecommendedValue,Status,CheckId,Remediation\n"
         )
         sha = hashlib.sha256(header_csv.read_bytes()).hexdigest()
-        raw = ResolvedManifest(
-            tool=ToolSource.M365_ASSESS,
-            tool_slug="m365-assess",
-            schema_version="1.0.0",
-            manifest_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={str(header_csv): ArtifactRecord(encoding="utf-8", sha256=sha)},
-            execution_metadata={},
-        )
+        raw = _make_manifest({str(header_csv): ArtifactRecord(encoding="utf-8", sha256=sha)})
         with pytest.raises(RawOutputValidationError, match="no data rows"):
             adapter.validate_raw(raw)
 
@@ -275,19 +234,7 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         bad_csv = tmp_path / f"Bad{_CSV_SUFFIX}"
         bad_csv.write_text('"WrongCol1","WrongCol2"\n"a","b"\n')
         sha = hashlib.sha256(bad_csv.read_bytes()).hexdigest()
-        raw = ResolvedManifest(
-            tool=ToolSource.M365_ASSESS,
-            tool_slug="m365-assess",
-            schema_version="1.0.0",
-            manifest_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={
-                str(bad_csv): ArtifactRecord(encoding="utf-8", sha256=sha),
-            },
-            execution_metadata={},
-        )
-        from gxassessms.core.contracts.errors import RawOutputValidationError
-
+        raw = _make_manifest({str(bad_csv): ArtifactRecord(encoding="utf-8", sha256=sha)})
         with pytest.raises(RawOutputValidationError, match="missing columns"):
             adapter.validate_raw(raw)
 
@@ -297,12 +244,6 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         tmp_path: Path,
     ) -> None:
         """Controls dir in execution_metadata (not a sibling) must parse correctly."""
-        import hashlib
-        from datetime import UTC, datetime
-
-        from gxassessms.core.domain.enums import ToolSource
-        from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
-
         # CSV goes in tmp_path; controls go in a SEPARATE directory (no sibling match)
         csv_dir = tmp_path / "csvs"
         csv_dir.mkdir()
@@ -315,13 +256,8 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         shutil.copy2(FIXTURE_DIR / "registry_sample.json", controls_dir / "registry.json")
 
         sha = hashlib.sha256(csv_dst.read_bytes()).hexdigest()
-        raw = ResolvedManifest(
-            tool=ToolSource.M365_ASSESS,
-            tool_slug="m365-assess",
-            schema_version="1.0.0",
-            manifest_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=sha)},
+        raw = _make_manifest(
+            {str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=sha)},
             execution_metadata={"controls_dir": str(controls_dir)},
         )
         observations = adapter.parse(raw)
@@ -333,23 +269,11 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         tmp_path: Path,
     ) -> None:
         """Explicit controls_dir that doesn't exist must raise ParseError immediately."""
-        import hashlib
-        from datetime import UTC, datetime
-
-        from gxassessms.core.contracts.errors import ParseError
-        from gxassessms.core.domain.enums import ToolSource
-        from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
-
         csv_dst = tmp_path / f"Entra{_CSV_SUFFIX}"
         shutil.copy2(FIXTURE_DIR / "entra_security_config.csv", csv_dst)
         sha = hashlib.sha256(csv_dst.read_bytes()).hexdigest()
-        raw = ResolvedManifest(
-            tool=ToolSource.M365_ASSESS,
-            tool_slug="m365-assess",
-            schema_version="1.0.0",
-            manifest_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=sha)},
+        raw = _make_manifest(
+            {str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=sha)},
             execution_metadata={"controls_dir": str(tmp_path / "does_not_exist")},
         )
         with pytest.raises(ParseError, match="controls_dir does not exist"):
@@ -361,12 +285,6 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         tmp_path: Path,
     ) -> None:
         """Controls files in file_manifest (no sibling dir, no execution_metadata) must work."""
-        import hashlib
-        from datetime import UTC, datetime
-
-        from gxassessms.core.domain.enums import ToolSource
-        from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
-
         # CSV and controls all in separate dirs, no sibling relationship
         csv_dir = tmp_path / "csvs"
         controls_dir = tmp_path / "controls"
@@ -384,18 +302,12 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         def _sha(p: Path) -> str:
             return hashlib.sha256(p.read_bytes()).hexdigest()
 
-        raw = ResolvedManifest(
-            tool=ToolSource.M365_ASSESS,
-            tool_slug="m365-assess",
-            schema_version="1.0.0",
-            manifest_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={
+        raw = _make_manifest(
+            {
                 str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=_sha(csv_dst)),
                 str(sev_dst): ArtifactRecord(encoding="utf-8", sha256=_sha(sev_dst)),
                 str(reg_dst): ArtifactRecord(encoding="utf-8", sha256=_sha(reg_dst)),
-            },
-            execution_metadata={},  # No controls_dir hint
+            }
         )
         observations = adapter.parse(raw)
         assert len(observations) > 0
@@ -410,12 +322,6 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         Previously, parse() silently substituted {} when the file was missing,
         downgrading all severities to Medium without any validation error.
         """
-        import hashlib
-        from datetime import UTC, datetime
-
-        from gxassessms.core.contracts.errors import ParseError
-        from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
-
         csv_dst = tmp_path / f"Entra{_CSV_SUFFIX}"
         shutil.copy2(FIXTURE_DIR / "entra_security_config.csv", csv_dst)
 
@@ -425,15 +331,7 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         # risk-severity.json intentionally omitted
 
         sha = hashlib.sha256(csv_dst.read_bytes()).hexdigest()
-        raw = ResolvedManifest(
-            tool=ToolSource.M365_ASSESS,
-            tool_slug="m365-assess",
-            schema_version="1.0.0",
-            manifest_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=sha)},
-            execution_metadata={},
-        )
+        raw = _make_manifest({str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=sha)})
         with pytest.raises(ParseError, match="Failed to load M365-Assess metadata"):
             adapter.parse(raw)
 
@@ -447,12 +345,6 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         Previously, parse() silently substituted {} when the file was missing,
         dropping all benchmark references without any validation error.
         """
-        import hashlib
-        from datetime import UTC, datetime
-
-        from gxassessms.core.contracts.errors import ParseError
-        from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
-
         csv_dst = tmp_path / f"Entra{_CSV_SUFFIX}"
         shutil.copy2(FIXTURE_DIR / "entra_security_config.csv", csv_dst)
 
@@ -462,15 +354,7 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         # registry.json intentionally omitted
 
         sha = hashlib.sha256(csv_dst.read_bytes()).hexdigest()
-        raw = ResolvedManifest(
-            tool=ToolSource.M365_ASSESS,
-            tool_slug="m365-assess",
-            schema_version="1.0.0",
-            manifest_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=sha)},
-            execution_metadata={},
-        )
+        raw = _make_manifest({str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=sha)})
         with pytest.raises(ParseError, match="Failed to load M365-Assess metadata"):
             adapter.parse(raw)
 
@@ -480,25 +364,10 @@ class TestM365AssessConformance(AdapterConformanceSuite):
         tmp_path: Path,
     ) -> None:
         """All three strategies failing must raise ParseError with clear message."""
-        import hashlib
-        from datetime import UTC, datetime
-
-        from gxassessms.core.contracts.errors import ParseError
-        from gxassessms.core.domain.enums import ToolSource
-        from gxassessms.core.domain.models import ArtifactRecord, ResolvedManifest
-
         csv_dst = tmp_path / f"Entra{_CSV_SUFFIX}"
         shutil.copy2(FIXTURE_DIR / "entra_security_config.csv", csv_dst)
         sha = hashlib.sha256(csv_dst.read_bytes()).hexdigest()
         # No controls/ sibling, no execution_metadata hint, no JSON in manifest
-        raw = ResolvedManifest(
-            tool=ToolSource.M365_ASSESS,
-            tool_slug="m365-assess",
-            schema_version="1.0.0",
-            manifest_version="1.0.0",
-            timestamp=datetime(2026, 3, 25, 10, 0, 0, tzinfo=UTC),
-            file_manifest={str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=sha)},
-            execution_metadata={},
-        )
+        raw = _make_manifest({str(csv_dst): ArtifactRecord(encoding="utf-8", sha256=sha)})
         with pytest.raises(ParseError, match="Cannot locate M365-Assess controls directory"):
             adapter.parse(raw)
