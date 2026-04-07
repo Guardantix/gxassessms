@@ -209,3 +209,30 @@ class TestAzureAdvisorConformance(AdapterConformanceSuite):
         records = adapter.coverage(raw)
         assert len(records) == 1
         assert records[0].control_id == f"Security.{shared_type_id}"
+
+    def test_coverage_deduplicates_across_category_mismatch(
+        self,
+        adapter: AzureAdvisorAdapter,
+        tmp_path: Path,
+    ) -> None:
+        """Same GUID with and without category prefix -> one CoverageRecord.
+
+        The parser produces "Security.<guid>" for a well-formed record and
+        "<guid>" for a record with null/empty category.  coverage() must
+        recognise these as the same recommendation type.
+        """
+        shared_type_id = "242639fd-cd73-4be2-8f55-70478db8d1a5"
+        mixed_file = tmp_path / "mixed.json"
+        mixed_file.write_text(
+            f'{{"value": ['
+            f'{{"recommendationTypeId": "{shared_type_id}", "name": "inst-1", '
+            f'"category": "Security", "impact": "High", '
+            f'"shortDescription": {{"problem": "P", "solution": "S"}}}},'
+            f'{{"recommendationTypeId": "{shared_type_id}", "name": "inst-2", '
+            f'"category": null, "impact": "High", '
+            f'"shortDescription": {{"problem": "P", "solution": "S"}}}}'
+            f"]}}"
+        )
+        raw = _make_manifest(mixed_file)
+        records = adapter.coverage(raw)
+        assert len(records) == 1

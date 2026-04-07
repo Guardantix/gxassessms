@@ -29,6 +29,7 @@ _DEFAULT_SUBSCRIPTION_ID = "12345678-1234-1234-1234-123456789012"
 def _make_config(
     output_dir: str = "",
     subscription_id: str = _DEFAULT_SUBSCRIPTION_ID,
+    extra_args: list[str] | None = None,
 ) -> EngagementConfig:
     return EngagementConfig(
         client_name="Test Client",
@@ -44,6 +45,7 @@ def _make_config(
             "azureadvisor": ToolConfig(
                 enabled=True,
                 output_dir=output_dir,
+                extra_args=extra_args or [],
             )
         },
     )
@@ -324,4 +326,60 @@ class TestCollectGuards:
         config = _make_config(output_dir=str(tmp_path), subscription_id="not-a-uuid")
 
         with pytest.raises(CollectionError, match="Invalid subscription_id"):
+            adapter.collect(config, _make_auth())
+
+
+# ---------------------------------------------------------------------------
+# collect() -- extra_args / OData filter
+# ---------------------------------------------------------------------------
+
+
+class TestCollectExtraArgs:
+    @patch("httpx.Client")
+    def test_valid_odata_filter_is_sent_as_query_param(
+        self, MockClient: MagicMock, tmp_path: Path
+    ) -> None:
+        """A valid OData filter expression is forwarded as $filter to the API."""
+        adapter = AzureAdvisorAdapter()
+        config = _make_config(
+            output_dir=str(tmp_path),
+            extra_args=["-Filter:Category eq 'Security'"],
+        )
+
+        rec = {
+            "recommendationTypeId": "abc",
+            "name": "inst-1",
+            "category": "Security",
+            "impact": "High",
+            "shortDescription": {"problem": "P", "solution": "S"},
+        }
+        mock_client = _make_mock_client([{"value": [rec]}])
+        MockClient.return_value.__enter__.return_value = mock_client
+        MockClient.return_value.__exit__.return_value = False
+
+        adapter.collect(config, _make_auth())
+
+        call_kwargs = mock_client.get.call_args.kwargs
+        assert call_kwargs.get("params", {}).get("$filter") == "Category eq 'Security'"
+
+    def test_filter_with_disallowed_chars_raises_collection_error(self, tmp_path: Path) -> None:
+        """A Filter value containing disallowed characters is rejected before HTTP."""
+        adapter = AzureAdvisorAdapter()
+        config = _make_config(
+            output_dir=str(tmp_path),
+            extra_args=['-Filter:Category eq "Security"'],  # double-quotes disallowed
+        )
+
+        with pytest.raises(CollectionError, match="disallowed characters"):
+            adapter.collect(config, _make_auth())
+
+    def test_unknown_extra_arg_raises_collection_error(self, tmp_path: Path) -> None:
+        """An unrecognised extra arg is rejected with a descriptive error."""
+        adapter = AzureAdvisorAdapter()
+        config = _make_config(
+            output_dir=str(tmp_path),
+            extra_args=["-Top:10"],
+        )
+
+        with pytest.raises(CollectionError, match="Unknown extra argument"):
             adapter.collect(config, _make_auth())

@@ -23,9 +23,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-securescore = [
-    "azure-identity>=1.15",
-]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=6.0",

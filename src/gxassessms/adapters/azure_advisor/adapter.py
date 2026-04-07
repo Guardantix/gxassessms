@@ -21,7 +21,7 @@ from typing import Any
 
 from pydantic import SecretStr
 
-from gxassessms.adapters._base import load_json_file, parse_extra_args, validate_extra_args
+from gxassessms.adapters._base import load_json_file
 from gxassessms.adapters._http import (
     check_python_packages,
     fetch_paginated_json,
@@ -63,6 +63,61 @@ _SUBSCRIPTION_ID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
     re.IGNORECASE,
 )
+
+# OData $filter values for Azure Advisor contain spaces, single quotes, and
+# comparison operators (eq, ne, lt, gt) -- characters that are rejected by the
+# PowerShell-safe _ARG_PATTERN in _base.validate_extra_args().  This pattern
+# allows only the characters valid OData Advisor expressions actually need.
+_ODATA_FILTER_RE = re.compile(r"^[A-Za-z0-9_\s'\-()]{1,512}$")
+
+
+def _parse_advisor_args(extra_args: list[str], adapter_name: str) -> dict[str, str]:
+    """Parse Azure Advisor extra_args, validating -Filter with an OData-safe allowlist.
+
+    Only -Filter is supported.  Any unknown argument raises CollectionError
+    (fail-closed).  The Filter value is validated to contain only characters
+    valid in an Azure Advisor OData $filter expression.
+
+    Args:
+        extra_args: Raw extra_args list from ToolConfig.
+        adapter_name: Adapter name for error messages.
+
+    Returns:
+        Dict of parsed argument name -> value (e.g., {"Filter": "Category eq 'Security'"}).
+
+    Raises:
+        CollectionError: If any argument is malformed, uses disallowed characters, or
+                         is not a recognised Azure Advisor extra arg.
+    """
+    result: dict[str, str] = {}
+    for arg in extra_args:
+        if not arg.startswith("-"):
+            raise CollectionError(
+                f"Extra argument must start with '-': {arg!r}",
+                adapter_name=adapter_name,
+            )
+        bare = arg[1:]
+        name, _, value = bare.partition(":")
+        if not name or not name.isidentifier():
+            raise CollectionError(
+                f"Extra argument has invalid name: {arg!r}",
+                adapter_name=adapter_name,
+            )
+        if name == "Filter":
+            if not _ODATA_FILTER_RE.match(value):
+                raise CollectionError(
+                    f"Filter value contains disallowed characters: {value!r}. "
+                    f"OData filter values may contain alphanumeric characters, "
+                    f"spaces, single quotes, hyphens, underscores, and parentheses.",
+                    adapter_name=adapter_name,
+                )
+            result[name] = value
+        else:
+            raise CollectionError(
+                f"Unknown extra argument: -{name!r}. Supported: -Filter",
+                adapter_name=adapter_name,
+            )
+    return result
 
 
 class AzureAdvisorAdapter:
@@ -178,9 +233,9 @@ class AzureAdvisorAdapter:
         params: dict[str, str] = {"api-version": _ADVISOR_API_VERSION}
 
         if tc.extra_args:
-            named_args, _ = parse_extra_args(validate_extra_args(tc.extra_args))
-            if "Filter" in named_args:
-                params["$filter"] = named_args["Filter"]
+            advisor_args = _parse_advisor_args(tc.extra_args, self.tool_name)
+            if "Filter" in advisor_args:
+                params["$filter"] = advisor_args["Filter"]
 
         # validate_auth_context() raised above if auth or token is None
         bearer = auth.token.get_secret_value()  # type: ignore[union-attr]
@@ -338,8 +393,13 @@ class AzureAdvisorAdapter:
         seen_checks: set[str] = set()
 
         for obs in observations:
-            if obs.native_check_id not in seen_checks:
-                seen_checks.add(obs.native_check_id)
+            # Dedup by raw recommendationTypeId, stripping the category prefix that
+            # the parser adds to native_check_id (e.g. "Security.<guid>" -> "<guid>").
+            # A null-category record produces native_check_id == "<guid>" (no prefix),
+            # so rsplit(".", 1)[-1] normalises both forms to the bare GUID.
+            dedup_key = obs.native_check_id.rsplit(".", 1)[-1]
+            if dedup_key not in seen_checks:
+                seen_checks.add(dedup_key)
                 records.append(
                     CoverageRecord(
                         control_id=obs.native_check_id,
