@@ -38,13 +38,3 @@ MINIMUM_PROWLER_MAJOR_VERSION: int = 4
 
 #: Expected OCSF schema version in Prowler output metadata.
 EXPECTED_OCSF_SCHEMA_VERSION: str = "1.4.0"
-
-#: Allowed Prowler CLI auth flags. Kept in sync with adapter._PROWLER_ALLOWED_FLAGS.
-ALLOWED_AUTH_FLAGS: frozenset[str] = frozenset(
-    {
-        "--az-cli-auth",
-        "--sp-env-auth",
-        "--browser-auth",
-        "--managed-identity-auth",
-    }
-)

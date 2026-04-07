@@ -199,7 +199,7 @@ class TestProwlerConformance(AdapterConformanceSuite):
         )
         from gxassessms.core.contracts.errors import RawOutputValidationError
 
-        with pytest.raises(RawOutputValidationError, match=r"missing 'metadata\.event_code'"):
+        with pytest.raises(RawOutputValidationError, match=r"missing 'metadata' field"):
             adapter.validate_raw(raw)
 
     def test_validate_raw_rejects_non_dict_metadata(
@@ -224,7 +224,7 @@ class TestProwlerConformance(AdapterConformanceSuite):
         )
         from gxassessms.core.contracts.errors import RawOutputValidationError
 
-        with pytest.raises(RawOutputValidationError, match=r"missing 'metadata\.event_code'"):
+        with pytest.raises(RawOutputValidationError, match=r"'metadata' is int"):
             adapter.validate_raw(raw)
 
     def test_validate_raw_rejects_metadata_without_event_code(

@@ -109,18 +109,11 @@ class TestCategoryMap:
             assert isinstance(category, Category)
 
     def test_known_check_id_mappings(self) -> None:
-        assert (
-            CATEGORY_MAP["defender_ensure_defender_for_app_services_is_on"]
-            == Category.INFRASTRUCTURE_SECURITY
-        )
-        assert (
-            CATEGORY_MAP["iam_subscription_roles_owner_custom_not_created"]
-            == Category.IDENTITY_ACCESS
-        )
-        assert CATEGORY_MAP["sqlserver_auditing_enabled"] == Category.DATA_PROTECTION
-        assert (
-            CATEGORY_MAP["storage_secure_transfer_required_is_enabled"] == Category.DATA_PROTECTION
-        )
+        """Prowler check IDs resolve to the expected category via their service prefix."""
+        assert CATEGORY_MAP["defender"] == Category.INFRASTRUCTURE_SECURITY
+        assert CATEGORY_MAP["iam"] == Category.IDENTITY_ACCESS
+        assert CATEGORY_MAP["sqlserver"] == Category.DATA_PROTECTION
+        assert CATEGORY_MAP["storage"] == Category.DATA_PROTECTION
 
     def test_service_prefix_entries_present(self) -> None:
         """Prefix entries must cover all Prowler Azure service groups for full-scan mode."""
@@ -146,17 +139,25 @@ class TestCategoryMap:
         assert CATEGORY_MAP["defender"] == Category.INFRASTRUCTURE_SECURITY
 
     def test_all_dedup_keys_have_category(self) -> None:
-        """Every check in DEDUP_KEY_RULES should have a CATEGORY_MAP entry."""
-        missing = set(DEDUP_KEY_RULES) - set(CATEGORY_MAP)
-        assert missing == set(), f"Checks in DEDUP_KEY_RULES missing from CATEGORY_MAP: {missing}"
+        """Every check in DEDUP_KEY_RULES resolves to a category via prefix or exact match."""
+        uncovered = {
+            check_id
+            for check_id in DEDUP_KEY_RULES
+            if check_id.split("_")[0] not in CATEGORY_MAP and check_id not in CATEGORY_MAP
+        }
+        assert uncovered == set(), (
+            f"Checks in DEDUP_KEY_RULES with no category mapping: {uncovered}"
+        )
 
     def test_fixture_check_ids_covered(self, fixture_data: list[dict]) -> None:
-        """Every metadata.event_code in fixtures has a matching category."""
+        """Every metadata.event_code in fixtures resolves to a category via prefix or full ID."""
         unmapped: set[str] = set()
         for finding in fixture_data:
             check_id = finding.get("metadata", {}).get("event_code")
-            if check_id and check_id not in CATEGORY_MAP:
-                unmapped.add(check_id)
+            if check_id:
+                prefix = str(check_id).split("_")[0]
+                if prefix not in CATEGORY_MAP and check_id not in CATEGORY_MAP:
+                    unmapped.add(check_id)
         assert unmapped == set(), f"Unmapped check IDs: {unmapped}"
 
 

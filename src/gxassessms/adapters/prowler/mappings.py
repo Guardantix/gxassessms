@@ -118,34 +118,6 @@ CATEGORY_MAP: dict[str, Category] = {
     "monitor": Category.LOGGING_MONITORING,
     # Compliance & Governance
     "policy": Category.COMPLIANCE,
-    # ---- Full check-ID entries (documentation; prefix already resolves these) ----
-    # Defender checks (12)
-    "defender_ensure_defender_for_app_services_is_on": Category.INFRASTRUCTURE_SECURITY,
-    "defender_ensure_defender_for_arm_is_on": Category.INFRASTRUCTURE_SECURITY,
-    "defender_ensure_defender_for_azure_sql_databases_is_on": Category.INFRASTRUCTURE_SECURITY,
-    "defender_ensure_defender_for_containers_is_on": Category.INFRASTRUCTURE_SECURITY,
-    "defender_ensure_defender_for_cosmosdb_is_on": Category.INFRASTRUCTURE_SECURITY,
-    "defender_ensure_defender_for_databases_is_on": Category.INFRASTRUCTURE_SECURITY,
-    "defender_ensure_defender_for_dns_is_on": Category.INFRASTRUCTURE_SECURITY,
-    "defender_ensure_defender_for_keyvault_is_on": Category.INFRASTRUCTURE_SECURITY,
-    "defender_ensure_defender_for_os_relational_databases_is_on": Category.INFRASTRUCTURE_SECURITY,
-    "defender_ensure_defender_for_server_is_on": Category.INFRASTRUCTURE_SECURITY,
-    "defender_ensure_defender_for_sql_servers_is_on": Category.INFRASTRUCTURE_SECURITY,
-    "defender_ensure_defender_for_storage_is_on": Category.INFRASTRUCTURE_SECURITY,
-    # IAM checks (1)
-    "iam_subscription_roles_owner_custom_not_created": Category.IDENTITY_ACCESS,
-    # SQL Server checks (3)
-    "sqlserver_auditing_enabled": Category.DATA_PROTECTION,
-    "sqlserver_azuread_administrator_enabled": Category.DATA_PROTECTION,
-    "sqlserver_unrestricted_inbound_access": Category.DATA_PROTECTION,
-    # Storage checks (7)
-    "storage_blob_public_access_level_is_disabled": Category.DATA_PROTECTION,
-    "storage_default_network_access_rule_is_denied": Category.DATA_PROTECTION,
-    "storage_ensure_azure_services_are_trusted_to_access_is_enabled": Category.DATA_PROTECTION,
-    "storage_ensure_encryption_with_customer_managed_keys": Category.DATA_PROTECTION,
-    "storage_ensure_minimum_tls_version_12": Category.DATA_PROTECTION,
-    "storage_infrastructure_encryption_is_enabled": Category.DATA_PROTECTION,
-    "storage_secure_transfer_required_is_enabled": Category.DATA_PROTECTION,
 }
 
 # ---------------------------------------------------------------------------

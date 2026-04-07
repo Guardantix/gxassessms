@@ -316,7 +316,7 @@ class ProwlerAdapter:
         # nargs+ = space-separated, NOT comma-joined
         checks = tc.modules if tc.modules else []
         if checks:
-            cmd.extend(["--checks", *list(checks)])
+            cmd.extend(["--checks", *checks])
 
         if extra_args:
             cmd.extend(extra_args)
@@ -506,11 +506,18 @@ class ProwlerAdapter:
                         f" {sorted(STATUS_MAP)} in {path}",
                         adapter_name=self.tool_name,
                     )
-                if (
-                    "metadata" not in finding
-                    or not isinstance(finding["metadata"], dict)
-                    or "event_code" not in finding["metadata"]
-                ):
+                if "metadata" not in finding:
+                    raise RawOutputValidationError(
+                        f"Finding [{i}] missing 'metadata' field in {path}",
+                        adapter_name=self.tool_name,
+                    )
+                if not isinstance(finding["metadata"], dict):
+                    actual_type = type(cast(Any, finding["metadata"])).__name__
+                    raise RawOutputValidationError(
+                        f"Finding [{i}] 'metadata' is {actual_type}, expected object in {path}",
+                        adapter_name=self.tool_name,
+                    )
+                if "event_code" not in finding["metadata"]:
                     raise RawOutputValidationError(
                         f"Finding [{i}] missing 'metadata.event_code' field in {path}",
                         adapter_name=self.tool_name,
@@ -534,17 +541,20 @@ class ProwlerAdapter:
         was assessed. MANUAL status maps to PARTIALLY_ASSESSED.
 
         Raises:
-            ParseError: If the underlying parse() call fails.
             RawOutputValidationError: If the manifest fails structural validation.
         """
-        observations = self.parse(raw)
+        all_findings = self._validate_and_load(raw)
 
         # Collect all statuses per check before deciding coverage.
         # Prowler emits one finding per resource -- a check with mixed
         # statuses (e.g., PASS + MANUAL) must be PARTIALLY_ASSESSED.
+        # _validate_and_load guarantees metadata.event_code and status_code are present.
         check_statuses: dict[str, set[str]] = {}
-        for obs in observations:
-            check_statuses.setdefault(obs.native_check_id, set()).add(obs.native_status)
+        for findings in all_findings.values():
+            for f in findings:
+                check_id: str = f["metadata"]["event_code"]
+                status_code: str = f["status_code"]
+                check_statuses.setdefault(check_id, set()).add(status_code)
 
         records: list[CoverageRecord] = []
         for check_id, statuses in check_statuses.items():
