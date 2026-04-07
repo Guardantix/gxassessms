@@ -93,6 +93,34 @@ def parse_extra_args(
     return named_args, switches
 
 
+def check_reserved_args(
+    extra_named: dict[str, str],
+    switches: dict[str, bool],
+    reserved_args: frozenset[str],
+    adapter_name: str,
+) -> None:
+    """Reject extra_args that conflict with adapter-controlled parameters.
+
+    Uses PowerShell prefix-matching semantics: ``-OutP`` prefix-binds to
+    ``-OutPath``, so any user key that is a prefix of a reserved arg is
+    blocked.  An arg *longer* than the reserved arg passes correctly
+    (``"outpath".startswith("outpathextra")`` is False).
+
+    Raises:
+        CollectionError: If any user-provided arg (named or switch) matches
+            or is a prefix of a reserved arg (case-insensitive).
+    """
+    reserved_lower = frozenset(r.lower() for r in reserved_args)
+    conflicts = {k for k in extra_named if any(r.startswith(k.lower()) for r in reserved_lower)}
+    conflicts |= {k for k in switches if any(r.startswith(k.lower()) for r in reserved_lower)}
+    if conflicts:
+        raise CollectionError(
+            f"extra_args contains reserved {adapter_name} args that cannot be overridden: "
+            f"{sorted(conflicts)}",
+            adapter_name=adapter_name,
+        )
+
+
 def run_powershell(
     script: str,
     arguments: list[str] | None,

@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from gxassessms.adapters._base import (
+    check_reserved_args,
     load_json_file,
     parse_extra_args,
     validate_extra_args,
@@ -121,19 +122,7 @@ class Monkey365Adapter:
         if tc.extra_args:
             validated = validate_extra_args(tc.extra_args)
             extra_named, switches = parse_extra_args(validated)
-            _reserved_lower = frozenset(r.lower() for r in _RESERVED_ARGS)
-            reserved_conflicts = {
-                k for k in extra_named if any(r.startswith(k.lower()) for r in _reserved_lower)
-            }
-            reserved_conflicts |= {
-                k for k in switches if any(r.startswith(k.lower()) for r in _reserved_lower)
-            }
-            if reserved_conflicts:
-                raise CollectionError(
-                    f"extra_args contains reserved Monkey365 args that cannot be overridden: "
-                    f"{sorted(reserved_conflicts)}",
-                    adapter_name=self.tool_name,
-                )
+            check_reserved_args(extra_named, switches, _RESERVED_ARGS, self.tool_name)
             named_args.update(extra_named)
 
         override = getattr(tc, "module_policy_override", None)
