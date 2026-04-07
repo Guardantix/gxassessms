@@ -145,7 +145,7 @@ class TestBasicDocxRenderer:
 
 
 class TestBasicDocxRendererEntryPoint:
-    def test_class_attributes_match_registered_entry_point(self) -> None:
+    def test_class_attributes_used_by_renderer_registry(self) -> None:
         """Smoke test: verifies class-level attributes used by the renderer registry."""
         assert BasicDocxRenderer.format == "docx"
         assert BasicDocxRenderer.supported_payload_versions == ">=1.0.0,<2.0.0"
