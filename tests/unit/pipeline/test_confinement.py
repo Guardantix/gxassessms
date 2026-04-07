@@ -13,7 +13,15 @@ import pytest
 from gxassessms.core.contracts.errors import ManifestConfinementError
 from gxassessms.core.domain.enums import ToolSource
 from gxassessms.core.domain.models import ArtifactRecord, RawToolOutput, ResolvedManifest
-from gxassessms.pipeline.confinement import LoadedManifest, confine_and_resolve
+from gxassessms.pipeline.confinement import (
+    LoadedManifest,
+    _check_artifact_path,
+    _check_artifacts_root,
+    _check_manifest_identity,
+    _check_tool_subtree,
+    _confinement_error,
+    confine_and_resolve,
+)
 
 
 def _sha256(content: bytes) -> str:
@@ -439,3 +447,224 @@ class TestConfineAndResolveRejections:
         ]
         with pytest.raises(ManifestConfinementError, match="file"):
             confine_and_resolve(loaded, eng_dir, [_make_adapter()])
+
+
+# ---------------------------------------------------------------------------
+# Direct unit tests for extracted validators
+# ---------------------------------------------------------------------------
+
+
+class TestConfinementErrorFactory:
+    def test_returns_error_with_stage_confine(self) -> None:
+        err = _confinement_error(
+            message="boom",
+            engagement_id="eng-1",
+            tool_slug="scubagear",
+            check_name="test_check",
+            detail="some detail",
+        )
+        assert isinstance(err, ManifestConfinementError)
+        assert err.stage == "confine"
+        assert err.tool_slug == "scubagear"
+        assert err.check_name == "test_check"
+        assert err.detail == "some detail"
+
+    def test_returned_error_is_raisable(self) -> None:
+        err = _confinement_error(
+            message="boom",
+            engagement_id="eng-1",
+            tool_slug="scubagear",
+            check_name="test_check",
+            detail="detail",
+        )
+        with pytest.raises(ManifestConfinementError, match="boom"):
+            raise err
+
+
+class TestCheckArtifactsRoot:
+    def test_returns_resolved_root(self, tmp_path: Path) -> None:
+        eng_dir = tmp_path / "eng"
+        artifacts_dir = eng_dir / "raw-output" / "artifacts"
+        artifacts_dir.mkdir(parents=True)
+
+        result = _check_artifacts_root(artifacts_dir, eng_dir)
+        assert result == artifacts_dir.resolve()
+        assert result.is_absolute()
+
+    def test_rejects_symlinked_root(self, tmp_path: Path) -> None:
+        eng_dir = tmp_path / "eng"
+        raw_output_dir = eng_dir / "raw-output"
+        raw_output_dir.mkdir(parents=True)
+
+        outside = tmp_path / "outside" / "artifacts"
+        outside.mkdir(parents=True)
+        (raw_output_dir / "artifacts").symlink_to(outside)
+
+        with pytest.raises(ManifestConfinementError) as exc_info:
+            _check_artifacts_root(raw_output_dir / "artifacts", eng_dir)
+        assert exc_info.value.check_name == "artifacts_root_confinement"
+
+
+class TestCheckManifestIdentity:
+    def _build(
+        self,
+        *,
+        slug: str = "scubagear",
+        tool: ToolSource = ToolSource.SCUBAGEAR,
+        manifest_version: str = "1.0.0",
+        filename_stem: str = "scubagear",
+    ) -> tuple[LoadedManifest, dict[str, Any]]:
+        raw = _make_raw_output(tool=tool, slug=slug, manifest_version=manifest_version)
+        lm = LoadedManifest(
+            source_path=Path(f"/fake/manifests/{filename_stem}.json"),
+            raw_output=raw,
+        )
+        adapter_by_slug = {slug: _make_adapter(slug=slug, tool_source=tool)}
+        return lm, adapter_by_slug
+
+    def test_passes_valid_manifest(self) -> None:
+        lm, adapter_by_slug = self._build()
+        assert _check_manifest_identity(lm, adapter_by_slug, "eng-1") is None
+
+    def test_rejects_version(self) -> None:
+        lm, adapter_by_slug = self._build(manifest_version="99.0.0")
+        with pytest.raises(ManifestConfinementError) as exc_info:
+            _check_manifest_identity(lm, adapter_by_slug, "eng-1")
+        assert exc_info.value.check_name == "manifest_version_gate"
+
+    def test_rejects_slug_mismatch(self) -> None:
+        lm, adapter_by_slug = self._build(filename_stem="wrongname")
+        with pytest.raises(ManifestConfinementError) as exc_info:
+            _check_manifest_identity(lm, adapter_by_slug, "eng-1")
+        assert exc_info.value.check_name == "filename_stem_slug_match"
+
+    def test_rejects_missing_adapter(self) -> None:
+        lm, _ = self._build()
+        with pytest.raises(ManifestConfinementError) as exc_info:
+            _check_manifest_identity(lm, {}, "eng-1")
+        assert exc_info.value.check_name == "slug_adapter_match"
+
+    def test_rejects_tool_source(self) -> None:
+        lm, _ = self._build()
+        wrong_adapter = {
+            "scubagear": _make_adapter(slug="scubagear", tool_source=ToolSource.MAESTER)
+        }
+        with pytest.raises(ManifestConfinementError) as exc_info:
+            _check_manifest_identity(lm, wrong_adapter, "eng-1")
+        assert exc_info.value.check_name == "tool_source_match"
+
+
+class TestCheckToolSubtree:
+    def test_returns_resolved_subtree(self, tmp_path: Path) -> None:
+        artifacts_root = tmp_path / "artifacts"
+        (artifacts_root / "scubagear").mkdir(parents=True)
+        resolved_root = artifacts_root.resolve()
+
+        result = _check_tool_subtree(artifacts_root, resolved_root, "scubagear", "eng-1")
+        assert result == resolved_root / "scubagear"
+
+    def test_rejects_symlinked_subtree(self, tmp_path: Path) -> None:
+        artifacts_root = tmp_path / "artifacts"
+        artifacts_root.mkdir(parents=True)
+        resolved_root = artifacts_root.resolve()
+
+        outside = tmp_path / "outside" / "scubagear"
+        outside.mkdir(parents=True)
+        (artifacts_root / "scubagear").symlink_to(outside)
+
+        with pytest.raises(ManifestConfinementError) as exc_info:
+            _check_tool_subtree(artifacts_root, resolved_root, "scubagear", "eng-1")
+        assert exc_info.value.check_name == "tool_subtree_canonical"
+
+
+class TestCheckArtifactPath:
+    def test_returns_resolved_path(self, tmp_path: Path) -> None:
+        artifacts_root = tmp_path / "artifacts"
+        scuba = artifacts_root / "scubagear"
+        scuba.mkdir(parents=True)
+        content = b'{"test": true}'
+        (scuba / "results.json").write_bytes(content)
+        sha = _sha256(content)
+
+        record = ArtifactRecord(encoding="utf-8", sha256=sha)
+        seen: set[str] = set()
+        result = _check_artifact_path(
+            "scubagear/results.json",
+            record,
+            artifacts_root,
+            scuba.resolve(),
+            "scubagear",
+            "eng-1",
+            seen,
+        )
+        assert result.is_absolute()
+        assert result == (scuba / "results.json").resolve()
+
+    def test_adds_to_seen_resolved(self, tmp_path: Path) -> None:
+        artifacts_root = tmp_path / "artifacts"
+        scuba = artifacts_root / "scubagear"
+        scuba.mkdir(parents=True)
+        content = b'{"test": true}'
+        (scuba / "results.json").write_bytes(content)
+        sha = _sha256(content)
+
+        record = ArtifactRecord(encoding="utf-8", sha256=sha)
+        seen: set[str] = set()
+        result = _check_artifact_path(
+            "scubagear/results.json",
+            record,
+            artifacts_root,
+            scuba.resolve(),
+            "scubagear",
+            "eng-1",
+            seen,
+        )
+        assert str(result) in seen
+
+    def test_rejects_sha256_mismatch(self, tmp_path: Path) -> None:
+        artifacts_root = tmp_path / "artifacts"
+        scuba = artifacts_root / "scubagear"
+        scuba.mkdir(parents=True)
+        (scuba / "results.json").write_bytes(b"real content")
+
+        record = ArtifactRecord(encoding="utf-8", sha256="b" * 64)
+        seen: set[str] = set()
+        with pytest.raises(ManifestConfinementError) as exc_info:
+            _check_artifact_path(
+                "scubagear/results.json",
+                record,
+                artifacts_root,
+                scuba.resolve(),
+                "scubagear",
+                "eng-1",
+                seen,
+            )
+        assert exc_info.value.check_name == "sha256_verify"
+
+
+class TestAdapterSlugUnique:
+    def test_rejects_duplicate_adapter_slugs(self, tmp_path: Path) -> None:
+        eng_dir = tmp_path / "eng"
+        artifacts_dir = eng_dir / "raw-output" / "artifacts" / "scubagear"
+        artifacts_dir.mkdir(parents=True)
+
+        adapters = [
+            _make_adapter(slug="scubagear", tool_source=ToolSource.SCUBAGEAR),
+            _make_adapter(slug="scubagear", tool_source=ToolSource.MAESTER),
+        ]
+        with pytest.raises(ManifestConfinementError) as exc_info:
+            confine_and_resolve([], eng_dir, adapters)
+        assert exc_info.value.check_name == "adapter_slug_unique"
+
+    def test_accepts_distinct_adapter_slugs(self, tmp_path: Path) -> None:
+        eng_dir = tmp_path / "eng"
+        artifacts_dir = eng_dir / "raw-output" / "artifacts"
+        artifacts_dir.mkdir(parents=True)
+
+        adapters = [
+            _make_adapter(slug="scubagear", tool_source=ToolSource.SCUBAGEAR),
+            _make_adapter(slug="maester", tool_source=ToolSource.MAESTER),
+        ]
+        # No manifests -- should return empty list, no error
+        result = confine_and_resolve([], eng_dir, adapters)
+        assert result == []

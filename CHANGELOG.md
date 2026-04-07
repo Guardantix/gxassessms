@@ -35,7 +35,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Provenance details displayed in `mseco preflight` and `mseco adapters check` output.
 - `ModuleVerificationError` exception hierarchy for granular provenance failure handling.
 
+### Fixed
+- Duplicate adapter `storage_slug` values in `confine_and_resolve()` now raise
+  `ManifestConfinementError` (`adapter_slug_unique`) instead of silently dropping
+  all but the last adapter.
+
 ### Changed
+- Refactored `confine_and_resolve()` into focused validators for independent
+  testability (no public API change).
 - `mseco preflight` now runs module provenance verification for PowerShell adapters
   (using effective policy with config overrides).
 - `mseco adapters check` now runs baseline provenance verification for PowerShell
