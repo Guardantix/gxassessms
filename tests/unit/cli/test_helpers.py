@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from gxassessms.adapters import AdapterRegistry
+from gxassessms.core.config.config import AuthConfig, EngagementConfig
 from gxassessms.registry import DiscoveryError, DiscoveryResult
 
 # ---------------------------------------------------------------------------
@@ -46,6 +47,28 @@ def _make_result(plugins: dict, errors: list | None = None) -> DiscoveryResult:
 
 def _make_error(name: str = "bad_plugin", msg: str = "some error") -> DiscoveryError:
     return DiscoveryError(plugin_name=name, error_type="ValidationError", message=msg)
+
+
+def _make_config(
+    *,
+    qa_model: str = "claude-opus-4-6",
+    qa_token_budget: int = 50000,
+    client_name: str = "Acme Corp",
+) -> EngagementConfig:
+    """Build a minimal EngagementConfig for tests."""
+    return EngagementConfig(
+        client_name=client_name,
+        tenant_id="00000000-0000-0000-0000-000000000001",
+        auth=AuthConfig(
+            method="client_credential",
+            tenant_id="00000000-0000-0000-0000-000000000001",
+            client_id="00000000-0000-0000-0000-000000000002",
+            client_secret_env="GX_SECRET",  # pragma: allowlist secret
+        ),
+        tools={},
+        qa_model=qa_model,
+        qa_token_budget=qa_token_budget,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -280,6 +303,133 @@ class TestDiscoverPlugin:
         with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
             result = discover_plugin("some.group")
         assert result is inst
+
+    def test_config_kwargs_passed_to_qa_strategy_loop_path(self):
+        """Loop path: config provided for qa_strategies group -> cls called with kwargs."""
+        mock_instance = MagicMock(name="qa_inst")
+        MockCls = MagicMock(return_value=mock_instance)
+        disc_result = _make_result(plugins={"gx_qa": MockCls})
+        config = _make_config()
+
+        with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
+            from gxassessms.cli._helpers import discover_plugin
+
+            result = discover_plugin("gxassessms.qa_strategies", config=config)
+
+        assert result is mock_instance
+        MockCls.assert_called_once_with(
+            model=config.qa_model,
+            token_budget=config.qa_token_budget,
+            client_name=config.client_name,
+        )
+
+    def test_config_kwargs_passed_to_qa_strategy_named_path(self):
+        """Named path: config provided for qa_strategies group -> cls called with kwargs."""
+        mock_instance = MagicMock(name="qa_inst")
+        MockCls = MagicMock(return_value=mock_instance)
+        disc_result = _make_result(plugins={"gx_qa": MockCls})
+        config = _make_config()
+
+        with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
+            from gxassessms.cli._helpers import discover_plugin
+
+            result = discover_plugin("gxassessms.qa_strategies", name="gx_qa", config=config)
+
+        assert result is mock_instance
+        MockCls.assert_called_once_with(
+            model=config.qa_model,
+            token_budget=config.qa_token_budget,
+            client_name=config.client_name,
+        )
+
+    def test_config_kwargs_fallback_to_zero_arg_on_typeerror_loop(self):
+        """Loop path: TypeError from kwargs call -> retried with no-arg, success."""
+        mock_instance = MagicMock(name="fallback_inst")
+
+        def side_effect(*args, **kwargs):
+            if kwargs:
+                raise TypeError("unexpected keyword argument 'model'")
+            return mock_instance
+
+        MockCls = MagicMock(side_effect=side_effect)
+        disc_result = _make_result(plugins={"legacy_qa": MockCls})
+        config = _make_config()
+
+        with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
+            from gxassessms.cli._helpers import discover_plugin
+
+            result = discover_plugin("gxassessms.qa_strategies", config=config)
+
+        assert result is mock_instance
+        assert MockCls.call_count == 2  # kwargs attempt + no-arg fallback
+
+    def test_config_kwargs_fallback_to_zero_arg_on_typeerror_named(self):
+        """Named path: TypeError from kwargs call -> retried with no-arg, success."""
+        mock_instance = MagicMock(name="fallback_inst")
+
+        def side_effect(*args, **kwargs):
+            if kwargs:
+                raise TypeError("unexpected keyword argument 'model'")
+            return mock_instance
+
+        MockCls = MagicMock(side_effect=side_effect)
+        disc_result = _make_result(plugins={"legacy_qa": MockCls})
+        config = _make_config()
+
+        with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
+            from gxassessms.cli._helpers import discover_plugin
+
+            result = discover_plugin("gxassessms.qa_strategies", name="legacy_qa", config=config)
+
+        assert result is mock_instance
+        assert MockCls.call_count == 2
+
+    def test_non_typeerror_from_kwargs_is_not_swallowed(self, caplog):
+        """ValueError from kwargs call is NOT silently swallowed -- plugin is skipped."""
+        MockCls = MagicMock(side_effect=ValueError("bad model name"))
+        disc_result = _make_result(plugins={"bad_qa": MockCls})
+        config = _make_config()
+
+        with (
+            patch("gxassessms.registry.discover_entry_points", return_value=disc_result),
+            caplog.at_level(logging.WARNING, logger="gxassessms.cli._helpers"),
+        ):
+            from gxassessms.cli._helpers import discover_plugin
+
+            result = discover_plugin("gxassessms.qa_strategies", config=config)
+
+        assert result is None
+        assert any("bad_qa" in r.message for r in caplog.records)
+        MockCls.assert_called_once()  # called with kwargs, not retried
+
+    def test_config_not_applied_for_non_qa_group(self):
+        """Config provided but group is not qa_strategies -> cls() called with no kwargs."""
+        mock_instance = MagicMock(name="adapter_inst")
+        MockCls = MagicMock(return_value=mock_instance)
+        disc_result = _make_result(plugins={"my_adapter": MockCls})
+        config = _make_config()
+
+        with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
+            from gxassessms.cli._helpers import discover_plugin
+
+            result = discover_plugin("gxassessms.adapters", config=config)
+
+        assert result is mock_instance
+        MockCls.assert_called_once_with()  # no kwargs
+
+    def test_none_config_uses_zero_arg_for_qa_group(self):
+        """config=None for qa_strategies -> cls() called with no kwargs."""
+        mock_instance = MagicMock(name="qa_inst")
+        MockCls = MagicMock(return_value=mock_instance)
+        disc_result = _make_result(plugins={"noop": MockCls})
+
+        with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
+            from gxassessms.cli._helpers import discover_plugin
+
+            result = discover_plugin("gxassessms.qa_strategies", config=None)
+
+        assert result is mock_instance
+        MockCls.assert_called_once_with()
 
 
 # ---------------------------------------------------------------------------

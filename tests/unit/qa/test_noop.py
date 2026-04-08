@@ -101,3 +101,19 @@ class TestNoOpIsNoOp:
         """The orchestrator checks this attribute to decide auto-advance."""
         strategy = NoOpQAStrategy()
         assert strategy.is_noop is True
+
+
+class TestNoOpConstructor:
+    def test_accepts_engagement_config_kwargs(self) -> None:
+        """NoOpQAStrategy accepts model/token_budget/client_name without raising."""
+        strategy = NoOpQAStrategy(
+            model="claude-opus-4-6",
+            token_budget=50000,
+            client_name="Acme Corp",
+        )
+        assert strategy.is_noop is True
+
+    def test_zero_arg_construction_still_works(self) -> None:
+        """NoOpQAStrategy() with no args still works after adding __init__."""
+        strategy = NoOpQAStrategy()
+        assert strategy.is_noop is True

@@ -89,7 +89,9 @@ def consolidate_cmd(
             f"from stage {start_stage.value}...[/bold]"
         )
 
-        qa_strategy = _helpers.discover_plugin("gxassessms.qa_strategies", name=qa_strategy_name)
+        qa_strategy = _helpers.discover_plugin(
+            "gxassessms.qa_strategies", name=qa_strategy_name, config=config
+        )
         if qa_strategy_name is not None and qa_strategy is None:
             raise click.BadParameter(
                 f"QA strategy {qa_strategy_name!r} not found.",

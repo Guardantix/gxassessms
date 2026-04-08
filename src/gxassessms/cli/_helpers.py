@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from gxassessms.core.contracts.errors import GxAssessError
+
+if TYPE_CHECKING:
+    from gxassessms.core.config.config import EngagementConfig
 
 logger = logging.getLogger(__name__)
 
@@ -190,7 +193,12 @@ def discover_adapter_metadata() -> list[dict[str, Any]]:
     return result
 
 
-def discover_plugin(group: str, *, name: str | None = None) -> Any | None:
+def discover_plugin(
+    group: str,
+    *,
+    name: str | None = None,
+    config: EngagementConfig | None = None,
+) -> Any | None:
     """Discover and instantiate a plugin from an entry point group.
 
     Selection logic:
@@ -198,8 +206,14 @@ def discover_plugin(group: str, *, name: str | None = None) -> Any | None:
     2. Otherwise, plugins are sorted by optional ``priority`` class
        attribute (descending, default 0). Ties broken by discovery order.
 
-    Returns an instance, or None if nothing found. Used for singleton
-    plugins like normalization policy or QA strategy.
+    When *config* is provided and *group* is ``gxassessms.qa_strategies``,
+    the plugin is constructed with ``model``, ``token_budget``, and
+    ``client_name`` keyword arguments drawn from the config. If the plugin
+    raises ``TypeError`` (zero-arg constructor), the call is retried with
+    no arguments. Any other exception from the kwargs call is treated as
+    an instantiation failure (logged, plugin skipped).
+
+    Returns an instance, or None if nothing found.
     """
     from gxassessms.registry import discover_entry_points
 
@@ -212,6 +226,14 @@ def discover_plugin(group: str, *, name: str | None = None) -> Any | None:
             err.message,
         )
 
+    kwargs: dict[str, Any] = {}
+    if config is not None and group == "gxassessms.qa_strategies":
+        kwargs = {
+            "model": config.qa_model,
+            "token_budget": config.qa_token_budget,
+            "client_name": config.client_name,
+        }
+
     if name is not None:
         cls = result.get(name)
         if cls is None:
@@ -223,6 +245,16 @@ def discover_plugin(group: str, *, name: str | None = None) -> Any | None:
             )
             return None
         try:
+            if kwargs:
+                try:
+                    return cls(**kwargs)
+                except TypeError:
+                    logger.debug(
+                        "%s plugin %s does not accept engagement config kwargs; "
+                        "retrying with no-arg constructor",
+                        group,
+                        name,
+                    )
             return cls()
         except (TypeError, ValueError, RuntimeError, FileNotFoundError) as exc:
             logger.warning("Failed to instantiate %s plugin %s: %s", group, name, exc)
@@ -243,6 +275,16 @@ def discover_plugin(group: str, *, name: str | None = None) -> Any | None:
         cls = result.get(candidate_name)
         if cls is not None:
             try:
+                if kwargs:
+                    try:
+                        return cls(**kwargs)
+                    except TypeError:
+                        logger.debug(
+                            "%s plugin %s does not accept engagement config kwargs; "
+                            "retrying with no-arg constructor",
+                            group,
+                            candidate_name,
+                        )
                 return cls()
             except (TypeError, ValueError, RuntimeError, FileNotFoundError) as exc:
                 logger.warning(
