@@ -9,7 +9,7 @@ by mypy).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, TypedDict, runtime_checkable
+from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict, runtime_checkable
 
 from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import (  # noqa: F401 (re-exported)
@@ -54,6 +54,7 @@ class Narratives(TypedDict):
     executive_summary: str
     roadmap: str
     findings_narrative: str | None
+    flags: NotRequired[list[str]]
 
 
 # ---------------------------------------------------------------------------
