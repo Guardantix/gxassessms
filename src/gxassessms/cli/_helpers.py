@@ -18,6 +18,37 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_QA_STRATEGY_GROUP = "gxassessms.qa_strategies"
+
+
+def _instantiate_plugin(
+    cls: Any,
+    name: str,
+    group: str,
+    kwargs: dict[str, Any],
+) -> Any | None:
+    """Instantiate a plugin class, optionally passing engagement config kwargs.
+
+    Tries ``cls(**kwargs)`` first when kwargs are provided; falls back to
+    ``cls()`` on TypeError (zero-arg constructor). Any other instantiation
+    failure is logged as a warning and returns None.
+    """
+    try:
+        if kwargs:
+            try:
+                return cls(**kwargs)
+            except TypeError:
+                logger.debug(
+                    "%s plugin %s does not accept engagement config kwargs; "
+                    "retrying with no-arg constructor",
+                    group,
+                    name,
+                )
+        return cls()
+    except (TypeError, ValueError, RuntimeError, FileNotFoundError) as exc:
+        logger.warning("Failed to instantiate %s plugin %s: %s", group, name, exc)
+        return None
+
 
 def build_orchestrator() -> Any:
     """Build an Orchestrator with all dependencies.
@@ -227,7 +258,7 @@ def discover_plugin(
         )
 
     kwargs: dict[str, Any] = {}
-    if config is not None and group == "gxassessms.qa_strategies":
+    if config is not None and group == _QA_STRATEGY_GROUP:
         kwargs = {
             "model": config.qa_model,
             "token_budget": config.qa_token_budget,
@@ -244,21 +275,7 @@ def discover_plugin(
                 result.names,
             )
             return None
-        try:
-            if kwargs:
-                try:
-                    return cls(**kwargs)
-                except TypeError:
-                    logger.debug(
-                        "%s plugin %s does not accept engagement config kwargs; "
-                        "retrying with no-arg constructor",
-                        group,
-                        name,
-                    )
-            return cls()
-        except (TypeError, ValueError, RuntimeError, FileNotFoundError) as exc:
-            logger.warning("Failed to instantiate %s plugin %s: %s", group, name, exc)
-            return None
+        return _instantiate_plugin(cls, name, group, kwargs)
 
     if not result.names:
         return None
@@ -274,25 +291,9 @@ def discover_plugin(
     for candidate_name in sorted_names:
         cls = result.get(candidate_name)
         if cls is not None:
-            try:
-                if kwargs:
-                    try:
-                        return cls(**kwargs)
-                    except TypeError:
-                        logger.debug(
-                            "%s plugin %s does not accept engagement config kwargs; "
-                            "retrying with no-arg constructor",
-                            group,
-                            candidate_name,
-                        )
-                return cls()
-            except (TypeError, ValueError, RuntimeError, FileNotFoundError) as exc:
-                logger.warning(
-                    "Failed to instantiate %s plugin %s: %s",
-                    group,
-                    candidate_name,
-                    exc,
-                )
+            inst = _instantiate_plugin(cls, candidate_name, group, kwargs)
+            if inst is not None:
+                return inst
     return None
 
 

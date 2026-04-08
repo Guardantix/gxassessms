@@ -24,12 +24,10 @@ class NoOpQAStrategy:
     is_noop: bool = True
     priority: int = 0
 
-    def __init__(
-        self,
-        model: str = "claude-sonnet-4-6",
-        token_budget: int = 100000,
-        client_name: str = "the client",
-    ) -> None:
+    def __init__(self, **_kwargs: object) -> None:
+        # Accepts and ignores engagement config kwargs (model, token_budget,
+        # client_name) so discover_plugin can construct all QA strategies
+        # uniformly without special-casing the no-op.
         pass
 
     def review_findings(self, findings: list[ConsolidatedFinding]) -> list[QAResult]:
