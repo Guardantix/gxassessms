@@ -48,6 +48,28 @@ class TestTypeAliases:
         assert "roadmap" in annotations
         assert "findings_narrative" in annotations
 
+    def test_narratives_flags_field_exists(self) -> None:
+        annotations = Narratives.__annotations__
+        assert "flags" in annotations
+
+    def test_narratives_without_flags_is_valid(self) -> None:
+        n: Narratives = {
+            "executive_summary": "summary",
+            "roadmap": "roadmap text",
+            "findings_narrative": None,
+        }
+        assert n["executive_summary"] == "summary"
+        assert "flags" not in n
+
+    def test_narratives_with_flags_is_valid(self) -> None:
+        n: Narratives = {
+            "executive_summary": "summary",
+            "roadmap": "roadmap text",
+            "findings_narrative": None,
+            "flags": ["budget_exhausted"],
+        }
+        assert n["flags"] == ["budget_exhausted"]
+
 
 class TestPrerequisiteResult:
     def test_prerequisite_result_is_typed_dict(self) -> None:
