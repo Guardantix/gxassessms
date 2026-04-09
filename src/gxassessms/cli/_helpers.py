@@ -67,8 +67,9 @@ def _instantiate_plugin(
                 list(kwargs),
             )
         except ValueError:
-            # inspect.signature could not introspect cls; proceed with kwargs.
-            pass
+            # inspect.signature could not introspect cls (e.g. C extensions,
+            # dynamic callables); fall back to zero-arg construction.
+            kwargs = {}
     try:
         return cls(**kwargs) if kwargs else cls()
     except (TypeError, ValueError, RuntimeError, FileNotFoundError) as exc:

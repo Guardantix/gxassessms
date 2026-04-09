@@ -15,6 +15,7 @@ Return value shapes:
 
 from __future__ import annotations
 
+import inspect
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -414,6 +415,32 @@ class TestDiscoverPlugin:
             result = discover_plugin(QA_STRATEGY_GROUP, name="legacy_qa", config=config)
 
         assert isinstance(result, _LegacyQAPlugin)
+
+    def test_config_kwargs_fallback_to_zero_arg_when_signature_unintrospectable(self):
+        """When inspect.signature raises ValueError (e.g. C extensions), fall back to cls()."""
+
+        class _CExtLikeQAPlugin:
+            pass
+
+        real_signature = inspect.signature
+
+        def _patched_signature(obj, **kw):
+            if obj is _CExtLikeQAPlugin:
+                raise ValueError("no signature found")
+            return real_signature(obj, **kw)
+
+        disc_result = _make_result(plugins={"cext_qa": _CExtLikeQAPlugin})
+        config = _make_config()
+
+        with (
+            patch("gxassessms.registry.discover_entry_points", return_value=disc_result),
+            patch("gxassessms.cli._helpers.inspect.signature", side_effect=_patched_signature),
+        ):
+            from gxassessms.cli._helpers import discover_plugin
+
+            result = discover_plugin(QA_STRATEGY_GROUP, config=config)
+
+        assert isinstance(result, _CExtLikeQAPlugin)
 
     def test_typeerror_inside_constructor_is_not_retried(self, caplog):
         """TypeError from inside the constructor body is treated as a real failure, not retried."""
