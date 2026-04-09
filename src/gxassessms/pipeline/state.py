@@ -33,6 +33,11 @@ EventType = Literal[
     "manual_finding_added",
     "lock_broken",
     "stale_recovery",
+    "narrative_edit",
+    "narrative_approval",
+    "rerender",
+    "token_usage",
+    "manual_merge",
 ]
 
 # Derive valid values from the EventType Literal for runtime validation
