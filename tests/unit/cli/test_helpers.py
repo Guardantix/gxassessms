@@ -21,6 +21,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from gxassessms.adapters import AdapterRegistry
+from gxassessms.cli._helpers import QA_STRATEGY_GROUP
 from gxassessms.core.config.config import AuthConfig, EngagementConfig
 from gxassessms.registry import DiscoveryError, DiscoveryResult
 
@@ -314,7 +315,7 @@ class TestDiscoverPlugin:
         with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
             from gxassessms.cli._helpers import discover_plugin
 
-            result = discover_plugin("gxassessms.qa_strategies", config=config)
+            result = discover_plugin(QA_STRATEGY_GROUP, config=config)
 
         assert result is mock_instance
         MockCls.assert_called_once_with(
@@ -333,7 +334,7 @@ class TestDiscoverPlugin:
         with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
             from gxassessms.cli._helpers import discover_plugin
 
-            result = discover_plugin("gxassessms.qa_strategies", name="gx_qa", config=config)
+            result = discover_plugin(QA_STRATEGY_GROUP, name="gx_qa", config=config)
 
         assert result is mock_instance
         MockCls.assert_called_once_with(
@@ -342,47 +343,58 @@ class TestDiscoverPlugin:
             client_name=config.client_name,
         )
 
-    def test_config_kwargs_fallback_to_zero_arg_on_typeerror_loop(self):
-        """Loop path: TypeError from kwargs call -> retried with no-arg, success."""
-        mock_instance = MagicMock(name="fallback_inst")
+    def test_config_kwargs_fallback_to_zero_arg_when_signature_mismatch_loop(self):
+        """Loop path: plugin with zero-arg constructor -> signature probed, falls back to cls()."""
 
-        def side_effect(*args, **kwargs):
-            if kwargs:
-                raise TypeError("unexpected keyword argument 'model'")
-            return mock_instance
+        class _LegacyQAPlugin:
+            """Simulates a legacy plugin that only accepts a zero-arg constructor."""
 
-        MockCls = MagicMock(side_effect=side_effect)
-        disc_result = _make_result(plugins={"legacy_qa": MockCls})
+        disc_result = _make_result(plugins={"legacy_qa": _LegacyQAPlugin})
         config = _make_config()
 
         with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
             from gxassessms.cli._helpers import discover_plugin
 
-            result = discover_plugin("gxassessms.qa_strategies", config=config)
+            result = discover_plugin(QA_STRATEGY_GROUP, config=config)
 
-        assert result is mock_instance
-        assert MockCls.call_count == 2  # kwargs attempt + no-arg fallback
+        assert isinstance(result, _LegacyQAPlugin)
 
-    def test_config_kwargs_fallback_to_zero_arg_on_typeerror_named(self):
-        """Named path: TypeError from kwargs call -> retried with no-arg, success."""
-        mock_instance = MagicMock(name="fallback_inst")
+    def test_config_kwargs_fallback_to_zero_arg_when_signature_mismatch_named(self):
+        """Named path: plugin with zero-arg constructor -> signature probed, falls back to cls()."""
 
-        def side_effect(*args, **kwargs):
-            if kwargs:
-                raise TypeError("unexpected keyword argument 'model'")
-            return mock_instance
+        class _LegacyQAPlugin:
+            """Simulates a legacy plugin that only accepts a zero-arg constructor."""
 
-        MockCls = MagicMock(side_effect=side_effect)
-        disc_result = _make_result(plugins={"legacy_qa": MockCls})
+        disc_result = _make_result(plugins={"legacy_qa": _LegacyQAPlugin})
         config = _make_config()
 
         with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
             from gxassessms.cli._helpers import discover_plugin
 
-            result = discover_plugin("gxassessms.qa_strategies", name="legacy_qa", config=config)
+            result = discover_plugin(QA_STRATEGY_GROUP, name="legacy_qa", config=config)
 
-        assert result is mock_instance
-        assert MockCls.call_count == 2
+        assert isinstance(result, _LegacyQAPlugin)
+
+    def test_typeerror_inside_constructor_is_not_retried(self, caplog):
+        """TypeError from inside the constructor body is treated as a real failure, not retried."""
+
+        class _BadQAPlugin:
+            def __init__(self, model: str, token_budget: int, client_name: str) -> None:
+                raise TypeError("unsupported model type")
+
+        disc_result = _make_result(plugins={"bad_qa": _BadQAPlugin})
+        config = _make_config()
+
+        with (
+            patch("gxassessms.registry.discover_entry_points", return_value=disc_result),
+            caplog.at_level(logging.WARNING, logger="gxassessms.cli._helpers"),
+        ):
+            from gxassessms.cli._helpers import discover_plugin
+
+            result = discover_plugin(QA_STRATEGY_GROUP, config=config)
+
+        assert result is None
+        assert any("bad_qa" in r.message for r in caplog.records)
 
     def test_non_typeerror_from_kwargs_is_not_swallowed(self, caplog):
         """ValueError from kwargs call is NOT silently swallowed -- plugin is skipped."""
@@ -396,7 +408,7 @@ class TestDiscoverPlugin:
         ):
             from gxassessms.cli._helpers import discover_plugin
 
-            result = discover_plugin("gxassessms.qa_strategies", config=config)
+            result = discover_plugin(QA_STRATEGY_GROUP, config=config)
 
         assert result is None
         assert any("bad_qa" in r.message for r in caplog.records)
@@ -426,7 +438,7 @@ class TestDiscoverPlugin:
         with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
             from gxassessms.cli._helpers import discover_plugin
 
-            result = discover_plugin("gxassessms.qa_strategies", config=None)
+            result = discover_plugin(QA_STRATEGY_GROUP, config=None)
 
         assert result is mock_instance
         MockCls.assert_called_once_with()

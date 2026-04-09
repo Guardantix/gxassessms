@@ -7,6 +7,7 @@ each other.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_QA_STRATEGY_GROUP = "gxassessms.qa_strategies"
+QA_STRATEGY_GROUP = "gxassessms.qa_strategies"
 
 
 def _instantiate_plugin(
@@ -29,22 +30,30 @@ def _instantiate_plugin(
 ) -> Any | None:
     """Instantiate a plugin class, optionally passing engagement config kwargs.
 
-    Tries ``cls(**kwargs)`` first when kwargs are provided; falls back to
-    ``cls()`` on TypeError (zero-arg constructor). Any other instantiation
-    failure is logged as a warning and returns None.
+    When *kwargs* are provided the constructor signature is probed via
+    ``inspect.signature`` first.  If the signature accepts the kwargs the
+    plugin is called with them; any failure (including ``TypeError``) is
+    treated as a real error and the plugin is skipped.  If the signature does
+    not accept the kwargs the call falls back silently to the zero-argument
+    constructor.  Any failure from the zero-argument path is also logged as a
+    warning and returns ``None``.
     """
+    if kwargs:
+        try:
+            inspect.signature(cls).bind(**kwargs)
+        except TypeError:
+            # Signature mismatch -- constructor does not accept these kwargs.
+            logger.debug(
+                "%s plugin %s does not accept engagement config kwargs; using no-arg constructor",
+                group,
+                name,
+            )
+            kwargs = {}
+        except ValueError:
+            # inspect.signature could not introspect cls; proceed with kwargs.
+            pass
     try:
-        if kwargs:
-            try:
-                return cls(**kwargs)
-            except TypeError:
-                logger.debug(
-                    "%s plugin %s does not accept engagement config kwargs; "
-                    "retrying with no-arg constructor",
-                    group,
-                    name,
-                )
-        return cls()
+        return cls(**kwargs) if kwargs else cls()
     except (TypeError, ValueError, RuntimeError, FileNotFoundError) as exc:
         logger.warning("Failed to instantiate %s plugin %s: %s", group, name, exc)
         return None
@@ -258,7 +267,7 @@ def discover_plugin(
         )
 
     kwargs: dict[str, Any] = {}
-    if config is not None and group == _QA_STRATEGY_GROUP:
+    if config is not None and group == QA_STRATEGY_GROUP:
         kwargs = {
             "model": config.qa_model,
             "token_budget": config.qa_token_budget,

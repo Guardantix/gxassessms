@@ -98,7 +98,7 @@ def replay_cmd(engagement_id: str, from_stage: str, qa_strategy_name: str | None
         )
 
         qa_strategy = _helpers.discover_plugin(
-            "gxassessms.qa_strategies", name=qa_strategy_name, config=config
+            _helpers.QA_STRATEGY_GROUP, name=qa_strategy_name, config=config
         )
         if qa_strategy_name is not None and qa_strategy is None:
             raise click.BadParameter(
