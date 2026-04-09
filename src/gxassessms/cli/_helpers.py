@@ -31,24 +31,41 @@ def _instantiate_plugin(
     """Instantiate a plugin class, optionally passing engagement config kwargs.
 
     When *kwargs* are provided the constructor signature is probed via
-    ``inspect.signature`` first.  If the signature accepts the kwargs the
-    plugin is called with them; any failure (including ``TypeError``) is
-    treated as a real error and the plugin is skipped.  If the signature does
-    not accept the kwargs the call falls back silently to the zero-argument
-    constructor.  Any failure from the zero-argument path is also logged as a
-    warning and returns ``None``.
+    ``inspect.signature`` first.  If the signature accepts all kwargs the
+    plugin is called with them; any failure from that call (including
+    ``TypeError``) is treated as a real error and the plugin is skipped.
+    If the signature accepts only a subset of the kwargs, the plugin is
+    called with the accepted subset.  If the signature accepts none of the
+    kwargs (or the signature cannot be determined), the call falls back to
+    the zero-argument constructor.  Any failure from either path is logged
+    as a warning and returns ``None``.
     """
     if kwargs:
+        sig: inspect.Signature | None = None
         try:
-            inspect.signature(cls).bind(**kwargs)
+            sig = inspect.signature(cls)
+            sig.bind(**kwargs)
         except TypeError:
-            # Signature mismatch -- constructor does not accept these kwargs.
+            if sig is not None:
+                # Filter to only the kwargs the constructor explicitly accepts.
+                has_var_keyword = any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                )
+                if not has_var_keyword:
+                    kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
+                # If has_var_keyword: constructor accepts **kwargs but bind still
+                # failed (e.g. missing required positional arg) -- keep original
+                # kwargs and let the outer try handle it.
+            else:
+                # inspect.signature(cls) raised TypeError -- cls is not callable.
+                kwargs = {}
             logger.debug(
-                "%s plugin %s does not accept engagement config kwargs; using no-arg constructor",
+                "%s plugin %s does not accept all engagement config kwargs; "
+                "using filtered kwargs: %s",
                 group,
                 name,
+                list(kwargs),
             )
-            kwargs = {}
         except ValueError:
             # inspect.signature could not introspect cls; proceed with kwargs.
             pass

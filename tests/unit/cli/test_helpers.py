@@ -343,6 +343,46 @@ class TestDiscoverPlugin:
             client_name=config.client_name,
         )
 
+    def test_config_kwargs_partial_subset_loop_path(self):
+        """Loop path: plugin accepts model+token_budget but not client_name -> subset used."""
+
+        class _PartialQAPlugin:
+            def __init__(self, model: str, token_budget: int) -> None:
+                self.model = model
+                self.token_budget = token_budget
+
+        disc_result = _make_result(plugins={"partial_qa": _PartialQAPlugin})
+        config = _make_config()
+
+        with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
+            from gxassessms.cli._helpers import discover_plugin
+
+            result = discover_plugin(QA_STRATEGY_GROUP, config=config)
+
+        assert isinstance(result, _PartialQAPlugin)
+        assert result.model == config.qa_model
+        assert result.token_budget == config.qa_token_budget
+
+    def test_config_kwargs_partial_subset_named_path(self):
+        """Named path: plugin accepts model+token_budget but not client_name -> subset used."""
+
+        class _PartialQAPlugin:
+            def __init__(self, model: str, token_budget: int) -> None:
+                self.model = model
+                self.token_budget = token_budget
+
+        disc_result = _make_result(plugins={"partial_qa": _PartialQAPlugin})
+        config = _make_config()
+
+        with patch("gxassessms.registry.discover_entry_points", return_value=disc_result):
+            from gxassessms.cli._helpers import discover_plugin
+
+            result = discover_plugin(QA_STRATEGY_GROUP, name="partial_qa", config=config)
+
+        assert isinstance(result, _PartialQAPlugin)
+        assert result.model == config.qa_model
+        assert result.token_budget == config.qa_token_budget
+
     def test_config_kwargs_fallback_to_zero_arg_when_signature_mismatch_loop(self):
         """Loop path: plugin with zero-arg constructor -> signature probed, falls back to cls()."""
 
