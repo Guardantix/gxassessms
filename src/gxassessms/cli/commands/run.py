@@ -165,7 +165,7 @@ def run_cmd(
             "normalization_policy": _helpers.build_normalization_policy(),
             "consolidation_rule": _helpers.build_consolidation_rule(),
             "qa_strategy": _helpers.discover_plugin(
-                "gxassessms.qa_strategies", name=qa_strategy_name
+                _helpers.QA_STRATEGY_GROUP, name=qa_strategy_name, config=config
             ),
             "renderers": _helpers.discover_all_plugins("gxassessms.renderers"),
         }

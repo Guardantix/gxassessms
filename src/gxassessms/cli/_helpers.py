@@ -7,13 +7,74 @@ each other.
 
 from __future__ import annotations
 
+import inspect
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from gxassessms.core.contracts.errors import GxAssessError
 
+if TYPE_CHECKING:
+    from gxassessms.core.config.config import EngagementConfig
+
 logger = logging.getLogger(__name__)
+
+QA_STRATEGY_GROUP = "gxassessms.qa_strategies"
+
+
+def _instantiate_plugin(
+    cls: Any,
+    name: str,
+    group: str,
+    kwargs: dict[str, Any],
+) -> Any | None:
+    """Instantiate a plugin class, optionally passing engagement config kwargs.
+
+    When *kwargs* are provided the constructor signature is probed via
+    ``inspect.signature`` first.  If the signature accepts all kwargs the
+    plugin is called with them; any failure from that call (including
+    ``TypeError``) is treated as a real error and the plugin is skipped.
+    If the signature accepts only a subset of the kwargs, the plugin is
+    called with the accepted subset.  If the signature accepts none of the
+    kwargs (or the signature cannot be determined), the call falls back to
+    the zero-argument constructor.  Any failure from either path is logged
+    as a warning and returns ``None``.
+    """
+    if kwargs:
+        sig: inspect.Signature | None = None
+        try:
+            sig = inspect.signature(cls)
+            sig.bind(**kwargs)
+        except TypeError:
+            if sig is not None:
+                # Filter to only the kwargs the constructor explicitly accepts.
+                has_var_keyword = any(
+                    p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                )
+                if not has_var_keyword:
+                    kwargs = {k: v for k, v in kwargs.items() if k in sig.parameters}
+                # If has_var_keyword: constructor accepts **kwargs but bind still
+                # failed (e.g. missing required positional arg) -- keep original
+                # kwargs and let the outer try handle it.
+            else:
+                # inspect.signature(cls) raised TypeError -- cls is not callable.
+                kwargs = {}
+            logger.debug(
+                "%s plugin %s does not accept all engagement config kwargs; "
+                "using filtered kwargs: %s",
+                group,
+                name,
+                list(kwargs),
+            )
+        except ValueError:
+            # inspect.signature could not introspect cls (e.g. C extensions,
+            # dynamic callables); fall back to zero-arg construction.
+            kwargs = {}
+    try:
+        return cls(**kwargs) if kwargs else cls()
+    except (TypeError, ValueError, RuntimeError, FileNotFoundError) as exc:
+        logger.warning("Failed to instantiate %s plugin %s: %s", group, name, exc)
+        return None
 
 
 def build_orchestrator() -> Any:
@@ -190,7 +251,12 @@ def discover_adapter_metadata() -> list[dict[str, Any]]:
     return result
 
 
-def discover_plugin(group: str, *, name: str | None = None) -> Any | None:
+def discover_plugin(
+    group: str,
+    *,
+    name: str | None = None,
+    config: EngagementConfig | None = None,
+) -> Any | None:
     """Discover and instantiate a plugin from an entry point group.
 
     Selection logic:
@@ -198,8 +264,14 @@ def discover_plugin(group: str, *, name: str | None = None) -> Any | None:
     2. Otherwise, plugins are sorted by optional ``priority`` class
        attribute (descending, default 0). Ties broken by discovery order.
 
-    Returns an instance, or None if nothing found. Used for singleton
-    plugins like normalization policy or QA strategy.
+    When *config* is provided and *group* is ``gxassessms.qa_strategies``,
+    the plugin is constructed with ``model``, ``token_budget``, and
+    ``client_name`` keyword arguments drawn from the config. If the plugin
+    raises ``TypeError`` (zero-arg constructor), the call is retried with
+    no arguments. Any other exception from the kwargs call is treated as
+    an instantiation failure (logged, plugin skipped).
+
+    Returns an instance, or None if nothing found.
     """
     from gxassessms.registry import discover_entry_points
 
@@ -212,6 +284,14 @@ def discover_plugin(group: str, *, name: str | None = None) -> Any | None:
             err.message,
         )
 
+    kwargs: dict[str, Any] = {}
+    if config is not None and group == QA_STRATEGY_GROUP:
+        kwargs = {
+            "model": config.qa_model,
+            "token_budget": config.qa_token_budget,
+            "client_name": config.client_name,
+        }
+
     if name is not None:
         cls = result.get(name)
         if cls is None:
@@ -222,11 +302,7 @@ def discover_plugin(group: str, *, name: str | None = None) -> Any | None:
                 result.names,
             )
             return None
-        try:
-            return cls()
-        except (TypeError, ValueError, RuntimeError, FileNotFoundError) as exc:
-            logger.warning("Failed to instantiate %s plugin %s: %s", group, name, exc)
-            return None
+        return _instantiate_plugin(cls, name, group, kwargs)
 
     if not result.names:
         return None
@@ -242,15 +318,9 @@ def discover_plugin(group: str, *, name: str | None = None) -> Any | None:
     for candidate_name in sorted_names:
         cls = result.get(candidate_name)
         if cls is not None:
-            try:
-                return cls()
-            except (TypeError, ValueError, RuntimeError, FileNotFoundError) as exc:
-                logger.warning(
-                    "Failed to instantiate %s plugin %s: %s",
-                    group,
-                    candidate_name,
-                    exc,
-                )
+            inst = _instantiate_plugin(cls, candidate_name, group, kwargs)
+            if inst is not None:
+                return inst
     return None
 
 
