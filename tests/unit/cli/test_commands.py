@@ -1449,9 +1449,18 @@ class TestReviewCommand:
         result = runner.invoke(cli, ["review"])
         assert result.exit_code != 0
 
-    def test_shows_private_package_message_when_not_installed(self) -> None:
+    @patch("gxassessms.cli.commands.review.entry_points", autospec=True)
+    def test_shows_private_package_message_when_not_installed(
+        self, mock_entry_points: MagicMock
+    ) -> None:
+        # Simulate the private package not being installed by returning
+        # an empty entry-point list. Without this patch the test would be
+        # environment-dependent (the shared dev venv installs the private
+        # package editable, so the entry point resolves).
+        mock_entry_points.return_value = []
         runner = CliRunner()
         result = runner.invoke(cli, ["review", "eng-001"])
+        assert result.exit_code != 0
         assert (
             "gxassessms-guardantix" in result.output
             or "private package" in result.output.lower()

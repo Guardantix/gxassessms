@@ -614,10 +614,21 @@ class TestAnalyticsGroup:
         assert "coverage" in result.output
 
 
+# Note: the analytics tests below patch entry_points to an empty list so
+# they exercise the not-installed branch regardless of whether the private
+# package happens to be installed in the current venv. Without the patch
+# these tests would be environment-dependent (the shared dev venv installs
+# the private package editable, so analytics commands would actually run
+# against real analytics logic rather than the stub message).
+
+
 class TestAnalyticsTuning:
-    def test_shows_private_package_message(self) -> None:
+    @patch("gxassessms.cli.commands.analytics.entry_points", autospec=True)
+    def test_shows_private_package_message(self, mock_entry_points: MagicMock) -> None:
+        mock_entry_points.return_value = []
         runner = CliRunner()
         result = runner.invoke(cli, ["analytics", "tuning"])
+        assert result.exit_code != 0
         assert (
             "gxassessms-guardantix" in result.output
             or "private package" in result.output.lower()
@@ -626,9 +637,12 @@ class TestAnalyticsTuning:
 
 
 class TestAnalyticsCost:
-    def test_shows_private_package_message(self) -> None:
+    @patch("gxassessms.cli.commands.analytics.entry_points", autospec=True)
+    def test_shows_private_package_message(self, mock_entry_points: MagicMock) -> None:
+        mock_entry_points.return_value = []
         runner = CliRunner()
         result = runner.invoke(cli, ["analytics", "cost"])
+        assert result.exit_code != 0
         assert (
             "gxassessms-guardantix" in result.output
             or "private package" in result.output.lower()
@@ -637,9 +651,12 @@ class TestAnalyticsCost:
 
 
 class TestAnalyticsCoverage:
-    def test_shows_private_package_message(self) -> None:
+    @patch("gxassessms.cli.commands.analytics.entry_points", autospec=True)
+    def test_shows_private_package_message(self, mock_entry_points: MagicMock) -> None:
+        mock_entry_points.return_value = []
         runner = CliRunner()
         result = runner.invoke(cli, ["analytics", "coverage"])
+        assert result.exit_code != 0
         assert (
             "gxassessms-guardantix" in result.output
             or "private package" in result.output.lower()
