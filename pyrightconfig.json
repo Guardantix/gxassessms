@@ -1,6 +1,6 @@
 {
     "include": ["src"],
-    "extraPaths": ["src"],
+    "extraPaths": ["src", "."],
     "pythonVersion": "3.14",
     "typeCheckingMode": "strict",
     "reportMissingTypeStubs": false,
