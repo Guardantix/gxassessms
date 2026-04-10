@@ -85,13 +85,13 @@ class TestSchemaIndexes:
             ).fetchone()
             assert result is not None
 
-    def test_idx_longitudinal_snapshots_engagement_is_unique(
+    def test_idx_longitudinal_snapshots_engagement_date_is_unique(
         self, db_manager: DatabaseManager
     ) -> None:
         with db_manager.connect() as conn:
             result = conn.execute(
                 "SELECT sql FROM sqlite_master WHERE type='index' "
-                "AND name='idx_longitudinal_snapshots_engagement'"
+                "AND name='idx_longitudinal_snapshots_engagement_date'"
             ).fetchone()
             assert result is not None
             index_ddl: str = result["sql"]
@@ -189,6 +189,18 @@ class TestSchemaConstraints:
                 "VALUES (?, '2026-02-01', ?, datetime('now'))",
                 ("eng-001", 10),
             )
+            # Verify both rows are intact with correct data (constraint violation
+            # must not corrupt or overwrite the original record)
+            rows = conn.execute(
+                "SELECT snapshot_date, total_findings FROM longitudinal_snapshots "
+                "WHERE engagement_id = ? ORDER BY snapshot_date",
+                ("eng-001",),
+            ).fetchall()
+            assert len(rows) == 2
+            assert rows[0]["snapshot_date"] == "2026-01-01"
+            assert rows[0]["total_findings"] == 0
+            assert rows[1]["snapshot_date"] == "2026-02-01"
+            assert rows[1]["total_findings"] == 10
 
     def test_overrides_foreign_key_to_engagement(self, db_manager: DatabaseManager) -> None:
         """Overrides with a non-existent engagement_id should fail."""
