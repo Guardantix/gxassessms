@@ -85,6 +85,18 @@ class TestSchemaIndexes:
             ).fetchone()
             assert result is not None
 
+    def test_idx_longitudinal_snapshots_engagement_is_unique(
+        self, db_manager: DatabaseManager
+    ) -> None:
+        with db_manager.connect() as conn:
+            result = conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='index' "
+                "AND name='idx_longitudinal_snapshots_engagement'"
+            ).fetchone()
+            assert result is not None
+            index_ddl: str = result["sql"]
+            assert "UNIQUE" in index_ddl.upper()
+
 
 class TestSchemaConstraints:
     def test_engagements_state_check_constraint(self, db_manager: DatabaseManager) -> None:
@@ -146,6 +158,46 @@ class TestSchemaConstraints:
                 "SELECT * FROM pipeline_events WHERE event_id=?", ("evt-001",)
             ).fetchone()
             assert result is not None
+
+    def test_longitudinal_snapshot_duplicate_engagement_date_rejected(
+        self, db_manager: DatabaseManager
+    ) -> None:
+        """Two snapshots for the same (engagement_id, snapshot_date) must be rejected."""
+        with db_manager.connect() as conn:
+            conn.execute(
+                "INSERT INTO engagements (engagement_id, client_name, tenant_id, "
+                "state, created_at, config_snapshot) "
+                "VALUES (?, ?, ?, ?, datetime('now'), ?)",
+                ("eng-001", "Test", "tenant-001", "CREATED", "{}"),
+            )
+            conn.execute(
+                "INSERT INTO longitudinal_snapshots "
+                "(engagement_id, snapshot_date, total_findings, created_at) "
+                "VALUES (?, '2026-01-01', ?, datetime('now'))",
+                ("eng-001", 0),
+            )
+            # A second snapshot on the same date must be rejected
+            with pytest.raises(sqlite3.IntegrityError):
+                conn.execute(
+                    "INSERT INTO longitudinal_snapshots "
+                    "(engagement_id, snapshot_date, total_findings, created_at) "
+                    "VALUES (?, '2026-01-01', ?, datetime('now'))",
+                    ("eng-001", 5),
+                )
+            # But a snapshot on a different date must be allowed (trend tracking)
+            conn.execute(
+                "INSERT INTO longitudinal_snapshots "
+                "(engagement_id, snapshot_date, total_findings, created_at) "
+                "VALUES (?, '2026-02-01', ?, datetime('now'))",
+                ("eng-001", 10),
+            )
+            result = conn.execute(
+                "SELECT total_findings FROM longitudinal_snapshots "
+                "WHERE engagement_id = ? AND snapshot_date = '2026-02-01'",
+                ("eng-001",),
+            ).fetchone()
+            assert result is not None
+            assert result["total_findings"] == 10
 
     def test_overrides_foreign_key_to_engagement(self, db_manager: DatabaseManager) -> None:
         """Overrides with a non-existent engagement_id should fail."""

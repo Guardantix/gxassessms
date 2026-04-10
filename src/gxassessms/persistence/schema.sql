@@ -173,8 +173,8 @@ CREATE INDEX idx_overrides_engagement
 CREATE INDEX idx_stage_history_engagement
     ON stage_history(engagement_id);
 
-CREATE INDEX idx_longitudinal_snapshots_engagement
-    ON longitudinal_snapshots(engagement_id);
+CREATE UNIQUE INDEX idx_longitudinal_snapshots_engagement
+    ON longitudinal_snapshots(engagement_id, snapshot_date);
 
 CREATE INDEX idx_tool_run_results_engagement
     ON tool_run_results(engagement_id);
