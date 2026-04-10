@@ -19,6 +19,7 @@ import pytest
 from gxassessms.adapters import discover_adapters
 from gxassessms.core.domain.constants import ADAPTER_PLACEHOLDERS
 from gxassessms.core.domain.enums import Category, Severity, ToolSource
+from gxassessms.reporting.constants_bridge import generate_constants_dict
 
 # Helpers ---------------------------------------------------------------
 
@@ -215,8 +216,6 @@ class TestConstantsBridgeSync:
     """constants.json (for the report payload) covers every domain enum."""
 
     def test_all_severities_in_constants_bridge(self) -> None:
-        from gxassessms.reporting.constants_bridge import generate_constants_dict
-
         constants = generate_constants_dict()
         severity_order = constants["severity_order"]
         for severity in Severity:
@@ -225,8 +224,6 @@ class TestConstantsBridgeSync:
             )
 
     def test_all_categories_in_constants_bridge(self) -> None:
-        from gxassessms.reporting.constants_bridge import generate_constants_dict
-
         constants = generate_constants_dict()
         category_names = constants["category_display_names"]
         for category in Category:
@@ -235,8 +232,6 @@ class TestConstantsBridgeSync:
             )
 
     def test_severity_colors_complete(self) -> None:
-        from gxassessms.reporting.constants_bridge import generate_constants_dict
-
         constants = generate_constants_dict()
         colors = constants["severity_colors"]
         for severity in Severity:

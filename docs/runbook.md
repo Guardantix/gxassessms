@@ -289,7 +289,7 @@ a *-ing state without a corresponding transition to the *-ed state.
 1. Re-run `mseco run` with `--force-stage` pointing at the stuck stage:
 
    ```
-   mseco run <config.yaml> --engagement-id <id> --force-stage NORMALIZE
+   mseco run <config.yaml> --engagement-id <id> --force-stage CONSOLIDATE
    ```
 
    The orchestrator's `reset_for_rerun` clears stale running state,
