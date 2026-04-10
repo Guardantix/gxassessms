@@ -1,6 +1,9 @@
 -- GxAssessMS canonical schema
--- This file is the current-state reference. It must stay in sync with
--- the migration files. For v1, 001_initial.sql is identical to this file.
+-- This file is the current-state reference: the cumulative schema after
+-- every file in migrations/ has been applied. It must stay in sync with
+-- the migration chain. tests/integration/test_migrations.py enforces
+-- this by comparing a migrated DB against a DB bootstrapped from this
+-- file. When adding a new migration, update this file to match.
 
 -- Engagement metadata
 CREATE TABLE engagements (
@@ -37,8 +40,9 @@ CREATE TABLE findings (
     description TEXT NOT NULL,
     dedup_keys TEXT NOT NULL,     -- JSON array
     benchmark_refs TEXT,          -- JSON array
-    raw_data TEXT,               -- JSON object
-    created_at TEXT NOT NULL
+    raw_data TEXT,                -- JSON object
+    created_at TEXT NOT NULL,
+    native_check_id TEXT NOT NULL DEFAULT ''  -- appended via 002_add_native_check_id.sql
 );
 
 -- Consolidated findings (post-dedup, enriched)
