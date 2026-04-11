@@ -193,15 +193,22 @@ def _rehydrate_engagement_if_missing(
         raise SystemExit(1) from None
     except sqlite3.Error as db_err:
         logger.error(
-            "DB unreadable during DR rehydrate INSERT for %s: %s",
+            "DB error during DR rehydrate INSERT for %s: %s",
             engagement_id,
             db_err,
             exc_info=True,
         )
+        # Non-destructive guidance: sqlite3.Error covers both transient
+        # contention (database is locked, held by another mseco process
+        # or the review UI) and genuine corruption. Present both options
+        # in priority order so operators try the cheap retry first and
+        # only escalate to manual recovery if the error persists.
         console.print(
-            f"[bright_red]Error:[/bright_red] Database is unreadable; cannot "
-            f"rehydrate engagement {engagement_id!r}. Wipe and recreate the DB "
-            "per runbook step 2 before retrying `mseco replay`."
+            f"[bright_red]Error:[/bright_red] Database error while rehydrating "
+            f"engagement {engagement_id!r}: {db_err}.\n"
+            "If this looks like lock contention (another `mseco` process or "
+            "the review UI), retry `mseco replay` in a moment. If the DB is "
+            "genuinely corrupt, see runbook section 2 for manual recovery."
         )
         raise SystemExit(1) from None
 
