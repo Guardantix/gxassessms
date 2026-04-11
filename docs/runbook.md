@@ -258,9 +258,10 @@ module), authentication failure for one tool, or tool-specific API error.
 
 **Resolution:**
 
-- **Fix and re-collect:** Once the failure is addressed, resume from
-  COLLECT so only pending adapters re-run (the orchestrator preserves
-  successful collections via content hashes):
+- **Fix and re-collect:** Once the failure is addressed, re-run from
+  COLLECT. Note that `--force-stage COLLECT` re-runs **all** adapters,
+  not just the failed one -- expect the full collection runtime and API
+  load:
 
   ```
   mseco run <config.yaml> --engagement-id <id> --force-stage COLLECT
