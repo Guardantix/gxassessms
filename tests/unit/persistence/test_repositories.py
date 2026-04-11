@@ -168,6 +168,64 @@ class TestEngagementRepoForceUpdateState:
         assert eng["updated_at"] is not None
 
 
+class TestEngagementRepoRehydrateFromSnapshot:
+    """DR path: insert an engagement row keyed by a caller-supplied ID."""
+
+    def test_rehydrate_inserts_row_with_supplied_id(self, engagement_repo: EngagementRepo) -> None:
+        engagement_repo.rehydrate_from_snapshot(
+            engagement_id="eng-dr-001",
+            client_name="DR Client",
+            tenant_id="tenant-dr",
+            config_snapshot={"client_name": "DR Client", "tenant_id": "tenant-dr"},
+            engagement_dir="/fake/path/DR Client-eng-dr-001",
+        )
+        row = engagement_repo.get("eng-dr-001")
+        assert row["engagement_id"] == "eng-dr-001"
+        assert row["client_name"] == "DR Client"
+        assert row["tenant_id"] == "tenant-dr"
+        assert row["state"] == EngagementState.CREATED.value
+        assert row["engagement_dir"] == "/fake/path/DR Client-eng-dr-001"
+
+    def test_rehydrate_stores_config_snapshot_as_json(
+        self, engagement_repo: EngagementRepo
+    ) -> None:
+        snapshot = {"client_name": "Acme", "tenant_id": "t-1", "report_formats": ["docx"]}
+        engagement_repo.rehydrate_from_snapshot(
+            engagement_id="eng-dr-002",
+            client_name="Acme",
+            tenant_id="t-1",
+            config_snapshot=snapshot,
+        )
+        row = engagement_repo.get("eng-dr-002")
+        assert json.loads(row["config_snapshot"]) == snapshot
+
+    def test_rehydrate_rejects_duplicate_id(self, engagement_repo: EngagementRepo) -> None:
+        engagement_repo.rehydrate_from_snapshot(
+            engagement_id="eng-dup",
+            client_name="Acme",
+            tenant_id="t-1",
+            config_snapshot={},
+        )
+        with pytest.raises(PersistenceError, match="row already exists"):
+            engagement_repo.rehydrate_from_snapshot(
+                engagement_id="eng-dup",
+                client_name="Acme",
+                tenant_id="t-1",
+                config_snapshot={},
+            )
+
+    def test_rehydrate_honors_initial_state_override(self, engagement_repo: EngagementRepo) -> None:
+        engagement_repo.rehydrate_from_snapshot(
+            engagement_id="eng-dr-state",
+            client_name="Acme",
+            tenant_id="t-1",
+            config_snapshot={},
+            initial_state=EngagementState.COLLECTED,
+        )
+        row = engagement_repo.get("eng-dr-state")
+        assert row["state"] == EngagementState.COLLECTED.value
+
+
 class TestEngagementRepoListByClient:
     def test_list_by_client(self, engagement_repo: EngagementRepo) -> None:
         engagement_repo.create(

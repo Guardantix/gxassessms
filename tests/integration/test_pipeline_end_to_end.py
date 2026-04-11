@@ -446,19 +446,27 @@ class TestPipelineEndToEnd:
         normalization_rules: dict[str, Any],
         consolidation_rules: dict[str, Any],
     ) -> None:
-        """Runbook step 3 contract: after a full pipeline run, the mirrored
-        config_snapshot.json survives and _load_config_for_replay recovers
-        it even when the DB row is gone.
+        """Runbook step 3 contract: after a full pipeline run plus a DB
+        wipe, `mseco replay <id> --from parse` recovers end-to-end.
 
-        This does NOT exercise the full orchestrator.run_from(...) replay
-        path -- that surface requires the engagement row to exist for
-        reset_for_rerun(). The DR fix is specifically in the config-loading
-        step; the test verifies that step's contract end-to-end against a
-        real filesystem.
+        Exercises:
+        1. `_load_config_for_replay` falls back to the filesystem snapshot
+           when the DB row is gone.
+        2. `_rehydrate_engagement_if_missing` reinserts the row from the
+           recovered config snapshot so downstream state transitions find
+           a row to update.
+        3. A fresh `Orchestrator` built against the wiped DB then runs
+           `reset_for_rerun` + `run_from(Stage.PARSE)` to completion,
+           loading raw outputs from disk and re-driving NORMALIZE →
+           CONSOLIDATE → QA_REVIEW → RENDER against the fresh DB.
         """
-        from gxassessms.cli.commands.replay import _load_config_for_replay
+        from gxassessms.cli.commands.replay import (
+            _load_config_for_replay,
+            _rehydrate_engagement_if_missing,
+        )
+        from gxassessms.pipeline.stages import Stage
 
-        # 1. Run full pipeline to completion
+        # 1. Run full pipeline to completion.
         engagement_id = self._run_pipeline(
             orchestrator,
             engagement_repo,
@@ -468,7 +476,7 @@ class TestPipelineEndToEnd:
             consolidation_rules,
         )
 
-        # 2. Verify the mirror was written during COLLECT
+        # 2. Verify the mirror was written during COLLECT.
         eng_dir = artifact_manager.get_engagement_dir(engagement_id)
         snapshot_file = eng_dir / "config_snapshot.json"
         assert snapshot_file.exists(), (
@@ -479,33 +487,145 @@ class TestPipelineEndToEnd:
             "mirror file should contain the engagement's client_name"
         )
 
-        # 3. Wipe the DB file (simulates the runbook's manual-recovery step 2)
+        # 3. Wipe the DB file (simulates the runbook's manual-recovery step 2).
         db_path = isolated_data_dir / "engagements.db"
         if db_path.exists():
             db_path.unlink()
-        # Also drop any SQLite WAL/SHM files (they otherwise re-hydrate the DB)
+        # Also drop any SQLite WAL/SHM files (they otherwise re-hydrate the DB).
         for suffix in ("-wal", "-shm"):
             sidecar = db_path.with_name(db_path.name + suffix)
             if sidecar.exists():
                 sidecar.unlink()
 
-        # 4. Re-initialize a fresh DB and repo -- the row is gone
+        # 4. Re-initialize a fresh DB + repos + orchestrator against the
+        #    same data directory. `replay_cmd` builds these itself via
+        #    the _helpers factories; the test mirrors that shape directly.
         fresh_db = DatabaseManager()
         fresh_db.initialize()
-        fresh_repo = EngagementRepo(fresh_db)
-
-        # Sanity: the engagement really is gone from the new DB
-        with pytest.raises(PersistenceError, match="not found"):
-            fresh_repo.get(engagement_id)
-
-        # 5. The DR path: _load_config_for_replay falls back to filesystem
-        config, loaded_from_fallback = _load_config_for_replay(
-            engagement_id, fresh_repo, artifact_manager
+        fresh_engagement_repo = EngagementRepo(fresh_db)
+        fresh_event_repo = EventRepo(fresh_db)
+        fresh_finding_repo = FindingRepo(fresh_db)
+        fresh_coverage_repo = CoverageRepo(fresh_db)
+        engagements_root = isolated_data_dir / "engagements"
+        fresh_lock = EngagementLock(engagements_root)
+        fresh_orchestrator = Orchestrator(
+            engagement_repo=fresh_engagement_repo,
+            event_repo=fresh_event_repo,
+            finding_repo=fresh_finding_repo,
+            coverage_repo=fresh_coverage_repo,
+            lock=fresh_lock,
+            db=fresh_db,
+            artifact_manager=artifact_manager,
         )
 
+        # Sanity: the engagement really is gone from the fresh DB.
+        with pytest.raises(PersistenceError, match="not found"):
+            fresh_engagement_repo.get(engagement_id)
+
+        # 5. DR config loading: fall back to the filesystem snapshot.
+        config, loaded_from_fallback = _load_config_for_replay(
+            engagement_id, fresh_engagement_repo, artifact_manager
+        )
         assert loaded_from_fallback is True
         assert config.client_name == e2e_config.client_name
         assert config.tenant_id == e2e_config.tenant_id
+
+        # 6. DR rehydration: reinsert the engagement row from the snapshot.
+        rehydrated = _rehydrate_engagement_if_missing(
+            engagement_id,
+            config,
+            fresh_engagement_repo,
+            str(eng_dir),
+        )
+        assert rehydrated is True
+        row = fresh_engagement_repo.get(engagement_id)
+        assert row["client_name"] == e2e_config.client_name
+        assert row["tenant_id"] == e2e_config.tenant_id
+        # Row seeded at CREATED; reset_for_rerun will force-update it.
+        assert row["state"] == EngagementState.CREATED.value
+
+        # 7. Full replay from PARSE against the fresh DB. This is the path
+        #    the runbook tells operators to execute after a DB wipe.
+        fresh_orchestrator.reset_for_rerun(engagement_id, Stage.PARSE)
+        fresh_orchestrator.run_from(
+            engagement_id=engagement_id,
+            config=config,
+            start_stage=Stage.PARSE,
+            adapters=[scubagear_adapter_with_fixture],
+            normalization_policy=DefaultNormalizationPolicy(rules=normalization_rules),
+            consolidation_rule=DefaultConsolidationRule(
+                policy=DefaultConsolidationPolicy(rules=consolidation_rules)
+            ),
+            qa_strategy=NoOpQAStrategy(),
+            renderers=[JsonMarkerRenderer()],
+        )
+
+        # 8. Final state is COMPLETE and findings were re-persisted to the
+        #    fresh DB (proving the replay actually re-executed every
+        #    downstream stage, not just the state transitions).
+        final_row = fresh_engagement_repo.get(engagement_id)
+        assert final_row["state"] == EngagementState.COMPLETE.value
+        assert fresh_finding_repo.get_consolidated(engagement_id), (
+            "Replay from PARSE should have re-populated consolidated findings"
+        )
+
+    def test_replay_after_db_wipe_rejects_non_parse_start_stage(
+        self,
+        isolated_data_dir: Path,
+        orchestrator: Orchestrator,
+        engagement_repo: EngagementRepo,
+        e2e_config: EngagementConfig,
+        scubagear_adapter_with_fixture: ScubaGearAdapter,
+        artifact_manager: ArtifactManager,
+        normalization_rules: dict[str, Any],
+        consolidation_rules: dict[str, Any],
+    ) -> None:
+        """DR replay only supports --from parse.
+
+        CONSOLIDATE/QA/RENDER resume paths verify the event journal, which
+        is empty after a DB wipe. replay_cmd rejects those start stages
+        with a clear error rather than letting them fail later with a
+        confusing `upstream stage never completed` error. This test
+        exercises the gate at the CliRunner level so the exit-code and
+        user-facing message are both asserted.
+        """
+        from click.testing import CliRunner
+
+        from gxassessms.cli.commands.replay import replay_cmd
+
+        # 1. Run a full pipeline so the engagement directory + config
+        #    snapshot file exist on disk.
+        engagement_id = self._run_pipeline(
+            orchestrator,
+            engagement_repo,
+            e2e_config,
+            [scubagear_adapter_with_fixture],
+            normalization_rules,
+            consolidation_rules,
+        )
+
+        # 2. Wipe the DB to force the DR fallback path in replay_cmd.
+        db_path = isolated_data_dir / "engagements.db"
+        if db_path.exists():
+            db_path.unlink()
+        for suffix in ("-wal", "-shm"):
+            sidecar = db_path.with_name(db_path.name + suffix)
+            if sidecar.exists():
+                sidecar.unlink()
+
+        # 3. Invoke `mseco replay --from consolidate`. replay_cmd detects
+        #    the DR fallback, sees start_stage != PARSE, and exits 1 with
+        #    the expected error message.
+        runner = CliRunner()
+        result = runner.invoke(
+            replay_cmd,
+            [engagement_id, "--from", "consolidate"],
+        )
+        assert result.exit_code == 1
+        # Assert on short, wrap-safe substrings: Rich may soft-wrap the
+        # full error message on narrow terminals in CI.
+        assert "cannot be replayed" in result.output
+        assert "--from parse" in result.output
 
     def test_pipeline_pure_stage_smoke(
         self,

@@ -117,6 +117,73 @@ def _load_config_for_replay(
         ) from e
 
 
+def _rehydrate_engagement_if_missing(
+    engagement_id: str,
+    config: EngagementConfig,
+    repo: EngagementRepo,
+    engagement_dir: str | None,
+) -> bool:
+    """Rehydrate the engagement row from a filesystem snapshot (DR path).
+
+    Called only when `_load_config_for_replay` returned
+    `loaded_from_fallback=True`. Returns True if a new row was inserted
+    and False if the row was already present (e.g. DB recovered between
+    the two lookups). Calls SystemExit(1) with a user-facing message if
+    the DB itself is still unreadable, or if the rehydrate INSERT fails.
+
+    The caller is responsible for gating this path on `start_stage`:
+    only PARSE is viable after a DB wipe because CONSOLIDATE/QA/RENDER
+    resume paths verify the event journal, which is empty in DR.
+    """
+    try:
+        repo.get(engagement_id)
+    except PersistenceError:
+        # Expected in the DR case -- fall through and insert the row.
+        pass
+    except sqlite3.Error as db_err:
+        logger.error(
+            "DB unreadable during DR rehydrate check for %s: %s",
+            engagement_id,
+            db_err,
+        )
+        console.print(
+            f"[bright_red]Error:[/bright_red] Database is unreadable; cannot "
+            f"rehydrate engagement {engagement_id!r}. Wipe and recreate the DB "
+            "per runbook step 2 before retrying `mseco replay`."
+        )
+        raise SystemExit(1) from None
+    else:
+        # Row exists already -- nothing to rehydrate.
+        return False
+
+    try:
+        repo.rehydrate_from_snapshot(
+            engagement_id=engagement_id,
+            client_name=config.client_name,
+            tenant_id=config.tenant_id,
+            config_snapshot=config.model_dump(mode="json"),
+            engagement_dir=engagement_dir,
+        )
+    except (PersistenceError, sqlite3.Error) as insert_err:
+        logger.error(
+            "Failed to rehydrate engagement %s: %s",
+            engagement_id,
+            insert_err,
+            exc_info=True,
+        )
+        console.print(
+            f"[bright_red]Error:[/bright_red] Failed to rehydrate engagement row "
+            f"for {engagement_id!r}: {insert_err}"
+        )
+        raise SystemExit(1) from None
+
+    console.print(
+        f"[yellow]DR:[/yellow] Rehydrated engagement row for {engagement_id!r} "
+        "from filesystem config snapshot."
+    )
+    return True
+
+
 @click.command("replay")
 @click.argument("engagement_id")
 @click.option(
@@ -170,13 +237,29 @@ def replay_cmd(engagement_id: str, from_stage: str, qa_strategy_name: str | None
         config, loaded_from_fallback = _load_config_for_replay(engagement_id, repo, artifacts)
 
         try:
-            artifacts.get_engagement_dir(engagement_id)
+            engagement_dir = artifacts.get_engagement_dir(engagement_id)
         except PersistenceError:
             console.print(
                 f"[bright_red]Error:[/bright_red] No engagement directory found for "
                 f"{engagement_id!r}. Has collection been run?"
             )
             raise SystemExit(1) from None
+
+        # DR path: if the config came from the filesystem snapshot, the DB
+        # row is almost certainly missing too. Rehydrate it so the
+        # downstream `reset_for_rerun` -> `force_update_state` chain has a
+        # row to update. Only PARSE is viable after a DB wipe because
+        # CONSOLIDATE/QA/RENDER resume paths verify the event journal,
+        # which is empty in DR.
+        if loaded_from_fallback:
+            if start_stage is not Stage.PARSE:
+                console.print(
+                    f"[bright_red]Error:[/bright_red] Stage {start_stage.value!r} "
+                    "cannot be replayed after a DB wipe (event history is gone). "
+                    f"Re-run `mseco replay {engagement_id} --from parse` instead."
+                )
+                raise SystemExit(1) from None
+            _rehydrate_engagement_if_missing(engagement_id, config, repo, str(engagement_dir))
 
         console.print(
             f"[bold]Replaying engagement {engagement_id} from {start_stage.value}...[/bold]"

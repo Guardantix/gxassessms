@@ -100,6 +100,62 @@ class EngagementRepo:
         logger.info("Created engagement %s for client %s", engagement_id, client_name)
         return engagement_id
 
+    def rehydrate_from_snapshot(
+        self,
+        engagement_id: str,
+        client_name: str,
+        tenant_id: str,
+        config_snapshot: dict[str, Any],
+        engagement_dir: str | None = None,
+        initial_state: EngagementState = EngagementState.CREATED,
+    ) -> None:
+        """Rehydrate a missing engagement row from a persisted config snapshot.
+
+        Used only by the disaster-recovery path in `mseco replay` after a
+        DB wipe. Unlike `create()`, which generates a fresh UUID, this
+        method inserts a row keyed by the caller-supplied engagement_id
+        so downstream stages find the same row the filesystem already
+        carries. Raises PersistenceError if a row with this ID already
+        exists -- the caller is expected to confirm the row is missing
+        before invoking this method.
+
+        The row is seeded at `initial_state` (default CREATED); the
+        subsequent `reset_for_rerun` call in the replay flow will
+        `force_update_state` the row to the correct stage entry state.
+        """
+        now = format_utc(utc_now())
+        config_json = json.dumps(config_snapshot)
+
+        with self._db.connect() as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM engagements WHERE engagement_id = ?",
+                (engagement_id,),
+            ).fetchone()
+            if existing is not None:
+                raise PersistenceError(
+                    f"Cannot rehydrate engagement {engagement_id!r}: row already exists"
+                )
+
+            conn.execute(
+                "INSERT INTO engagements "
+                "(engagement_id, client_name, tenant_id, state, created_at, "
+                "config_snapshot, engagement_dir) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    engagement_id,
+                    client_name,
+                    tenant_id,
+                    initial_state.value,
+                    now,
+                    config_json,
+                    engagement_dir,
+                ),
+            )
+        logger.warning(
+            "Rehydrated engagement %s from filesystem snapshot (DR path)",
+            engagement_id,
+        )
+
     def get(self, engagement_id: str) -> dict[str, Any]:
         """Get an engagement by ID. Raises PersistenceError if not found."""
         with self._db.connect() as conn:
