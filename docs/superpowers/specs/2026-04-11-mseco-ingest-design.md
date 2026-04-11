@@ -34,16 +34,19 @@ This spec defines `mseco ingest`, the command that closes that gap.
 
 `mseco ingest` is an operator-driven, filesystem-only command. It does not invoke any tool, authenticate to any tenant, or fetch data over the network. Its job is to accept a directory of client-provided raw output, hash the files, build the `RawToolOutput` manifest the replay machinery needs, commit it atomically alongside any existing data in the engagement directory, and reset the engagement state so downstream pipeline stages know the raw output is fresh.
 
-The design has six coordinated pieces across the layers:
+The design has seven coordinated pieces across the layers:
 
-1. **Data model** (`core/domain/models.py`, `core/domain/constants.py`): two new optional fields on `RawToolOutput` plus a new `IngestProvenance` model, gated by a `manifest_version` bump from `"1.0.0"` to `"1.1.0"` that preserves backward-read compatibility for existing engagements on disk.
-2. **Shared adapter helper** (`adapters/_base.py`): new module-level `build_collection_output()` that hashes a pre-computed list of `(source_path, target_relpath)` pairs and assembles a `CollectionOutput`. Used by both live `collect()` and the new ingest path. Discovery and freshness filtering stay in each adapter's `collect()` exactly as today.
-3. **Per-adapter ingest method** (`adapters/<tool>/adapter.py`): new `ingest_from_directory()` method on each of the 7 adapters, implementing the same file-walk logic as live collect but without freshness filtering (since ingest has no "before" snapshot).
-4. **Protocol extension** (`core/contracts/types.py`): new `IngestCapableAdapter(ToolAdapter, Protocol)` adding `ingest_from_directory()` and a `default_schema_version: str` class attribute, plus an `"ingest"` entry in `AdapterCapability`.
-5. **Persistence layer** (`persistence/artifacts.py`): new `save_ingested_raw_output()` method on `ArtifactManager`, providing atomic single-slug writes (unlike the existing full-generation-swap `save_raw_outputs()`) with fail-closed enforcement of pre-existing engagement directory and a per-side rollback on commit failure.
-6. **CLI command** (`cli/commands/ingest.py`, `cli/main.py`, `cli/_helpers.py`, `pipeline/orchestrator.py`, `pipeline/state.py`): the `mseco ingest` Click command, new canonical helpers (`resolve_enabled_adapter`, `require_ingest_capable`, `get_engagement_lock`), a new `"raw_output_ingested"` `EventType` variant and public `record_raw_output_ingested` orchestrator wrapper, and the documented state reset via `reset_for_rerun(Stage.PARSE)`.
+1. **Engagement bootstrap fix** (`cli/commands/engagement.py`): `mseco engagement create` is extended to provision the on-disk engagement directory AND write the `config_snapshot.json` mirror immediately after inserting the DB row, with an orphan-row rollback if filesystem provisioning fails. This is the foundation that lets ingest-only engagements work end-to-end and is the single place where the replay DR snapshot path gets seeded for both collect and ingest workflows.
+2. **Data model** (`core/domain/models.py`, `core/domain/constants.py`): two new optional fields on `RawToolOutput` plus a new `IngestProvenance` model, gated by a `manifest_version` bump from `"1.0.0"` to `"1.1.0"` that preserves backward-read compatibility for existing engagements on disk.
+3. **Shared adapter helper** (`adapters/_base.py`): new module-level `build_collection_output()` that hashes a pre-computed list of `(source_path, target_relpath)` pairs and assembles a `CollectionOutput`. Used by both live `collect()` and the new ingest path. Discovery and freshness filtering stay in each adapter's `collect()` exactly as today.
+4. **Per-adapter ingest method** (`adapters/<tool>/adapter.py`): new `ingest_from_directory()` method on each of the 7 adapters, implementing the same file-walk logic as live collect but without freshness filtering (since ingest has no "before" snapshot).
+5. **Protocol extension** (`core/contracts/types.py`): new `IngestCapableAdapter(ToolAdapter, Protocol)` adding `ingest_from_directory()` and a `default_schema_version: str` class attribute, plus an `"ingest"` entry in `AdapterCapability`.
+6. **Persistence layer** (`persistence/artifacts.py`): new `save_ingested_raw_output()` method on `ArtifactManager`, providing atomic single-slug writes (unlike the existing full-generation-swap `save_raw_outputs()`), fail-closed on missing engagement directory for the normal path, with a narrow legacy-migration fallback that auto-provisions for engagements created before this PR, and a per-side rollback on commit failure.
+7. **CLI command** (`cli/commands/ingest.py`, `cli/main.py`, `cli/_helpers.py`, `pipeline/orchestrator.py`, `pipeline/state.py`): the `mseco ingest` Click command, new canonical helpers (`resolve_enabled_adapter`, `require_ingest_capable`, `get_engagement_lock`), a new `"raw_output_ingested"` `EventType` variant and public `record_raw_output_ingested` orchestrator wrapper, and state reset via `reset_for_rerun(Stage.PARSE)` ordered **before** the filesystem commit so any commit failure leaves the engagement in a cleanly retryable state.
 
 ## Section 1: End-to-end flow
+
+**Bootstrap precondition (new, from the engagement create fix in Section 1a):** After `mseco engagement create` succeeds, the engagement has (a) a DB row, (b) an on-disk `<engagement_dir>/` with `raw-output/manifests/`, `raw-output/artifacts/`, and `reports/` subdirectories, and (c) a `<engagement_dir>/config_snapshot.json` mirror that `replay` can use for DR recovery. Ingest assumes this precondition and does not re-provision it on the normal path; a narrow legacy-migration fallback in `save_ingested_raw_output` handles engagements created before this PR.
 
 ```
 1. CLI arg validation (before any I/O)
@@ -58,6 +61,11 @@ The design has six coordinated pieces across the layers:
 2. Engagement lookup (DB-required, NO filesystem fallback)
    - EngagementRepo.get(engagement_id): raises PersistenceError if missing
    - ArtifactManager.get_engagement_dir(engagement_id): raises if no on-disk dir
+     - Normal case: the dir exists because `engagement create` provisioned it.
+     - Legacy case: the dir is missing because the engagement was created
+       before this PR landed. Ingest does NOT fail here; the missing-dir
+       branch is handled inside save_ingested_raw_output's migration
+       fallback (Section 4.2a).
    - EngagementConfig.model_validate(decode_config_snapshot(row))
 
 3. Adapter resolution
@@ -87,38 +95,84 @@ The design has six coordinated pieces across the layers:
    - ingest_adapter.validate_raw(preflight_manifest)
    - Any failure -> abort, release lock, exit 1, NOTHING written
 
-8. Atomic single-slug commit
+8. DB state reset (ordered BEFORE filesystem commit, intentionally)
+   - orchestrator.reset_for_rerun(engagement_id, Stage.PARSE)
+     - Resets engagement state to COLLECTED (PARSE's entry state per
+       stages.py:386). No-op when already at COLLECTED. Emits existing
+       "rerun" event via the orchestrator's standard path.
+   - Why this runs BEFORE the filesystem commit: if Step 9 (filesystem
+     commit) fails and Section 4.3's per-side rollback restores the
+     pre-call filesystem state, the engagement is left with (a) its
+     original raw-output unchanged and (b) state reset to COLLECTED.
+     That's a benign, idempotent, retryable state -- the operator just
+     reruns ingest. By contrast, reversing the order (commit first,
+     then reset) would leave a committed filesystem with stale DB state
+     on DB failure, which is the split-brain case Codex Finding 3 called
+     out.
+
+9. Atomic single-slug filesystem commit
    - ArtifactManager.save_ingested_raw_output(
          engagement_id, collection_output,
          ingest_provenance=..., replace=...,
      )
    - Phase 1 validate, Phase 2 stage, Phase 3 atomic per-slug rename
+   - Legacy migration: if the engagement dir is missing, save_ingested_raw_output
+     provisions the dir AND mirrors config_snapshot.json from the DB via a
+     narrow one-time path (see Section 4.2a)
 
-9. State reset + event emission (still under the lock)
-   - orchestrator.reset_for_rerun(engagement_id, Stage.PARSE)
-     - Resets engagement state to COLLECTED (PARSE's entry state per
-       stages.py:386). No-op when already at COLLECTED. Emits existing
-       "rerun" event via the orchestrator's standard path.
-   - orchestrator.record_raw_output_ingested(
-         engagement_id=..., actor=f"human:{operator}",
-         tool_slug=..., source_path=..., file_count=..., replaced=...,
-     )
-     - New public wrapper. Internally routes through _emit_event to write
-       the new "raw_output_ingested" event with a typed payload.
+10. Ingest event emission
+    - orchestrator.record_raw_output_ingested(
+          engagement_id=..., actor=f"human:{operator}",
+          tool_slug=..., source_path=..., file_count=..., replaced=...,
+      )
+      - New public wrapper. Internally routes through _emit_event to write
+        the new "raw_output_ingested" event with a typed payload.
+    - This is the ONE step that can fail after the filesystem is committed.
+      Recovery procedure is documented in Section 5.5a and the runbook.
 
-10. Release lock (finally block)
+11. Release lock (finally block)
 
-11. Success output
+12. Success output
     - Ingested file count, manifest path, next-step hint:
       "Run `mseco replay <id> --from parse` to process this data."
 ```
 
 **Layering invariants:**
 
-- **DB-required, no DR fallback.** Unlike `replay`, ingest has no disaster-recovery path that falls back to `config_snapshot.json`. If the engagement isn't in the DB, the operator runs `mseco engagement create` first. Ingest is a pre-normalization step, not a recovery tool.
-- **Lock scope.** Conflict check, adapter walk, `validate_raw` preflight, atomic commit, state reset, and event emission all happen inside a single `engagement_lock.hold(engagement_id)` region. Other mutating commands (collect, replay, review UI plugins) are serialized against ingest via the same advisory filelock mechanism documented in runbook section 9.
+- **DB-required, no DR fallback for config.** Unlike `replay`, ingest has no disaster-recovery path that falls back to `config_snapshot.json` for reading config. If the engagement isn't in the DB, the operator runs `mseco engagement create` first. Ingest is a pre-normalization step, not a recovery tool. (But ingest DOES write the filesystem `config_snapshot.json` mirror on legacy migration, so that replay-after-DB-loss still works for ingest-only engagements — see Section 4.2a.)
+- **Lock scope.** Conflict check, adapter walk, `validate_raw` preflight, DB state reset, atomic filesystem commit, and event emission all happen inside a single `engagement_lock.hold(engagement_id)` region. Other mutating commands (collect, replay, review UI plugins) are serialized against ingest via the same advisory filelock mechanism documented in runbook section 9.
+- **DB writes bracket the filesystem commit.** State reset happens BEFORE the filesystem commit (idempotent and safely retryable if commit fails); event emission happens AFTER (the one failure mode that requires an explicit retry-with-replace recovery, documented in Section 5.5a).
 - **`validate_raw` is an ingest-private preflight**, not a weakening of the replay trust boundary. Replay still performs its own `confine_and_resolve()` + `validate_raw()` on read. Ingest just runs the check earlier so the operator finds out immediately whether the client's files are usable.
-- **Save_ingested_raw_output has a distinct contract from save_raw_outputs.** It does NOT auto-create the engagement dir, it writes only one slug, and it constructs the `RawToolOutput` internally with `source_mode="ingested"` (the one place in the codebase where that value is materialized).
+- **save_ingested_raw_output has a distinct contract from save_raw_outputs.** It writes only one slug, constructs the `RawToolOutput` internally with `source_mode="ingested"` (the one place in the codebase where that value is materialized), and fails closed on missing engagement dir unless the narrow legacy-migration condition applies (Section 4.2a).
+
+## Section 1a: Engagement bootstrap fix
+
+`mseco engagement create` today at `cli/commands/engagement.py:74-103` inserts a DB row but does not provision the on-disk engagement directory. That worked up to now because `save_raw_outputs()` at `persistence/artifacts.py:476` has a lazy fallback that calls `create_engagement_dir()` on first write. For ingest-only engagements, which may never call `save_raw_outputs()`, that lazy fallback was never going to fire — the happy path in runbook scenario 3 would immediately hit "engagement directory not found" on the first `mseco ingest` call.
+
+The fix: `engagement create` provisions both halves at bootstrap time.
+
+**New behavior:**
+
+1. Validate the config file and insert the DB row (unchanged from today).
+2. **NEW:** Call `ArtifactManager.create_engagement_dir(engagement_id, client_name)` to create `<engagement_dir>/` with `raw-output/manifests/`, `raw-output/artifacts/`, `reports/` subdirectories (`secure_mkdir` with 0o700 perms).
+3. **NEW:** Call `mirror_config_snapshot_from_db(engagement_id)` (existing helper at `pipeline/config_snapshot_mirror.py:28-99`, currently invoked only after COLLECT via `_runner.py:84-97`) to write `<engagement_dir>/config_snapshot.json` so replay's DR path works for this engagement from day one.
+4. **NEW orphan-row rollback:** If step 2 or step 3 fails, catch the error, delete the DB row via `EngagementRepo.delete(engagement_id)` or equivalent, and re-raise as a `GxAssessError`. The user sees a single clean error and the engagement never exists in a half-bootstrapped state on disk.
+
+**Why this fixes both Codex Finding 1 and Finding 2:**
+
+- **Finding 1** (fresh ingest-only engagements cannot work): after this change, `mseco engagement create` → `mseco ingest` is a working sequence for new engagements, because step 2 above creates the directory that `ingest` then writes into. The happy path in runbook scenario 3 actually runs.
+- **Finding 2** (ingest-only engagements lose replay DR): after this change, every engagement — collect-only, ingest-only, or mixed — has a `<engagement_dir>/config_snapshot.json` mirror from bootstrap onward. Replay's existing DR-fallback code at `cli/commands/replay.py:60-125` works uniformly regardless of which write path last touched the engagement. The existing `mirror_config_snapshot_from_db()` call in collect's pipeline runner stays as a defense-in-depth refresh, but it's no longer the sole path.
+
+**Files changed:**
+
+- `cli/commands/engagement.py` — `create_cmd` gets the new provision + mirror + rollback logic. ~15 lines of additional code.
+- `persistence/engagement_repo.py` — if `EngagementRepo.delete(engagement_id)` doesn't exist in the right shape, add a narrow helper for the rollback case. (Needs verification during implementation; the existing `purge` path is the destructive equivalent but is higher-level and not the right hook here.)
+
+**What this does NOT change:**
+
+- The lazy `save_raw_outputs` fallback at `artifacts.py:476` stays in place as-is. It's belt-and-suspenders for any write path that hits a missing-dir condition (which should now be impossible for freshly-created engagements but is still the safety net for legacy engagements that haven't hit their first write yet).
+- Collect's `mirror_config_snapshot_from_db()` call at `_runner.py:84-97` stays in place. It refreshes the mirror after every successful collect, which is the right behavior when the DB config changes between runs.
+- The non-ingest path `engagement status` → `engagement create` → `engagement status` gets marginally different output (the second `status` call sees a directory that didn't exist before), but this is benign and not tested behavior today.
 
 ## Section 2: Data model changes
 
@@ -498,13 +552,14 @@ def save_ingested_raw_output(
 
 **Contract summary:**
 
-- **Fails closed on missing on-disk engagement directory.** No `create_engagement_dir()` fallback. Caller (the CLI layer) is responsible for enforcing any higher-level invariants (e.g., "engagement row must exist in the DB"); this method only knows about filesystem state.
+- **Fails closed on missing engagement dir for the normal path, with a narrow legacy-migration fallback.** For engagements created after the Section 1a bootstrap fix, the directory always exists, and a missing dir is a real inconsistency to be reported to the operator. For engagements created before this PR (DB row present, directory not yet provisioned), a narrow migration path auto-creates the directory and mirrors `config_snapshot.json`. See Section 4.2a for the exact conditions and logging.
 - **Single-slug atomicity.** Only the target tool's artifacts subdirectory and manifest file are touched. All other tools' existing data remains byte-for-byte untouched.
 - **Conflict-gated.** If the slug's artifacts or manifest already exists and `replace=False`, raises `PersistenceError` before any mutation. With `replace=True`, the prior data is atomically renamed aside as part of the commit and cleaned up best-effort afterwards.
 - **Owns manifest materialization.** Constructs the `RawToolOutput` internally with `source_mode="ingested"` and the caller-provided `ingest_provenance`. The caller does not construct the `RawToolOutput` — this method is the **only** place in the codebase that writes `source_mode="ingested"`, enforced by code review.
 - **Invariant assertion: `execution_metadata == {}`.** The method asserts `collection_output.execution_metadata == {}` at the top and raises `PersistenceError` if violated. Ingest must never synthesize per-tool execution metadata; that field is exclusively for real tool-run provenance.
 - **Caller must hold `EngagementLock`.** This method does not acquire a lock; it trusts the caller to serialize concurrent mutations (same convention as `save_raw_outputs`).
 - **Caller must have already run the adapter's `validate_raw()`** against the source files. This method does not call `validate_raw()` itself; that's the CLI command's pre-commit check.
+- **Caller must have already called `reset_for_rerun(Stage.PARSE)`.** The CLI command orders state reset before this method for idempotency on commit failure (see Section 1 step 8). This method does not call the orchestrator itself.
 
 ### 4.2 Implementation sketch
 
@@ -528,6 +583,61 @@ This closes the window between adapter-produced `CollectionOutput` (where `tool_
 2. **Phase 2 — stage to `.ingest-staging-<slug>-<uuid>/`:** copy files with hash-verified copies, write the manifest JSON to the staging directory. On any failure, `shutil.rmtree(staging_dir, ignore_errors=True)` and re-raise.
 3. **Phase 3 — atomic per-slug commit:** rename-aside any existing slug data (if `replace=True`), then commit new artifacts first and manifest last (matching `save_raw_outputs` Phase 3 ordering).
 
+### 4.2a Legacy migration fallback
+
+The Section 1a bootstrap fix ensures every new engagement has its directory provisioned at creation time. But engagements that exist in the DB today were created before that fix and don't have directories yet. To avoid breaking those engagements on the first ingest, `save_ingested_raw_output()` has one specific escape hatch from its fail-closed rule, applied before the three-phase discipline in Section 4.2 runs:
+
+```python
+try:
+    eng_dir = self.get_engagement_dir(engagement_id)
+except PersistenceError:
+    # Legacy migration: DB row exists (caller checked at the CLI layer)
+    # but the on-disk directory was never provisioned. This only happens
+    # for engagements created before PR #78; after PR #78, `engagement create`
+    # always provisions the directory.
+    logger.warning(
+        "Legacy engagement %s has no on-disk directory; provisioning it now "
+        "as a one-time migration. Future engagements will be provisioned at "
+        "`mseco engagement create` time.",
+        engagement_id,
+    )
+    # client_name is needed for the slug prefix in the directory name.
+    # Read it from the DB row that the CLI layer has already loaded;
+    # see Section 5.3 for how the CLI passes client_name into this method
+    # as an additional keyword argument on the legacy path.
+    eng_dir = self.create_engagement_dir(engagement_id, client_name)
+
+    # Mirror the config_snapshot so replay's DR path works for this
+    # engagement. Same helper collect uses at _runner.py:84-97.
+    from gxassessms.pipeline.config_snapshot_mirror import (
+        mirror_config_snapshot_from_db,
+    )
+    mirror_config_snapshot_from_db(
+        engagement_id=engagement_id,
+        engagements_root=self._engagements_root,
+        engagement_repo=<repo handle>,
+    )
+```
+
+**Why this is narrow, not "relax the fail-closed rule entirely":**
+
+- The `except PersistenceError` block only fires when the directory is missing. Every other failure mode (wrong permissions, partial state on disk, etc.) still falls through the original code path.
+- The legacy migration calls `create_engagement_dir()` AND `mirror_config_snapshot_from_db()`. If either fails, the error propagates and no raw output is written.
+- The WARNING log line distinguishes a legacy-migration auto-provision from a first-write provision, so operators can tell the difference when reviewing logs months later.
+- New engagements created via the fixed `engagement create` will never hit this path, because the directory is always already present. Over time, the legacy branch becomes cold code.
+
+**What this is NOT:**
+
+- This is NOT a general-purpose "auto-create if missing" behavior for `save_ingested_raw_output`. It is a one-shot migration for engagements that predate the bootstrap fix. If filesystem corruption or manual deletion removes the directory of a post-PR engagement, the error still bubbles up — because for post-PR engagements, a missing directory means the engagement is actually broken.
+- It does NOT handle the case where the DB row itself is missing. That case is caught earlier at the CLI layer by `EngagementRepo.get(engagement_id)` and results in a clean user-facing error.
+
+**Constructor wiring:** `ArtifactManager` does not currently hold a reference to `EngagementRepo` — the two are independent layers. The legacy migration path needs the engagement row to call `mirror_config_snapshot_from_db`. Two options for the implementation plan:
+
+1. **Pass a repo handle into `save_ingested_raw_output` as an optional keyword argument.** The CLI layer, which already holds the repo, passes it in. This keeps `ArtifactManager`'s core API repo-agnostic and confines the coupling to the ingest path.
+2. **Perform the mirror at the CLI layer, not inside `save_ingested_raw_output`.** The CLI detects the legacy case (by catching `PersistenceError` from `get_engagement_dir` in Step 2 of the flow) and calls `create_engagement_dir` + `mirror_config_snapshot_from_db` itself before invoking `save_ingested_raw_output`. This keeps `ArtifactManager` unchanged but duplicates the detection logic across layers.
+
+Recommend **option 1** for the implementation plan — the legacy branch is entirely concentrated inside `save_ingested_raw_output`, which is the right layer for "persistence-level migration of a specific failure mode." The repo-handle keyword argument is cleanly typed and the dependency is optional on the normal path.
+
 ### 4.3 Per-side rollback for single-slug atomicity
 
 Phase 3 tracks `committed_artifacts` and `committed_manifest` independently. If the second rename (manifest) fails after the first (artifacts) succeeds, the rollback path handles each side independently to restore the exact pre-call state. The four pre-call cases × `replace=True` are all covered:
@@ -547,9 +657,10 @@ A "rollback itself fails" fallback logs an error and leaves the `.old-ingest-*` 
 
 - Does not acquire the engagement lock (caller's job)
 - Does not call `validate_raw()` on the `CollectionOutput` (CLI's job, runs pre-commit against source paths)
-- Does not emit events or update engagement state (CLI's job, runs under the same lock)
+- Does not emit events or update engagement state (CLI's job, runs under the same lock, and the CLI orders `reset_for_rerun` **before** this method for retry safety)
 - Does not filter `execution_metadata` through the allowlist (ingest's execution_metadata is `{}` by invariant, so no filtering is needed; the assertion at the top ensures this can never change)
-- Does not update the DB `engagements` row or `raw-output/config_snapshot.json`
+- Does not update the DB `engagements` row
+- Does not write `<engagement_dir>/config_snapshot.json` on the normal path — that file is written by `mseco engagement create` at bootstrap (Section 1a) and refreshed by collect's existing `mirror_config_snapshot_from_db()` call at `_runner.py:84-97`. The only ingest-time write to that file is inside the Section 4.2a legacy-migration fallback, one-shot per engagement.
 
 ## Section 5: CLI command
 
@@ -620,21 +731,17 @@ except PersistenceError as e:
     )
     raise SystemExit(1) from None
 
-# On-disk directory required.
-try:
-    engagement_dir = artifacts.get_engagement_dir(engagement_id)
-except PersistenceError:
-    console.print(
-        f"[bright_red]Error:[/bright_red] No engagement directory found "
-        f"for {engagement_id!r}. The DB row exists but the on-disk "
-        f"directory is missing -- this engagement is in an inconsistent state."
-    )
-    raise SystemExit(1) from None
-
 # Load the engagement config (DB only; no DR fallback for ingest).
 from gxassessms.persistence.engagement_repo import decode_config_snapshot
 snapshot = decode_config_snapshot(engagement)
 config = EngagementConfig.model_validate(snapshot)
+client_name = config.client_name  # needed for legacy-migration fallback if the dir is missing
+
+# On-disk directory check is deferred: save_ingested_raw_output handles
+# missing-dir either as a normal error (post-PR engagements should always
+# have the dir) or as the Section 4.2a legacy migration fallback. The CLI
+# does NOT pre-check get_engagement_dir here; it passes the missing-dir
+# case through to the persistence layer so the migration branch can fire.
 ```
 
 ### 5.4 Adapter resolution via new helpers in `cli/_helpers.py`
@@ -697,14 +804,54 @@ def get_engagement_lock() -> EngagementLock:
 
 ### 5.5 The lock-held region — `_ingest_under_lock()`
 
-Kept as a separate helper so the lock acquisition stays narrow and readable. Runs:
+Kept as a separate helper so the lock acquisition stays narrow and readable. Runs in this specific order (see Section 1 step 8 for the rationale on DB-reset-before-filesystem-commit):
 
-1. **Conflict check** (TOCTOU-safe inside the lock)
+1. **Conflict check** (TOCTOU-safe inside the lock) — uses `artifacts.get_engagement_dir()` opportunistically; if the dir is missing (legacy migration case), the conflict check becomes "no prior state," which is correct.
 2. **Adapter walk**: `ingest_adapter.ingest_from_directory(source_dir, schema_version=..., timestamp=run_at)`. Schema version resolution: `schema_version_override or ingest_adapter.default_schema_version`
 3. **Pre-commit `validate_raw`**: build a throwaway `ResolvedManifest` with absolute source_paths as `file_manifest` keys, call `ingest_adapter.validate_raw(preflight_manifest)`. On failure, abort without mutating the engagement directory.
-4. **Atomic commit**: construct `IngestProvenance(source_path=str(source_dir), ingested_at=utc_now(), ingested_by=f"human:{operator}")`, call `artifacts.save_ingested_raw_output(...)`.
-5. **State reset**: `orchestrator.reset_for_rerun(engagement_id, Stage.PARSE)` — resets the engagement state to `EngagementState.COLLECTED` (PARSE's entry state per `stages.py:386`). No-op when already at COLLECTED. Emits the existing `"rerun"` event via the orchestrator's standard path.
-6. **Dedicated ingest event**: `orchestrator.record_raw_output_ingested(...)` — new public wrapper.
+4. **DB state reset**: `orchestrator.reset_for_rerun(engagement_id, Stage.PARSE)` — resets the engagement state to `EngagementState.COLLECTED` (PARSE's entry state per `stages.py:386`). No-op when already at COLLECTED. Emits the existing `"rerun"` event via the orchestrator's standard path. **This runs BEFORE the filesystem commit**: if step 5 fails and Section 4.3's per-side rollback restores the pre-call filesystem state, the engagement is left at COLLECTED with its original raw output unchanged — a clean retry state. The alternative order (commit first, then reset) would leave committed filesystem data paired with stale DB state on DB failure, which is the split-brain case Codex Finding 3 called out.
+5. **Atomic filesystem commit**: construct `IngestProvenance(source_path=str(source_dir), ingested_at=utc_now(), ingested_by=f"human:{operator}")`, call `artifacts.save_ingested_raw_output(engagement_id, collection_output, ingest_provenance=..., replace=..., client_name=client_name, engagement_repo=repo)`. The `client_name` and `engagement_repo` keyword arguments are only consumed on the Section 4.2a legacy-migration path; on the normal path they're unused.
+6. **Dedicated ingest event**: `orchestrator.record_raw_output_ingested(...)` — new public wrapper. **This is the one step that can fail after the filesystem is committed**, producing the missing-audit-event failure mode documented in Section 5.5a below.
+
+### 5.5a Recovery from partial-ingest failures
+
+The two DB operations in the lock-held region (`reset_for_rerun` at step 4 and `record_raw_output_ingested` at step 6) can in principle fail under SQLite errors, disk-full conditions, or concurrent-lock escalation. The ordering in Section 5.5 is chosen to make most failure modes cleanly retryable, with one specific mode that requires an explicit recovery procedure.
+
+**Failure mode analysis:**
+
+| Step that fails | Filesystem state after failure | DB state after failure | Recovery |
+|---|---|---|---|
+| 1-3 (pre-mutation) | unchanged | unchanged | Retry with corrected inputs. No recovery needed. |
+| 4 (DB state reset) | unchanged (nothing committed yet) | unchanged (reset never applied) | Retry. Clean, idempotent. |
+| 5 (filesystem commit) | unchanged (Section 4.3 per-side rollback restores pre-call state) | state reset to COLLECTED; spurious "rerun" event in journal | Retry. The spurious rerun event is minor audit noise. If the engagement was at COLLECTED before step 4, even the spurious event is avoided because `reset_for_rerun` is a no-op. |
+| 6 (ingest event emission) | **committed** (new manifest and artifacts are on disk) | state is COLLECTED; rerun event in journal; **raw_output_ingested event is missing** | **Manual recovery required.** See below. |
+
+**Manual recovery for step 6 failure:**
+
+The command exits with an error message that explicitly instructs the operator:
+
+```
+[bright_red]Error:[/bright_red] Ingest committed raw output to disk, but the
+audit event could not be recorded: <db error>.
+The engagement state is consistent, but the audit trail is incomplete.
+
+To complete the audit record, re-run the same ingest command with --replace:
+    mseco ingest <id> --tool <slug> --from <path> --replace
+
+The replay pipeline will still work correctly in the meantime; only the audit
+event is missing.
+```
+
+On the retry with `--replace`, the conflict gate passes (because `--replace` permits overwriting the just-committed slug), `save_ingested_raw_output` atomically replaces the slug with identical content (the source files haven't changed), and `record_raw_output_ingested` is called again with `replaced=True`. The resulting event says `replaced=True` even though the second write was semantically a recovery, not a replace. That's a known minor audit artifact documented in the runbook and accepted in this design as the pragmatic cost of avoiding a more complex idempotency layer.
+
+**Why not a fancier recovery (auto-reconcile, deterministic event IDs, etc.)?**
+
+- The probability of step 6 failure is low: SQLite with WAL mode is quite reliable, and the event append happens under the engagement lock so there's no contention with other writers.
+- The recovery procedure is one command the operator can run without understanding internals.
+- A more elaborate reconciliation path (detecting "slug is already committed, just emit the missing event, don't rewrite files") would require new logic for "is this a recovery?" detection, new tests, and new failure modes of its own.
+- If step-6 failures turn out to be more common in practice than expected, a follow-up PR can add deterministic event IDs (`event_id = f"ingest:{engagement_id}:{tool_slug}:{ingested_at}"`) and an insert-or-ignore path in `EventRepo.append()`, letting retries be fully idempotent. Scope it when we see the problem, not speculatively.
+
+**Test for this recovery procedure:** `tests/unit/cli/test_ingest_cmd.py` includes a case that mocks `record_raw_output_ingested` to raise `PersistenceError` after `save_ingested_raw_output` succeeds, asserts the error message names `--replace` as the recovery, and asserts a follow-up invocation with `--replace` emits the ingest event (with `replaced=True`) and exits cleanly.
 
 **LockTimeoutError handling** uses `e.timeout_seconds` only (the exception type at `errors.py:216` has no `lock_path` attribute):
 
@@ -786,11 +933,12 @@ This wrapper is the single public entry point for writing `raw_output_ingested` 
 - `tests/unit/core/test_types.py` — `IngestCapableAdapter` Protocol `isinstance` checks
 - `tests/unit/core/test_constants.py` — `MANIFEST_VERSION_CURRENT`, `RECOGNIZED_MANIFEST_VERSIONS`, allowlist entries
 - `tests/unit/adapters/test_adapter_registry.py` — capability-consistency check
-- `tests/unit/persistence/test_artifacts.py` — `save_ingested_raw_output` happy path, four rollback cases, other-tools isolation, `replace=True` semantics
+- `tests/unit/persistence/test_artifacts.py` — `save_ingested_raw_output` happy path, four rollback cases, other-tools isolation, `replace=True` semantics, **legacy-migration fallback (Section 6.11)**
 - `tests/unit/pipeline/test_orchestrator.py` — `record_raw_output_ingested` forwarding test
 - `tests/unit/pipeline/test_replay.py` — case loading a 1.1.0 `source_mode="ingested"` manifest
 - `tests/unit/pipeline/test_confinement.py` — `RECOGNIZED_MANIFEST_VERSIONS` gate accepts 1.1.0
 - `tests/unit/cli/test_helpers.py` — `resolve_enabled_adapter`, `require_ingest_capable`, `get_engagement_lock`
+- **`tests/unit/cli/test_engagement_create.py` (new if not present, or extend existing)** — engagement create bootstrap behavior (Section 6.12): directory provisioned, config_snapshot.json mirrored, orphan-row rollback on filesystem failure
 
 ### 6.3 Property-based parity tests (the merge gate for the refactor)
 
@@ -901,6 +1049,31 @@ Two tests:
 - **Ingesting from `raw-output.tar.gz`** — out of scope per the issue.
 - **Multi-tool ingest in a single invocation** — follow-up if operators ask for it.
 - **Report layer showing `source_mode`** — follow-up issue.
+
+### 6.11 Legacy migration fallback tests (from Section 4.2a)
+
+New cases in `tests/unit/persistence/test_artifacts.py`:
+
+1. `test_legacy_migration_provisions_dir_and_mirrors_snapshot`: pre-condition is a DB row WITH NO on-disk directory (simulate by creating an engagement row via repo but not via `engagement create`). Call `save_ingested_raw_output` with a valid `CollectionOutput`. Assert: (a) the engagement directory is created via `create_engagement_dir`, (b) `config_snapshot.json` is written into it with content matching the DB row, (c) the raw output commit proceeds and succeeds, (d) a WARNING log line is emitted mentioning "legacy engagement" and "one-time migration".
+2. `test_legacy_migration_fails_if_dir_creation_fails`: same pre-condition, but monkey-patch `create_engagement_dir` to raise `OSError`. Assert `PersistenceError` raised, no raw output committed, no partial state on disk.
+3. `test_legacy_migration_fails_if_mirror_write_fails`: same pre-condition, but monkey-patch `mirror_config_snapshot_from_db` to raise. Assert the migration is aborted, no raw output committed, the (now-empty) engagement directory is cleaned up or left for manual recovery with a clear error message.
+4. `test_post_pr_engagement_with_missing_dir_still_fails_closed`: simulate a post-PR engagement (with the bootstrap fix) where the directory was manually deleted. The CLI layer passes the engagement through, `save_ingested_raw_output` detects the missing dir AND the absence of a legacy-migration marker, and raises `PersistenceError` with a "filesystem corruption or manual deletion" message. (Note: this may or may not require a marker field to distinguish legacy from post-PR; the implementation plan will decide whether the distinction is worth making, or whether the legacy path just runs for any missing-dir case with a warning.)
+
+### 6.12 Engagement bootstrap tests (from Section 1a)
+
+New cases in `tests/unit/cli/test_engagement_create.py` (or whatever test file currently covers `create_cmd`):
+
+1. `test_create_provisions_engagement_dir`: happy path. After `mseco engagement create <config>`, assert the on-disk engagement directory exists with the expected subdirectories (`raw-output/manifests/`, `raw-output/artifacts/`, `reports/`).
+2. `test_create_mirrors_config_snapshot`: after create, assert `<engagement_dir>/config_snapshot.json` exists and its content round-trips through `decode_config_snapshot` back to an equivalent `EngagementConfig`.
+3. `test_create_rolls_back_db_row_on_dir_provision_failure`: monkey-patch `create_engagement_dir` to raise `OSError`. Assert the command fails with a clean error message AND the DB row is NOT left behind (no `EngagementRepo.get(engagement_id)` match after the failure).
+4. `test_create_rolls_back_db_row_on_mirror_failure`: monkey-patch `mirror_config_snapshot_from_db` to raise. Assert the same rollback: no DB row, clean error, and in this case the newly-created directory is also cleaned up or the error message explicitly mentions manual cleanup.
+5. `test_create_idempotent_on_prior_partial_state`: simulate an engagement directory that exists from a prior failed create attempt (directory present, no DB row). Run `engagement create` again with the same config. Assert it either cleanly succeeds (by recreating the DB row and reusing the existing directory) or cleanly fails with a message directing the operator to delete the stale directory first. (Implementation plan decides which behavior is correct; document the choice.)
+
+### 6.13 Partial-ingest recovery test (from Section 5.5a)
+
+One case in `tests/unit/cli/test_ingest_cmd.py`:
+
+- `test_step_6_failure_recovery_via_replace`: mock `record_raw_output_ingested` to raise `PersistenceError`. Assert the command exits 1 with an error message that names `--replace` as the recovery procedure. Then invoke the same command again with `--replace` (mocks return to normal) and assert: (a) exit 0, (b) `save_ingested_raw_output` was called with `replace=True`, (c) `record_raw_output_ingested` was called with `replaced=True` in the payload, (d) the engagement has exactly one `raw_output_ingested` event in the journal (the successful one), (e) the engagement state is COLLECTED.
 
 ## Future work
 
