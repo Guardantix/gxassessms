@@ -20,14 +20,31 @@ Patch target notes:
 
 from __future__ import annotations
 
+import json as _json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 import yaml
 from click.testing import CliRunner
 
 from gxassessms.cli.main import cli
+from gxassessms.core.contracts.errors import GxAssessError, PersistenceError
 from gxassessms.pipeline.state import EngagementState
+
+# Minimal config snapshot accepted by EngagementConfig.model_validate.
+# Used by TestLoadConfigForReplay and the replay CLI fallback tests.
+_MINIMAL_CONFIG_SNAPSHOT: dict[str, object] = {
+    "client_name": "Acme",
+    "tenant_id": "00000000-0000-0000-0000-000000000001",
+    "auth": {
+        "method": "client_credential",
+        "tenant_id": "00000000-0000-0000-0000-000000000001",
+        "client_id": "00000000-0000-0000-0000-000000000002",
+        "client_secret_env": "GX_SECRET",  # pragma: allowlist secret
+    },
+    "tools": {"scubagear": {"enabled": True}},
+}
 
 
 def _write_config(tmp_path: Path) -> Path:
@@ -1307,15 +1324,19 @@ class TestReplayCommand:
             "engagement_id": "eng-missing-001",
             "config_snapshot": json.dumps(config_snapshot),
         }
-        # Return a path that does not exist on disk
-        mock_artifacts.return_value.get_engagement_dir.return_value = Path(
-            "/tmp/nonexistent-engagement-dir-xyz"  # noqa: S108
+        # After Task 4, replay does not call eng_dir.exists(); instead
+        # get_engagement_dir raises PersistenceError when the directory
+        # is missing, and replay surfaces a user-facing error.
+        mock_artifacts.return_value.get_engagement_dir.side_effect = PersistenceError(
+            "Engagement directory not found for: eng-missing-001"
         )
         runner = CliRunner()
         result = runner.invoke(cli, ["replay", "eng-missing-001"])
         assert result.exit_code != 0
-        # Should mention missing raw output, not just crash
-        assert "raw output" in result.output.lower() or "collection" in result.output.lower()
+        # Should mention missing engagement directory, not just crash
+        assert (
+            "engagement directory" in result.output.lower() or "collection" in result.output.lower()
+        )
 
     def test_from_option_rejects_invalid_stage_name(self) -> None:
         """--from should reject stage names not in (parse, consolidate, qa, report)."""
@@ -1436,6 +1457,364 @@ class TestReplayCommand:
         result = runner.invoke(cli, ["replay", "eng-replay-missing-001"])
         assert result.exit_code != 0
         mock_build.return_value.run_from.assert_not_called()
+
+
+class TestLoadConfigForReplay:
+    """Direct tests for _load_config_for_replay helper.
+
+    Exercises the DB-first / filesystem-fallback logic without going through
+    the Click CliRunner. Uses the shared `mock_orchestrator` fixture which
+    exposes `_engagement_repo` and `_artifact_manager` as MagicMocks.
+    """
+
+    def test_db_success_returns_false_for_fallback_flag(self, mock_orchestrator: MagicMock) -> None:
+        from gxassessms.cli.commands.replay import _load_config_for_replay
+
+        mock_orchestrator._engagement_repo.get.return_value = {
+            "config_snapshot": _json.dumps(_MINIMAL_CONFIG_SNAPSHOT)
+        }
+        config, loaded_from_fallback = _load_config_for_replay(
+            "eng-1",
+            mock_orchestrator._engagement_repo,
+            mock_orchestrator._artifact_manager,
+        )
+        assert config.client_name == _MINIMAL_CONFIG_SNAPSHOT["client_name"]
+        assert loaded_from_fallback is False
+        mock_orchestrator._artifact_manager.read_config_snapshot.assert_not_called()
+
+    def test_db_decode_fails_raises_gx_error(self, mock_orchestrator: MagicMock) -> None:
+        from gxassessms.cli.commands.replay import _load_config_for_replay
+
+        mock_orchestrator._engagement_repo.get.return_value = {"config_snapshot": "not-json"}
+        with pytest.raises(GxAssessError, match="corrupt config snapshot in the DB"):
+            _load_config_for_replay(
+                "eng-1",
+                mock_orchestrator._engagement_repo,
+                mock_orchestrator._artifact_manager,
+            )
+
+    def test_db_missing_fs_success_returns_true(self, mock_orchestrator: MagicMock) -> None:
+        from gxassessms.cli.commands.replay import _load_config_for_replay
+
+        mock_orchestrator._engagement_repo.get.side_effect = PersistenceError("not found")
+        mock_orchestrator._artifact_manager.read_config_snapshot.return_value = (
+            _MINIMAL_CONFIG_SNAPSHOT
+        )
+        config, loaded_from_fallback = _load_config_for_replay(
+            "eng-1",
+            mock_orchestrator._engagement_repo,
+            mock_orchestrator._artifact_manager,
+        )
+        assert config.client_name == _MINIMAL_CONFIG_SNAPSHOT["client_name"]
+        assert loaded_from_fallback is True
+
+    def test_db_missing_fs_missing_calls_systemexit(self, mock_orchestrator: MagicMock) -> None:
+        from gxassessms.cli.commands.replay import _load_config_for_replay
+
+        mock_orchestrator._engagement_repo.get.side_effect = PersistenceError("not found")
+        mock_orchestrator._artifact_manager.read_config_snapshot.side_effect = PersistenceError(
+            "No config_snapshot.json"
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            _load_config_for_replay(
+                "eng-1",
+                mock_orchestrator._engagement_repo,
+                mock_orchestrator._artifact_manager,
+            )
+        assert exc_info.value.code == 1
+
+    def test_sqlite_error_triggers_fs_fallback(self, mock_orchestrator: MagicMock) -> None:
+        import sqlite3
+
+        from gxassessms.cli.commands.replay import _load_config_for_replay
+
+        mock_orchestrator._engagement_repo.get.side_effect = sqlite3.OperationalError(
+            "database is locked"
+        )
+        mock_orchestrator._artifact_manager.read_config_snapshot.return_value = (
+            _MINIMAL_CONFIG_SNAPSHOT
+        )
+        _, loaded_from_fallback = _load_config_for_replay(
+            "eng-1",
+            mock_orchestrator._engagement_repo,
+            mock_orchestrator._artifact_manager,
+        )
+        assert loaded_from_fallback is True
+
+    def test_sqlite_error_fs_missing_calls_systemexit(self, mock_orchestrator: MagicMock) -> None:
+        import sqlite3
+
+        from gxassessms.cli.commands.replay import _load_config_for_replay
+
+        mock_orchestrator._engagement_repo.get.side_effect = sqlite3.DatabaseError("corrupt")
+        mock_orchestrator._artifact_manager.read_config_snapshot.side_effect = PersistenceError(
+            "No config_snapshot.json"
+        )
+        with pytest.raises(SystemExit):
+            _load_config_for_replay(
+                "eng-1",
+                mock_orchestrator._engagement_repo,
+                mock_orchestrator._artifact_manager,
+            )
+
+    def test_validation_fails_raises_gx_error(self, mock_orchestrator: MagicMock) -> None:
+        from gxassessms.cli.commands.replay import _load_config_for_replay
+
+        mock_orchestrator._engagement_repo.get.return_value = {
+            "config_snapshot": _json.dumps({"bogus": True})
+        }
+        with pytest.raises(GxAssessError, match="failed validation"):
+            _load_config_for_replay(
+                "eng-1",
+                mock_orchestrator._engagement_repo,
+                mock_orchestrator._artifact_manager,
+            )
+
+
+class TestReplayFallback:
+    """Replay CLI tests covering the DB -> filesystem fallback + security."""
+
+    @pytest.mark.parametrize(
+        "bad_id",
+        [
+            "../etc/passwd",
+            "foo/bar",
+            "foo\\bar",
+            "with\nnewline",
+            "has;semicolon",
+            "has`backtick`",
+            "",
+            "   ",
+        ],
+    )
+    def test_replay_rejects_malformed_engagement_id(self, bad_id: str) -> None:
+        """Security: CLI must reject path-traversal / log-injection inputs."""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["replay", bad_id])
+        assert result.exit_code == 1
+        assert "Invalid engagement ID format" in result.output
+
+    @patch("gxassessms.cli.commands.replay._helpers.build_orchestrator")
+    @patch(
+        "gxassessms.cli.commands.replay._helpers.discover_cli_adapters",
+        return_value=[],
+    )
+    @patch(
+        "gxassessms.cli.commands.replay._helpers.filter_and_validate_adapters",
+        return_value=[],
+    )
+    @patch(
+        "gxassessms.cli.commands.replay._helpers.discover_plugin",
+        return_value=None,
+    )
+    @patch(
+        "gxassessms.cli.commands.replay._helpers.discover_all_plugins",
+        return_value=[],
+    )
+    @patch("gxassessms.cli.commands.replay._helpers.build_normalization_policy")
+    @patch("gxassessms.cli.commands.replay._helpers.build_consolidation_rule")
+    @patch("gxassessms.cli.commands.replay._helpers.get_artifact_manager")
+    @patch("gxassessms.cli.commands.replay._helpers.get_engagement_repo")
+    def test_replay_falls_back_to_filesystem_when_db_row_missing(
+        self,
+        mock_repo_factory: MagicMock,
+        mock_am_factory: MagicMock,
+        mock_cons: MagicMock,
+        mock_norm: MagicMock,
+        mock_discover_all: MagicMock,
+        mock_discover_plugin: MagicMock,
+        mock_filter: MagicMock,
+        mock_adapters: MagicMock,
+        mock_build: MagicMock,
+    ) -> None:
+        mock_repo = MagicMock()
+        mock_repo.get.side_effect = PersistenceError("not found")
+        mock_repo_factory.return_value = mock_repo
+
+        mock_am = MagicMock()
+        mock_am.read_config_snapshot.return_value = _MINIMAL_CONFIG_SNAPSHOT
+        mock_am.get_engagement_dir.return_value = Path("/fake/eng-1")
+        mock_am_factory.return_value = mock_am
+
+        mock_build.return_value = MagicMock()
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["replay", "eng-1", "--from", "parse"])
+
+        assert result.exit_code == 0, f"stdout: {result.output}"
+        mock_am.read_config_snapshot.assert_called_once_with("eng-1")
+        assert "Replayed from filesystem" in result.output
+
+    @patch("gxassessms.cli.commands.replay._helpers.build_orchestrator")
+    @patch(
+        "gxassessms.cli.commands.replay._helpers.discover_cli_adapters",
+        return_value=[],
+    )
+    @patch(
+        "gxassessms.cli.commands.replay._helpers.filter_and_validate_adapters",
+        return_value=[],
+    )
+    @patch(
+        "gxassessms.cli.commands.replay._helpers.discover_plugin",
+        return_value=None,
+    )
+    @patch(
+        "gxassessms.cli.commands.replay._helpers.discover_all_plugins",
+        return_value=[],
+    )
+    @patch("gxassessms.cli.commands.replay._helpers.build_normalization_policy")
+    @patch("gxassessms.cli.commands.replay._helpers.build_consolidation_rule")
+    @patch("gxassessms.cli.commands.replay._helpers.get_artifact_manager")
+    @patch("gxassessms.cli.commands.replay._helpers.get_engagement_repo")
+    def test_replay_falls_back_to_filesystem_on_sqlite_error(
+        self,
+        mock_repo_factory: MagicMock,
+        mock_am_factory: MagicMock,
+        mock_cons: MagicMock,
+        mock_norm: MagicMock,
+        mock_discover_all: MagicMock,
+        mock_discover_plugin: MagicMock,
+        mock_filter: MagicMock,
+        mock_adapters: MagicMock,
+        mock_build: MagicMock,
+    ) -> None:
+        import sqlite3
+
+        mock_repo = MagicMock()
+        mock_repo.get.side_effect = sqlite3.OperationalError("database is locked")
+        mock_repo_factory.return_value = mock_repo
+
+        mock_am = MagicMock()
+        mock_am.read_config_snapshot.return_value = _MINIMAL_CONFIG_SNAPSHOT
+        mock_am.get_engagement_dir.return_value = Path("/fake/eng-1")
+        mock_am_factory.return_value = mock_am
+
+        mock_build.return_value = MagicMock()
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["replay", "eng-1", "--from", "parse"])
+
+        assert result.exit_code == 0, f"stdout: {result.output}"
+        mock_am.read_config_snapshot.assert_called_once_with("eng-1")
+        assert "Replayed from filesystem" in result.output
+
+    @patch("gxassessms.cli.commands.replay._helpers.get_artifact_manager")
+    @patch("gxassessms.cli.commands.replay._helpers.get_engagement_repo")
+    def test_replay_exits_when_both_db_and_fs_snapshot_missing(
+        self, mock_repo_factory: MagicMock, mock_am_factory: MagicMock
+    ) -> None:
+        mock_repo = MagicMock()
+        mock_repo.get.side_effect = PersistenceError("not found")
+        mock_repo_factory.return_value = mock_repo
+
+        mock_am = MagicMock()
+        mock_am.read_config_snapshot.side_effect = PersistenceError("No config_snapshot.json")
+        mock_am_factory.return_value = mock_am
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["replay", "eng-1"])
+        assert result.exit_code == 1
+
+    @patch("gxassessms.cli.commands.replay._helpers.build_orchestrator")
+    @patch(
+        "gxassessms.cli.commands.replay._helpers.discover_cli_adapters",
+        return_value=[],
+    )
+    @patch(
+        "gxassessms.cli.commands.replay._helpers.filter_and_validate_adapters",
+        return_value=[],
+    )
+    @patch(
+        "gxassessms.cli.commands.replay._helpers.discover_plugin",
+        return_value=None,
+    )
+    @patch(
+        "gxassessms.cli.commands.replay._helpers.discover_all_plugins",
+        return_value=[],
+    )
+    @patch("gxassessms.cli.commands.replay._helpers.build_normalization_policy")
+    @patch("gxassessms.cli.commands.replay._helpers.build_consolidation_rule")
+    @patch("gxassessms.cli.commands.replay._helpers.get_artifact_manager")
+    @patch("gxassessms.cli.commands.replay._helpers.get_engagement_repo")
+    def test_replay_uses_db_snapshot_when_db_row_present(
+        self,
+        mock_repo_factory: MagicMock,
+        mock_am_factory: MagicMock,
+        mock_cons: MagicMock,
+        mock_norm: MagicMock,
+        mock_discover_all: MagicMock,
+        mock_discover_plugin: MagicMock,
+        mock_filter: MagicMock,
+        mock_adapters: MagicMock,
+        mock_build: MagicMock,
+    ) -> None:
+        mock_repo = MagicMock()
+        mock_repo.get.return_value = {"config_snapshot": _json.dumps(_MINIMAL_CONFIG_SNAPSHOT)}
+        mock_repo_factory.return_value = mock_repo
+
+        mock_am = MagicMock()
+        mock_am.get_engagement_dir.return_value = Path("/fake/eng-1")
+        mock_am_factory.return_value = mock_am
+
+        mock_build.return_value = MagicMock()
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["replay", "eng-1"])
+        assert result.exit_code == 0, f"stdout: {result.output}"
+        mock_am.read_config_snapshot.assert_not_called()
+        assert "Replayed from filesystem" not in result.output
+
+    @patch("gxassessms.cli.commands.replay._helpers.get_artifact_manager")
+    @patch("gxassessms.cli.commands.replay._helpers.get_engagement_repo")
+    def test_replay_fallback_with_invalid_snapshot_raises_validation_error(
+        self, mock_repo_factory: MagicMock, mock_am_factory: MagicMock
+    ) -> None:
+        mock_repo = MagicMock()
+        mock_repo.get.side_effect = PersistenceError("not found")
+        mock_repo_factory.return_value = mock_repo
+
+        mock_am = MagicMock()
+        mock_am.read_config_snapshot.return_value = {"bogus": True}
+        mock_am_factory.return_value = mock_am
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["replay", "eng-1"])
+        assert result.exit_code == 1
+        assert "failed validation" in result.output
+
+    @patch("gxassessms.cli.commands.replay._helpers.get_artifact_manager")
+    @patch("gxassessms.cli.commands.replay._helpers.get_engagement_repo")
+    def test_replay_validation_error_does_not_leak_field_values(
+        self, mock_repo_factory: MagicMock, mock_am_factory: MagicMock
+    ) -> None:
+        """Sanitized validation error must not leak tenant/client IDs from the snapshot."""
+        # Build a snapshot that fails validation (wrong auth.method) but
+        # still contains realistic sensitive values we don't want echoed.
+        leaky_snapshot = {
+            "client_name": "Acme",
+            "tenant_id": "SENSITIVE-TENANT-ID-AAAA",
+            "auth": {
+                "method": "bogus-method",
+                "tenant_id": "SENSITIVE-TENANT-ID-AAAA",
+                "client_id": "SENSITIVE-CLIENT-ID-BBBB",
+                "client_secret_env": "SENSITIVE_SECRET_ENV",  # pragma: allowlist secret
+            },
+            "tools": {"scubagear": {"enabled": True}},
+        }
+        mock_repo = MagicMock()
+        mock_repo.get.return_value = {"config_snapshot": _json.dumps(leaky_snapshot)}
+        mock_repo_factory.return_value = mock_repo
+
+        mock_am = MagicMock()
+        mock_am_factory.return_value = mock_am
+
+        runner = CliRunner()
+        result = runner.invoke(cli, ["replay", "eng-1"])
+        assert result.exit_code == 1
+        assert "SENSITIVE-TENANT-ID-AAAA" not in result.output
+        assert "SENSITIVE-CLIENT-ID-BBBB" not in result.output
+        assert "SENSITIVE_SECRET_ENV" not in result.output
+        assert "failed validation" in result.output
 
 
 class TestReviewCommand:
@@ -1614,7 +1993,11 @@ class TestEngagementStatus:
 
     @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
     def test_not_found_engagement_exits_nonzero(self, mock_get: MagicMock) -> None:
-        mock_get.return_value.get.return_value = None
+        from gxassessms.core.contracts.errors import PersistenceError
+
+        mock_get.return_value.get.side_effect = PersistenceError(
+            "Engagement not found: nonexistent-id"
+        )
         runner = CliRunner()
         result = runner.invoke(cli, ["engagement", "status", "nonexistent-id"])
         assert result.exit_code != 0
@@ -1768,7 +2151,11 @@ class TestEngagementArchive:
 
     @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
     def test_not_found_engagement_exits_nonzero(self, mock_get: MagicMock) -> None:
-        mock_get.return_value.get.return_value = None
+        from gxassessms.core.contracts.errors import PersistenceError
+
+        mock_get.return_value.get.side_effect = PersistenceError(
+            "Engagement not found: nonexistent-id"
+        )
         runner = CliRunner()
         result = runner.invoke(cli, ["engagement", "archive", "nonexistent-id"])
         assert result.exit_code != 0
@@ -1854,7 +2241,11 @@ class TestEngagementExport:
 
     @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
     def test_not_found_engagement_exits_nonzero(self, mock_get: MagicMock) -> None:
-        mock_get.return_value.get.return_value = None
+        from gxassessms.core.contracts.errors import PersistenceError
+
+        mock_get.return_value.get.side_effect = PersistenceError(
+            "Engagement not found: nonexistent-id"
+        )
         runner = CliRunner()
         result = runner.invoke(cli, ["engagement", "export", "nonexistent-id"])
         assert result.exit_code != 0
@@ -1899,10 +2290,29 @@ class TestEngagementExport:
         runner = CliRunner()
         result = runner.invoke(cli, ["engagement", "export", "eng-001", "--format", "json"])
         assert result.exit_code == 0
-        import json as _json
+        import json as _json_local
 
-        data = _json.loads(result.output)
+        data = _json_local.loads(result.output)
         assert data["tools"] == []
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_export_with_corrupt_config_snapshot_exits_cleanly(self, mock_get: MagicMock) -> None:
+        """Corrupt config_snapshot in the DB should produce empty tools, not crash."""
+        mock_get.return_value.get.return_value = {
+            "engagement_id": "eng-1",
+            "client_name": "Acme",
+            "tenant_id": "00000000-0000-0000-0000-000000000001",
+            "state": "completed",
+            "created_at": "2026-03-25T10:00:00Z",
+            "config_snapshot": "not-json-at-all",
+        }
+        runner = CliRunner()
+        result = runner.invoke(cli, ["engagement", "export", "eng-1", "--format", "json"])
+        assert result.exit_code == 0
+        import json as _json_local
+
+        output = _json_local.loads(result.output)
+        assert output.get("tools") == []
 
     @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
     def test_export_yaml_format(self, mock_get: MagicMock) -> None:

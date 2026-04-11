@@ -109,12 +109,32 @@ WAL mode mitigates most of these, but not all.
      mseco engagement list   # triggers DB initialization
      ```
 
-  3. Raw tool output lives on the filesystem, not in the DB. Re-process
-     engagements from raw output using replay mode:
+  3. Raw tool output and config are preserved on the filesystem. Re-process
+     the engagement from raw output using replay mode:
 
      ```
      mseco replay <engagement_id> --from parse
      ```
+
+     If the engagement ID is unknown (only the directory remains), find it
+     under `~/.gxassessms/engagements/` -- directories are named
+     `<client-slug>-<engagement_id>`.
+
+     **Note:** Replay reads `config_snapshot.json` from the engagement
+     directory when the DB row is missing. This file is written during
+     every `collect` / `run` invocation. Engagements created before
+     filesystem snapshot persistence was added (pre-release of this fix)
+     will not have the file and cannot be replayed after a DB wipe --
+     in that case, re-create the engagement from the original YAML and
+     re-run collection.
+
+     **Detecting mirror-write failures:** The mirror write is fail-open
+     -- if it fails during `collect` / `run`, the pipeline still
+     completes successfully, but the engagement cannot be replayed
+     after a DB wipe. Failures are logged at ERROR level. Check the
+     log file for `"Failed to mirror config_snapshot"` entries; these
+     indicate engagements with a DR gap. To repair, re-run
+     `mseco collect --engagement-id <id> <config.yaml>`.
 
 - **Prevention:** Ensure stable power and sufficient memory. `Ctrl+C`
   (SIGINT) is safe; `kill -9` (SIGKILL) is not.

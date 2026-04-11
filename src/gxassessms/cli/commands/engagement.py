@@ -29,6 +29,7 @@ from gxassessms.cli.output import (
 )
 from gxassessms.core.config.config import load_config, validate_config
 from gxassessms.core.contracts.errors import ConfigError, GxAssessError, PersistenceError
+from gxassessms.persistence.engagement_repo import decode_config_snapshot
 
 logger = logging.getLogger(__name__)
 
@@ -148,12 +149,8 @@ def status_cmd(engagement_id: str) -> None:
     """Show detailed status for an engagement."""
     try:
         repo = _helpers.get_engagement_repo()
+        # repo.get() raises PersistenceError on not-found; no None check needed.
         engagement = repo.get(engagement_id)
-        if engagement is None:
-            console.print(
-                f"[bright_red]Error:[/bright_red] Engagement {engagement_id!r} not found."
-            )
-            raise SystemExit(1)
         table = make_engagement_status_table(engagement)
         console.print(table)
     except GxAssessError as e:
@@ -171,12 +168,8 @@ def archive_cmd(engagement_id: str) -> None:
     """
     try:
         repo = _helpers.get_engagement_repo()
-        engagement = repo.get(engagement_id)
-        if engagement is None:
-            console.print(
-                f"[bright_red]Error:[/bright_red] Engagement {engagement_id!r} not found."
-            )
-            raise SystemExit(1)
+        # repo.get() raises PersistenceError on not-found; no None check needed.
+        repo.get(engagement_id)
 
         artifacts = _helpers.get_artifact_manager()
         _check_storage_permissions(artifacts, engagement_id)
@@ -295,20 +288,19 @@ def export_cmd(engagement_id: str, output_format: str) -> None:
     """
     try:
         repo = _helpers.get_engagement_repo()
+        # repo.get() raises PersistenceError on not-found; no None check needed.
         engagement = repo.get(engagement_id)
-        if engagement is None:
-            console.print(
-                f"[bright_red]Error:[/bright_red] Engagement {engagement_id!r} not found."
-            )
-            raise SystemExit(1)
 
         # Extract enabled tool names from config_snapshot (JSON blob).
         # config_snapshot is json.dumps(config.model_dump()) -- always valid JSON
         # with shape: {"tools": {"name": {"enabled": bool, ...}, ...}, ...}
-        raw_snap: Any = engagement.get("config_snapshot", "{}")
-        parsed: Any = json.loads(raw_snap) if isinstance(raw_snap, str) else raw_snap
-        snap = cast(dict[str, Any], parsed) if isinstance(parsed, dict) else {}
-        tools_config: dict[str, Any] = snap.get("tools", {}) if snap else {}
+        # Permissive decode: fall back to empty tools on corrupt/missing
+        # snapshot so export_cmd never crashes on a damaged engagement row.
+        try:
+            snap = decode_config_snapshot(engagement)
+            tools_config: dict[str, Any] = snap.get("tools", {})
+        except PersistenceError:
+            tools_config = {}
         tool_names: list[str] = sorted(
             str(name)
             for name, tc in tools_config.items()

@@ -22,6 +22,7 @@ import pytest
 from gxassessms.adapters.scubagear import ScubaGearAdapter
 from gxassessms.consolidation.rules import DefaultConsolidationRule
 from gxassessms.core.config.config import AuthConfig, EngagementConfig, ToolConfig
+from gxassessms.core.contracts.errors import PersistenceError
 from gxassessms.core.contracts.types import PrerequisiteResult
 from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import (
@@ -433,6 +434,78 @@ class TestPipelineEndToEnd:
         )
         engagement = engagement_repo.get(engagement_id)
         assert engagement["state"] == EngagementState.COMPLETE.value
+
+    def test_replay_after_db_wipe_recovers_from_filesystem_snapshot(
+        self,
+        isolated_data_dir: Path,
+        orchestrator: Orchestrator,
+        engagement_repo: EngagementRepo,
+        e2e_config: EngagementConfig,
+        scubagear_adapter_with_fixture: ScubaGearAdapter,
+        artifact_manager: ArtifactManager,
+        normalization_rules: dict[str, Any],
+        consolidation_rules: dict[str, Any],
+    ) -> None:
+        """Runbook step 3 contract: after a full pipeline run, the mirrored
+        config_snapshot.json survives and _load_config_for_replay recovers
+        it even when the DB row is gone.
+
+        This does NOT exercise the full orchestrator.run_from(...) replay
+        path -- that surface requires the engagement row to exist for
+        reset_for_rerun(). The DR fix is specifically in the config-loading
+        step; the test verifies that step's contract end-to-end against a
+        real filesystem.
+        """
+        from gxassessms.cli.commands.replay import _load_config_for_replay
+
+        # 1. Run full pipeline to completion
+        engagement_id = self._run_pipeline(
+            orchestrator,
+            engagement_repo,
+            e2e_config,
+            [scubagear_adapter_with_fixture],
+            normalization_rules,
+            consolidation_rules,
+        )
+
+        # 2. Verify the mirror was written during COLLECT
+        eng_dir = artifact_manager.get_engagement_dir(engagement_id)
+        snapshot_file = eng_dir / "config_snapshot.json"
+        assert snapshot_file.exists(), (
+            "mirror_config_snapshot_from_db should have written config_snapshot.json during COLLECT"
+        )
+        stored = json.loads(snapshot_file.read_text(encoding="utf-8"))
+        assert stored["client_name"] == e2e_config.client_name, (
+            "mirror file should contain the engagement's client_name"
+        )
+
+        # 3. Wipe the DB file (simulates the runbook's manual-recovery step 2)
+        db_path = isolated_data_dir / "engagements.db"
+        if db_path.exists():
+            db_path.unlink()
+        # Also drop any SQLite WAL/SHM files (they otherwise re-hydrate the DB)
+        for suffix in ("-wal", "-shm"):
+            sidecar = db_path.with_name(db_path.name + suffix)
+            if sidecar.exists():
+                sidecar.unlink()
+
+        # 4. Re-initialize a fresh DB and repo -- the row is gone
+        fresh_db = DatabaseManager()
+        fresh_db.initialize()
+        fresh_repo = EngagementRepo(fresh_db)
+
+        # Sanity: the engagement really is gone from the new DB
+        with pytest.raises(PersistenceError, match="not found"):
+            fresh_repo.get(engagement_id)
+
+        # 5. The DR path: _load_config_for_replay falls back to filesystem
+        config, loaded_from_fallback = _load_config_for_replay(
+            engagement_id, fresh_repo, artifact_manager
+        )
+
+        assert loaded_from_fallback is True
+        assert config.client_name == e2e_config.client_name
+        assert config.tenant_id == e2e_config.tenant_id
 
     def test_pipeline_pure_stage_smoke(
         self,

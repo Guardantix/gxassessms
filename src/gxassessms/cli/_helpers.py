@@ -16,6 +16,8 @@ from gxassessms.core.contracts.errors import GxAssessError
 
 if TYPE_CHECKING:
     from gxassessms.core.config.config import EngagementConfig
+    from gxassessms.persistence.artifacts import ArtifactManager
+    from gxassessms.persistence.engagement_repo import EngagementRepo
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +140,7 @@ def get_engagements_root() -> Path:
     return root
 
 
-def get_engagement_repo() -> Any:
+def get_engagement_repo() -> EngagementRepo:
     """Build and return an EngagementRepo instance."""
     from gxassessms.persistence import DatabaseManager, EngagementRepo
 
@@ -152,7 +154,7 @@ def get_engagement_repo() -> Any:
     return EngagementRepo(db)
 
 
-def get_artifact_manager() -> Any:
+def get_artifact_manager() -> ArtifactManager:
     """Build and return an ArtifactManager instance."""
     from gxassessms.persistence import ArtifactManager
 

@@ -6,7 +6,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+- Manual DB-corruption recovery (runbook section 2, step 3) is now
+  functional. `mseco replay` previously required an intact DB row; it
+  now falls back to a filesystem-persisted `config_snapshot.json` mirror
+  in the engagement directory. Engagements created before this release
+  will not have the mirror file and must be rebuilt from the original
+  engagement YAML after a DB wipe.
+
 ### Added
+- `ArtifactManager.write_config_snapshot()` / `read_config_snapshot()`
+  methods for atomic mirror write/read with 1 MB DoS ceiling.
+- `pipeline/config_snapshot_mirror.py` module with
+  `mirror_config_snapshot_from_db()` fail-open helper.
+- `decode_config_snapshot()` helper in `persistence/engagement_repo.py`
+  (consolidates three pre-existing inline decode sites).
+- `ConfigSnapshotMirrorError` persistence exception (narrow subclass
+  of `PersistenceError`, carries `engagement_id` attribute).
+- Concrete type annotations on `cli/_helpers.py::get_engagement_repo()`
+  and `get_artifact_manager()` (previously returned `Any`).
 - **Shared HTTP adapter infrastructure** (`adapters/_http`): `check_python_packages`,
   `validate_auth_context`, and `fetch_paginated_json` for code reuse across API-based
   adapters. Includes SSRF-safe pagination origin validation and cycle detection.
@@ -41,6 +59,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   all but the last adapter.
 
 ### Changed
+- `mseco replay` emits a `[yellow]Note:[/yellow] Replayed from filesystem
+  config_snapshot (DB row was missing or unreadable).` DR-mode indicator
+  on successful filesystem-fallback replays.
+- `mseco engagement export` now uses the shared `decode_config_snapshot`
+  helper (identical behavior; centralized error handling).
 - Refactored `confine_and_resolve()` into focused validators for independent
   testability (no public API change).
 - `mseco preflight` now runs module provenance verification for PowerShell adapters
@@ -49,3 +72,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   adapters (code-owned policy only, no config overrides).
 - ScubaGear and Maester `collect()` now use `run_verified_powershell()` instead of
   `run_powershell()`.
+
+### Security
+- `mseco replay` validates `engagement_id` against `^[a-zA-Z0-9_-]+$`
+  before any filesystem or DB access (CWE-22 path traversal, CWE-117
+  log injection).
+- `decode_config_snapshot` and `ArtifactManager.read_config_snapshot`
+  enforce a 1 MB size ceiling on parse inputs (CWE-400 uncontrolled
+  resource consumption).
+- `_load_config_for_replay` sanitizes Pydantic `ValidationError` output
+  to log only error count and field locations, preventing leakage of
+  `tenant_id`, `client_id`, and `certificate_path` into operator logs
+  (CWE-209 information exposure through error message).
+- `ArtifactManager.write_config_snapshot` uses `os.open` with
+  `O_CREAT | O_EXCL | mode=0o600` to close the write-then-chmod race
+  window (CWE-732) and prevent silent overwrite of attacker-planted
+  temp files (CWE-377).

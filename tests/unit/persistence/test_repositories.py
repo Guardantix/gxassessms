@@ -3,6 +3,7 @@
 import json
 import uuid
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -11,7 +12,7 @@ from gxassessms.core.contracts.errors import InvalidTransitionError, Persistence
 from gxassessms.core.domain.enums import Severity
 from gxassessms.persistence.coverage_repo import CoverageRepo
 from gxassessms.persistence.database import DatabaseManager
-from gxassessms.persistence.engagement_repo import EngagementRepo
+from gxassessms.persistence.engagement_repo import EngagementRepo, decode_config_snapshot
 from gxassessms.persistence.event_repo import EventRepo
 from gxassessms.persistence.finding_repo import FindingRepo
 from gxassessms.pipeline.state import EngagementState, PipelineEvent
@@ -977,3 +978,49 @@ class TestCoverageRepoSave:
         count = coverage_repo.delete_for_engagement(eng_id)
         assert count == 1
         assert coverage_repo.get_for_engagement(eng_id) == []
+
+
+class TestDecodeConfigSnapshot:
+    def test_decodes_json_string(self):
+        row = {"config_snapshot": json.dumps({"client_name": "Acme"})}
+        assert decode_config_snapshot(row) == {"client_name": "Acme"}
+
+    def test_passes_through_prehydrated_dict(self):
+        row = {"config_snapshot": {"client_name": "Acme"}}
+        assert decode_config_snapshot(row) == {"client_name": "Acme"}
+
+    def test_rejects_missing_key(self):
+        row: dict[str, Any] = {}
+        with pytest.raises(PersistenceError, match="missing config_snapshot column"):
+            decode_config_snapshot(row)
+
+    def test_rejects_null(self):
+        row = {"config_snapshot": None}
+        with pytest.raises(PersistenceError, match="null config_snapshot"):
+            decode_config_snapshot(row)
+
+    def test_rejects_empty_string(self):
+        row = {"config_snapshot": ""}
+        with pytest.raises(PersistenceError, match="empty config_snapshot"):
+            decode_config_snapshot(row)
+
+    def test_rejects_corrupt_json(self):
+        row = {"config_snapshot": "not-json"}
+        with pytest.raises(PersistenceError, match="corrupt"):
+            decode_config_snapshot(row)
+
+    @pytest.mark.parametrize("payload", ["null", "[]", "42", "true"])
+    def test_rejects_non_object_json(self, payload: str) -> None:
+        row: dict[str, Any] = {"config_snapshot": payload}
+        with pytest.raises(PersistenceError, match="expected object"):
+            decode_config_snapshot(row)
+
+    def test_rejects_non_str_non_dict_column(self):
+        row = {"config_snapshot": 42}
+        with pytest.raises(PersistenceError, match="expected str or dict"):
+            decode_config_snapshot(row)
+
+    def test_rejects_oversized_string(self):
+        row = {"config_snapshot": "x" * 2_000_000}
+        with pytest.raises(PersistenceError, match="suspiciously large"):
+            decode_config_snapshot(row)

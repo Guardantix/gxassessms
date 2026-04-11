@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from gxassessms.core.config.datetime_utils import format_utc, utc_now
 from gxassessms.core.contracts.errors import PersistenceError
@@ -13,6 +13,54 @@ from gxassessms.core.domain.enums import EngagementState
 from gxassessms.persistence.database import DatabaseManager
 
 logger = logging.getLogger(__name__)
+
+
+_CONFIG_SNAPSHOT_MAX_BYTES = 1_048_576  # 1 MB -- DoS ceiling for parse
+
+
+def decode_config_snapshot(engagement_row: dict[str, Any]) -> dict[str, Any]:
+    """Decode the `config_snapshot` column of an engagement row to a dict.
+
+    The column is stored as a JSON string by `EngagementRepo.create()`,
+    but some DB adapters may pre-hydrate it to a dict. Accepts either;
+    rejects anything else.
+
+    Raises PersistenceError if the column is absent, null, corrupt JSON,
+    or not a JSON object. A missing key and a null value are reported
+    distinctly: the former implies a schema/query regression, while the
+    latter implies the column was written null.
+    """
+    if "config_snapshot" not in engagement_row:
+        raise PersistenceError("engagement row is missing config_snapshot column")
+    raw = engagement_row["config_snapshot"]
+    if raw is None:
+        raise PersistenceError("engagement row has null config_snapshot")
+    if isinstance(raw, dict):
+        return cast(dict[str, Any], raw)
+    if not isinstance(raw, str):
+        raise PersistenceError(
+            f"engagement row config_snapshot is {type(raw).__name__}, expected str or dict"
+        )
+    if raw == "":
+        raise PersistenceError("engagement row has empty config_snapshot")
+    # DoS ceiling: SQLite TEXT column can hold up to 1 GB, but a sane
+    # config_snapshot is a few KB. Refuse to parse pathologically large
+    # values (hand-edited or adversarial rows).
+    if len(raw) > _CONFIG_SNAPSHOT_MAX_BYTES:
+        raise PersistenceError(
+            f"engagement row config_snapshot is suspiciously large "
+            f"({len(raw)} bytes, ceiling is {_CONFIG_SNAPSHOT_MAX_BYTES}); "
+            "refusing to parse"
+        )
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise PersistenceError(f"engagement row config_snapshot is corrupt JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise PersistenceError(
+            f"engagement row config_snapshot decoded to {type(parsed).__name__}, expected object"
+        )
+    return cast(dict[str, Any], parsed)
 
 
 class EngagementRepo:

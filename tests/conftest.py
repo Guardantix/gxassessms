@@ -3,6 +3,7 @@
 import importlib.resources
 from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 import yaml
@@ -36,3 +37,18 @@ def consolidation_rules() -> dict[str, Any]:
     pkg = importlib.resources.files("gxassessms.policy")
     text = (pkg / "rules" / "consolidation.yaml").read_text(encoding="utf-8")
     return yaml.safe_load(text)  # type: ignore[no-any-return]
+
+
+@pytest.fixture
+def mock_orchestrator() -> MagicMock:
+    """Mock Orchestrator exposing `_artifact_manager` and `_engagement_repo`.
+
+    These two private collaborators are the only attributes tests set up,
+    so a plain MagicMock with those two sub-mocks is the right shape for
+    this project -- matches the existing house pattern (no `create_autospec`
+    uses in the test suite).
+    """
+    orch = MagicMock()
+    orch._artifact_manager = MagicMock()
+    orch._engagement_repo = MagicMock()
+    return orch

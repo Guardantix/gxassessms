@@ -1020,6 +1020,26 @@ class TestRunCollect:
         assert ctx.loaded_manifests == []
         harness.artifact_manager.save_raw_outputs.assert_called_once()
 
+    def test_run_collect_calls_config_snapshot_mirror(
+        self, harness: RunnerHarness, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_run_collect should invoke the mirror helper after save_raw_outputs."""
+        from gxassessms.pipeline import _runner
+
+        mirror_mock = MagicMock()
+        monkeypatch.setattr(_runner, "mirror_config_snapshot_from_db", mirror_mock)
+        harness.artifact_manager.save_raw_outputs.return_value = []
+
+        ctx = StageContext()
+        with patch("gxassessms.pipeline._runner.collect", return_value=[]):
+            _run_collect(ctx, _make_config(), [], harness.orchestrator, "eng-001")
+
+        mirror_mock.assert_called_once_with(
+            harness.orchestrator._engagement_repo,
+            harness.orchestrator._artifact_manager,
+            "eng-001",
+        )
+
 
 class TestRunParse:
     def test_raises_when_loaded_manifests_is_none(self, harness: RunnerHarness) -> None:
