@@ -46,6 +46,16 @@ _MINIMAL_CONFIG_SNAPSHOT: dict[str, object] = {
     "tools": {"scubagear": {"enabled": True}},
 }
 
+# Canonical UUID used by DR-fallback replay tests. The DR filesystem
+# fallback path in `_load_config_for_replay` refuses non-canonical
+# engagement IDs (see `_CANONICAL_UUID_PATTERN` in replay.py) because
+# `ArtifactManager.get_engagement_dir()` resolves by suffix glob and a
+# short/fat-fingered ID like "0000" could match an unrelated
+# engagement's directory. Tests that exercise the fallback path must
+# supply a canonical UUID; tests that stay on the DB-hit path can
+# still use short test IDs like "eng-1".
+_DR_TEST_UUID = "11111111-2222-3333-4444-555555555555"
+
 
 def _write_config(tmp_path: Path) -> Path:
     """Write a minimal valid config YAML and return its path."""
@@ -1501,7 +1511,7 @@ class TestLoadConfigForReplay:
             _MINIMAL_CONFIG_SNAPSHOT
         )
         config, loaded_from_fallback = _load_config_for_replay(
-            "eng-1",
+            _DR_TEST_UUID,
             mock_orchestrator._engagement_repo,
             mock_orchestrator._artifact_manager,
         )
@@ -1517,7 +1527,7 @@ class TestLoadConfigForReplay:
         )
         with pytest.raises(SystemExit) as exc_info:
             _load_config_for_replay(
-                "eng-1",
+                _DR_TEST_UUID,
                 mock_orchestrator._engagement_repo,
                 mock_orchestrator._artifact_manager,
             )
@@ -1535,7 +1545,7 @@ class TestLoadConfigForReplay:
             _MINIMAL_CONFIG_SNAPSHOT
         )
         _, loaded_from_fallback = _load_config_for_replay(
-            "eng-1",
+            _DR_TEST_UUID,
             mock_orchestrator._engagement_repo,
             mock_orchestrator._artifact_manager,
         )
@@ -1552,10 +1562,32 @@ class TestLoadConfigForReplay:
         )
         with pytest.raises(SystemExit):
             _load_config_for_replay(
-                "eng-1",
+                _DR_TEST_UUID,
                 mock_orchestrator._engagement_repo,
                 mock_orchestrator._artifact_manager,
             )
+
+    def test_fallback_refuses_non_canonical_engagement_id(
+        self, mock_orchestrator: MagicMock
+    ) -> None:
+        """DR fallback gate: refuse to touch the filesystem for non-UUID IDs.
+
+        Prevents ArtifactManager.get_engagement_dir's suffix glob from
+        aliasing a fat-fingered / truncated ID onto an unrelated
+        engagement's directory and loading the wrong config_snapshot.json.
+        """
+        from gxassessms.cli.commands.replay import _load_config_for_replay
+
+        mock_orchestrator._engagement_repo.get.side_effect = PersistenceError("not found")
+        with pytest.raises(SystemExit) as exc_info:
+            _load_config_for_replay(
+                "eng-1",  # passes ENGAGEMENT_ID_PATTERN but not canonical UUID
+                mock_orchestrator._engagement_repo,
+                mock_orchestrator._artifact_manager,
+            )
+        assert exc_info.value.code == 1
+        # Filesystem lookup must never have been reached.
+        mock_orchestrator._artifact_manager.read_config_snapshot.assert_not_called()
 
     def test_validation_fails_raises_gx_error(self, mock_orchestrator: MagicMock) -> None:
         from gxassessms.cli.commands.replay import _load_config_for_replay
@@ -1569,6 +1601,99 @@ class TestLoadConfigForReplay:
                 mock_orchestrator._engagement_repo,
                 mock_orchestrator._artifact_manager,
             )
+
+
+class TestRehydrateEngagementIfMissing:
+    """Direct tests for the DR rehydrate helper.
+
+    Covers the paths that are awkward to exercise through the full CliRunner
+    pipeline: the duplicate-key race during concurrent DR replays, and the
+    pre-existing "row already exists" PersistenceError branch.
+    """
+
+    def test_duplicate_key_integrity_error_returns_false(self) -> None:
+        """Concurrent DR replays must not error on UNIQUE constraint race.
+
+        Simulates the scenario where another mseco process inserts the
+        same engagement row between this helper's SELECT probe and INSERT.
+        SQLite's own UNIQUE enforcement raises sqlite3.IntegrityError; the
+        helper should recognize this as "row now present" and return False
+        so replay can continue instead of aborting.
+        """
+        import sqlite3
+
+        from gxassessms.cli.commands.replay import _rehydrate_engagement_if_missing
+        from gxassessms.core.config.config import EngagementConfig
+
+        config = EngagementConfig.model_validate(_MINIMAL_CONFIG_SNAPSHOT)
+        repo = MagicMock()
+        repo.get.side_effect = PersistenceError("not found")
+        repo.rehydrate_from_snapshot.side_effect = sqlite3.IntegrityError(
+            "UNIQUE constraint failed: engagements.engagement_id"
+        )
+
+        result = _rehydrate_engagement_if_missing(
+            _DR_TEST_UUID, config, repo, f"/fake/acme-{_DR_TEST_UUID}"
+        )
+        assert result is False
+        repo.rehydrate_from_snapshot.assert_called_once()
+
+    def test_row_already_exists_persistence_error_returns_false(self) -> None:
+        """Persistence-level 'row already exists' is a no-op, not an error.
+
+        This covers `EngagementRepo.rehydrate_from_snapshot`'s own pre-INSERT
+        SELECT 1 guard: if the DB recovered between the helper's probe and
+        the rehydrate call, the SELECT 1 sees the row and raises
+        PersistenceError('row already exists') -- which the helper should
+        treat as a successful no-op.
+        """
+        from gxassessms.cli.commands.replay import _rehydrate_engagement_if_missing
+        from gxassessms.core.config.config import EngagementConfig
+
+        config = EngagementConfig.model_validate(_MINIMAL_CONFIG_SNAPSHOT)
+        repo = MagicMock()
+        repo.get.side_effect = PersistenceError("not found")
+        repo.rehydrate_from_snapshot.side_effect = PersistenceError(
+            f"Cannot rehydrate engagement {_DR_TEST_UUID!r}: row already exists"
+        )
+
+        result = _rehydrate_engagement_if_missing(
+            _DR_TEST_UUID, config, repo, f"/fake/acme-{_DR_TEST_UUID}"
+        )
+        assert result is False
+
+    def test_persistent_sqlite_error_uses_non_destructive_message(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A genuinely-broken DB surfaces a non-destructive error message.
+
+        The message must mention retry before prescribing runbook section 2,
+        so normal lock contention doesn't get turned into destructive guidance.
+        """
+        import sqlite3
+
+        from gxassessms.cli.commands.replay import _rehydrate_engagement_if_missing
+        from gxassessms.core.config.config import EngagementConfig
+
+        config = EngagementConfig.model_validate(_MINIMAL_CONFIG_SNAPSHOT)
+        repo = MagicMock()
+        repo.get.side_effect = sqlite3.OperationalError("database is locked")
+        repo.rehydrate_from_snapshot.side_effect = sqlite3.OperationalError("database is locked")
+
+        with pytest.raises(SystemExit) as exc_info:
+            _rehydrate_engagement_if_missing(
+                _DR_TEST_UUID, config, repo, f"/fake/acme-{_DR_TEST_UUID}"
+            )
+        assert exc_info.value.code == 1
+
+        # Rich writes to stderr by default; capture both streams so the
+        # target doesn't matter.
+        captured = capsys.readouterr()
+        output = (captured.out + captured.err).lower()
+        assert "retry" in output, "error message should suggest retry before destructive recovery"
+        assert "runbook section 2" in output, (
+            "error message should reference runbook section 2 as escalation"
+        )
 
 
 class TestReplayFallback:
@@ -1633,16 +1758,16 @@ class TestReplayFallback:
 
         mock_am = MagicMock()
         mock_am.read_config_snapshot.return_value = _MINIMAL_CONFIG_SNAPSHOT
-        mock_am.get_engagement_dir.return_value = Path("/fake/eng-1")
+        mock_am.get_engagement_dir.return_value = Path(f"/fake/acme-{_DR_TEST_UUID}")
         mock_am_factory.return_value = mock_am
 
         mock_build.return_value = MagicMock()
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["replay", "eng-1", "--from", "parse"])
+        result = runner.invoke(cli, ["replay", _DR_TEST_UUID, "--from", "parse"])
 
         assert result.exit_code == 0, f"stdout: {result.output}"
-        mock_am.read_config_snapshot.assert_called_once_with("eng-1")
+        mock_am.read_config_snapshot.assert_called_once_with(_DR_TEST_UUID)
         assert "Replayed from filesystem" in result.output
 
     @patch("gxassessms.cli.commands.replay._helpers.build_orchestrator")
@@ -1686,16 +1811,16 @@ class TestReplayFallback:
 
         mock_am = MagicMock()
         mock_am.read_config_snapshot.return_value = _MINIMAL_CONFIG_SNAPSHOT
-        mock_am.get_engagement_dir.return_value = Path("/fake/eng-1")
+        mock_am.get_engagement_dir.return_value = Path(f"/fake/acme-{_DR_TEST_UUID}")
         mock_am_factory.return_value = mock_am
 
         mock_build.return_value = MagicMock()
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["replay", "eng-1", "--from", "parse"])
+        result = runner.invoke(cli, ["replay", _DR_TEST_UUID, "--from", "parse"])
 
         assert result.exit_code == 0, f"stdout: {result.output}"
-        mock_am.read_config_snapshot.assert_called_once_with("eng-1")
+        mock_am.read_config_snapshot.assert_called_once_with(_DR_TEST_UUID)
         assert "Replayed from filesystem" in result.output
 
     @patch("gxassessms.cli.commands.replay._helpers.get_artifact_manager")
@@ -1712,7 +1837,9 @@ class TestReplayFallback:
         mock_am_factory.return_value = mock_am
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["replay", "eng-1"])
+        # Use canonical UUID so the test exercises the "both DB and FS
+        # snapshot missing" branch (not the new canonical-UUID gate).
+        result = runner.invoke(cli, ["replay", _DR_TEST_UUID])
         assert result.exit_code == 1
 
     @patch("gxassessms.cli.commands.replay._helpers.build_orchestrator")
@@ -1778,7 +1905,7 @@ class TestReplayFallback:
         mock_am_factory.return_value = mock_am
 
         runner = CliRunner()
-        result = runner.invoke(cli, ["replay", "eng-1"])
+        result = runner.invoke(cli, ["replay", _DR_TEST_UUID])
         assert result.exit_code == 1
         assert "failed validation" in result.output
 

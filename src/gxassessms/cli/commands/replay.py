@@ -23,6 +23,7 @@ Stage choice mapping:
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 from typing import Any
 
@@ -44,6 +45,17 @@ logger = logging.getLogger(__name__)
 
 _STAGE_CLI_ALIASES = {"qa": "QA_REVIEW", "report": "RENDER"}
 
+# Canonical UUID4 format (8-4-4-4-12 hex with hyphens). Matches exactly
+# what `EngagementRepo.create()` generates via `str(uuid.uuid4())`. Used
+# to gate the DR fallback path: `ArtifactManager.get_engagement_dir()`
+# resolves engagement directories by suffix glob (`*-<id>`), so a short
+# or fat-fingered ID like "0000" could match an unrelated engagement's
+# directory and cause replay to load the wrong `config_snapshot.json`.
+# Requiring canonical UUIDs in the DR path closes that aliasing window.
+_CANONICAL_UUID_PATTERN = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+
 
 def _load_config_for_replay(
     engagement_id: str,
@@ -55,7 +67,9 @@ def _load_config_for_replay(
     Falls back to <eng_dir>/config_snapshot.json when the DB row is missing
     OR the DB itself is corrupt/locked. Raises GxAssessError on invalid
     snapshots; calls SystemExit(1) with a user-facing message when neither
-    source is available.
+    source is available OR when the DR fallback is requested with a
+    non-canonical engagement_id (see _CANONICAL_UUID_PATTERN above for
+    the rationale: suffix-glob aliasing in ArtifactManager.get_engagement_dir).
 
     Returns (config, loaded_from_fallback) so the caller can surface a
     DR-mode indicator on successful replay.
@@ -69,6 +83,33 @@ def _load_config_for_replay(
     try:
         engagement = repo.get(engagement_id)
     except (PersistenceError, sqlite3.Error) as e:
+        # Before the DR fallback can touch the filesystem, require a
+        # canonical UUID. ArtifactManager.get_engagement_dir() resolves
+        # engagement directories via `glob(*-<id>)`, so a short or
+        # fat-fingered ID like "0000" could match an unrelated
+        # engagement's directory and cause us to load the wrong
+        # config_snapshot.json (and then rehydrate a DB row under the
+        # mistyped ID against the wrong artifacts). Canonical UUIDs are
+        # long and unique enough to eliminate that aliasing window.
+        if not _CANONICAL_UUID_PATTERN.match(engagement_id):
+            logger.error(
+                "Refusing DR filesystem fallback for non-canonical "
+                "engagement_id %r (DB lookup failed: %s)",
+                engagement_id,
+                e,
+            )
+            console.print(
+                f"[bright_red]Error:[/bright_red] Engagement {engagement_id!r} "
+                "not found in the database, and the ID is not a canonical "
+                "UUID (expected format: 8-4-4-4-12 hex digits with hyphens). "
+                "The DR filesystem fallback is restricted to canonical UUIDs "
+                "to prevent matching the wrong engagement directory via "
+                "suffix glob. If this is a genuine recovery after a DB wipe, "
+                "find the full UUID under `~/.gxassessms/engagements/` "
+                "(directory names are `<slug>-<uuid>`) and retry with the "
+                "complete ID."
+            )
+            raise SystemExit(1) from None
         loaded_from_fallback = True
         logger.warning(
             "Engagement %s not loadable from DB (%s); "
@@ -191,6 +232,24 @@ def _rehydrate_engagement_if_missing(
             f"for {engagement_id!r}: {insert_err}"
         )
         raise SystemExit(1) from None
+    except sqlite3.IntegrityError as dup_err:
+        # UNIQUE constraint race: a concurrent DR replay (another mseco
+        # process or the review UI) inserted the same engagement row
+        # between this helper's probe and its INSERT. The row is now
+        # present under the expected ID, so replay can continue
+        # normally. rehydrate_from_snapshot's own pre-INSERT SELECT 1
+        # also routes duplicate-ID conflicts through PersistenceError
+        # ("row already exists") -- that branch is handled above.
+        # This branch only fires for the narrower window where two
+        # INSERTs race past both pre-checks into SQLite's own UNIQUE
+        # enforcement.
+        logger.info(
+            "Duplicate-key race on engagement %s rehydrate INSERT "
+            "(%s); row is now present, continuing replay",
+            engagement_id,
+            dup_err,
+        )
+        return False
     except sqlite3.Error as db_err:
         logger.error(
             "DB error during DR rehydrate INSERT for %s: %s",
