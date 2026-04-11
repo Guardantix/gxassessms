@@ -127,9 +127,17 @@ def _rehydrate_engagement_if_missing(
 
     Called only when `_load_config_for_replay` returned
     `loaded_from_fallback=True`. Returns True if a new row was inserted
-    and False if the row was already present (e.g. DB recovered between
-    the two lookups). Calls SystemExit(1) with a user-facing message if
-    the DB itself is still unreadable, or if the rehydrate INSERT fails.
+    and False if the row was already present (detected either via the
+    initial `repo.get()` probe or via `rehydrate_from_snapshot`'s own
+    duplicate check). Calls SystemExit(1) with a user-facing message
+    when the rehydrate INSERT itself fails against a still-broken DB.
+
+    Transient DB errors during the initial probe are tolerated: if
+    `repo.get()` raises `sqlite3.Error`, we fall through and let
+    `rehydrate_from_snapshot`'s own SELECT+INSERT be the definitive
+    check. If the DB has recovered, the INSERT succeeds (or the
+    duplicate-ID guard fires, meaning the row was there all along).
+    If the DB is still broken, the INSERT raises and we abort then.
 
     The caller is responsible for gating this path on `start_stage`:
     only PARSE is viable after a DB wipe because CONSOLIDATE/QA/RENDER
@@ -141,17 +149,14 @@ def _rehydrate_engagement_if_missing(
         # Expected in the DR case -- fall through and insert the row.
         pass
     except sqlite3.Error as db_err:
-        logger.error(
-            "DB unreadable during DR rehydrate check for %s: %s",
+        # Transient: let rehydrate_from_snapshot's own SELECT+INSERT
+        # be the definitive "is the DB writable / is the row there" test.
+        logger.warning(
+            "DB lookup failed for %s during DR probe (%s); "
+            "deferring decision to rehydrate_from_snapshot",
             engagement_id,
             db_err,
         )
-        console.print(
-            f"[bright_red]Error:[/bright_red] Database is unreadable; cannot "
-            f"rehydrate engagement {engagement_id!r}. Wipe and recreate the DB "
-            "per runbook step 2 before retrying `mseco replay`."
-        )
-        raise SystemExit(1) from None
     else:
         # Row exists already -- nothing to rehydrate.
         return False
@@ -164,7 +169,17 @@ def _rehydrate_engagement_if_missing(
             config_snapshot=config.model_dump(mode="json"),
             engagement_dir=engagement_dir,
         )
-    except (PersistenceError, sqlite3.Error) as insert_err:
+    except PersistenceError as insert_err:
+        # "row already exists" means the DB recovered between the probe
+        # and the INSERT and the row was there all along: not an error,
+        # just proceed. Other PersistenceErrors (invalid ID, etc.) are
+        # fatal.
+        if "already exists" in str(insert_err):
+            logger.info(
+                "Engagement row for %s already present; skipping rehydrate",
+                engagement_id,
+            )
+            return False
         logger.error(
             "Failed to rehydrate engagement %s: %s",
             engagement_id,
@@ -174,6 +189,19 @@ def _rehydrate_engagement_if_missing(
         console.print(
             f"[bright_red]Error:[/bright_red] Failed to rehydrate engagement row "
             f"for {engagement_id!r}: {insert_err}"
+        )
+        raise SystemExit(1) from None
+    except sqlite3.Error as db_err:
+        logger.error(
+            "DB unreadable during DR rehydrate INSERT for %s: %s",
+            engagement_id,
+            db_err,
+            exc_info=True,
+        )
+        console.print(
+            f"[bright_red]Error:[/bright_red] Database is unreadable; cannot "
+            f"rehydrate engagement {engagement_id!r}. Wipe and recreate the DB "
+            "per runbook step 2 before retrying `mseco replay`."
         )
         raise SystemExit(1) from None
 
