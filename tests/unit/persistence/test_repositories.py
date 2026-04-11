@@ -3,6 +3,7 @@
 import json
 import uuid
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -11,7 +12,7 @@ from gxassessms.core.contracts.errors import InvalidTransitionError, Persistence
 from gxassessms.core.domain.enums import Severity
 from gxassessms.persistence.coverage_repo import CoverageRepo
 from gxassessms.persistence.database import DatabaseManager
-from gxassessms.persistence.engagement_repo import EngagementRepo
+from gxassessms.persistence.engagement_repo import EngagementRepo, decode_config_snapshot
 from gxassessms.persistence.event_repo import EventRepo
 from gxassessms.persistence.finding_repo import FindingRepo
 from gxassessms.pipeline.state import EngagementState, PipelineEvent
@@ -165,6 +166,64 @@ class TestEngagementRepoForceUpdateState:
         engagement_repo.force_update_state(eng_id, EngagementState.COLLECTING)
         eng = engagement_repo.get(eng_id)
         assert eng["updated_at"] is not None
+
+
+class TestEngagementRepoRehydrateFromSnapshot:
+    """DR path: insert an engagement row keyed by a caller-supplied ID."""
+
+    def test_rehydrate_inserts_row_with_supplied_id(self, engagement_repo: EngagementRepo) -> None:
+        engagement_repo.rehydrate_from_snapshot(
+            engagement_id="eng-dr-001",
+            client_name="DR Client",
+            tenant_id="tenant-dr",
+            config_snapshot={"client_name": "DR Client", "tenant_id": "tenant-dr"},
+            engagement_dir="/fake/path/DR Client-eng-dr-001",
+        )
+        row = engagement_repo.get("eng-dr-001")
+        assert row["engagement_id"] == "eng-dr-001"
+        assert row["client_name"] == "DR Client"
+        assert row["tenant_id"] == "tenant-dr"
+        assert row["state"] == EngagementState.CREATED.value
+        assert row["engagement_dir"] == "/fake/path/DR Client-eng-dr-001"
+
+    def test_rehydrate_stores_config_snapshot_as_json(
+        self, engagement_repo: EngagementRepo
+    ) -> None:
+        snapshot = {"client_name": "Acme", "tenant_id": "t-1", "report_formats": ["docx"]}
+        engagement_repo.rehydrate_from_snapshot(
+            engagement_id="eng-dr-002",
+            client_name="Acme",
+            tenant_id="t-1",
+            config_snapshot=snapshot,
+        )
+        row = engagement_repo.get("eng-dr-002")
+        assert json.loads(row["config_snapshot"]) == snapshot
+
+    def test_rehydrate_rejects_duplicate_id(self, engagement_repo: EngagementRepo) -> None:
+        engagement_repo.rehydrate_from_snapshot(
+            engagement_id="eng-dup",
+            client_name="Acme",
+            tenant_id="t-1",
+            config_snapshot={},
+        )
+        with pytest.raises(PersistenceError, match="row already exists"):
+            engagement_repo.rehydrate_from_snapshot(
+                engagement_id="eng-dup",
+                client_name="Acme",
+                tenant_id="t-1",
+                config_snapshot={},
+            )
+
+    def test_rehydrate_honors_initial_state_override(self, engagement_repo: EngagementRepo) -> None:
+        engagement_repo.rehydrate_from_snapshot(
+            engagement_id="eng-dr-state",
+            client_name="Acme",
+            tenant_id="t-1",
+            config_snapshot={},
+            initial_state=EngagementState.COLLECTED,
+        )
+        row = engagement_repo.get("eng-dr-state")
+        assert row["state"] == EngagementState.COLLECTED.value
 
 
 class TestEngagementRepoListByClient:
@@ -977,3 +1036,49 @@ class TestCoverageRepoSave:
         count = coverage_repo.delete_for_engagement(eng_id)
         assert count == 1
         assert coverage_repo.get_for_engagement(eng_id) == []
+
+
+class TestDecodeConfigSnapshot:
+    def test_decodes_json_string(self):
+        row = {"config_snapshot": json.dumps({"client_name": "Acme"})}
+        assert decode_config_snapshot(row) == {"client_name": "Acme"}
+
+    def test_passes_through_prehydrated_dict(self):
+        row = {"config_snapshot": {"client_name": "Acme"}}
+        assert decode_config_snapshot(row) == {"client_name": "Acme"}
+
+    def test_rejects_missing_key(self):
+        row: dict[str, Any] = {}
+        with pytest.raises(PersistenceError, match="missing config_snapshot column"):
+            decode_config_snapshot(row)
+
+    def test_rejects_null(self):
+        row = {"config_snapshot": None}
+        with pytest.raises(PersistenceError, match="null config_snapshot"):
+            decode_config_snapshot(row)
+
+    def test_rejects_empty_string(self):
+        row = {"config_snapshot": ""}
+        with pytest.raises(PersistenceError, match="empty config_snapshot"):
+            decode_config_snapshot(row)
+
+    def test_rejects_corrupt_json(self):
+        row = {"config_snapshot": "not-json"}
+        with pytest.raises(PersistenceError, match="corrupt"):
+            decode_config_snapshot(row)
+
+    @pytest.mark.parametrize("payload", ["null", "[]", "42", "true"])
+    def test_rejects_non_object_json(self, payload: str) -> None:
+        row: dict[str, Any] = {"config_snapshot": payload}
+        with pytest.raises(PersistenceError, match="expected object"):
+            decode_config_snapshot(row)
+
+    def test_rejects_non_str_non_dict_column(self):
+        row = {"config_snapshot": 42}
+        with pytest.raises(PersistenceError, match="expected str or dict"):
+            decode_config_snapshot(row)
+
+    def test_rejects_oversized_string(self):
+        row = {"config_snapshot": "x" * 2_000_000}
+        with pytest.raises(PersistenceError, match="suspiciously large"):
+            decode_config_snapshot(row)

@@ -91,7 +91,7 @@ def _extract_payload(event: Any) -> dict[str, Any]:  # pyright: ignore[reportUnu
     return dict(event.payload)  # type: ignore[union-attr]
 
 
-_ENGAGEMENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
+ENGAGEMENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 
 class EngagementLock:
@@ -107,7 +107,7 @@ class EngagementLock:
         self._locks: dict[str, BaseFileLock] = {}
 
     def _lock_path(self, engagement_id: str) -> Path:
-        if not _ENGAGEMENT_ID_PATTERN.match(engagement_id):
+        if not ENGAGEMENT_ID_PATTERN.match(engagement_id):
             raise PersistenceError(f"Invalid engagement ID format: {engagement_id!r}")
         return self._engagements_root / ".locks" / f"{engagement_id}.lock"
 

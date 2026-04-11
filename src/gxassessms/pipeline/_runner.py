@@ -24,6 +24,7 @@ from gxassessms.core.domain.models import (
     ToolObservation,
 )
 from gxassessms.core.security.permissions import secure_mkdir, warn_broad_permissions
+from gxassessms.pipeline.config_snapshot_mirror import mirror_config_snapshot_from_db
 from gxassessms.pipeline.stages import (
     STAGE_STATE_MAP,
     Stage,
@@ -84,6 +85,15 @@ def _run_collect(
     # load them later via load_raw_outputs().
     ctx.loaded_manifests = orchestrator._artifact_manager.save_raw_outputs(
         engagement_id, config.client_name, ctx.collection_results
+    )
+    # DR mirror: fail-open, logs ERROR internally if it can't write.
+    # Must run AFTER save_raw_outputs: write_config_snapshot requires
+    # eng_dir to exist, and save_raw_outputs is the site that creates
+    # it for fresh engagements.
+    mirror_config_snapshot_from_db(
+        orchestrator._engagement_repo,
+        orchestrator._artifact_manager,
+        engagement_id,
     )
 
 

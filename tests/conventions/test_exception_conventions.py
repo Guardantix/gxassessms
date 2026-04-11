@@ -25,6 +25,12 @@ BANNED_BROAD_EXCEPTIONS = {
 #   platform-specific types; broad catch is fail-safe for audit metadata
 # - core/security/permissions.py: warn_broad_permissions is advisory and must
 #   never block the calling operation
+# - pipeline/config_snapshot_mirror.py: disaster-recovery helper whose
+#   entire contract is "never block the primary pipeline"; wraps narrow
+#   typed `ConfigSnapshotMirrorError` branches plus a belt-and-suspenders
+#   `except Exception` at its public fail-open boundary. See CLAUDE.md
+#   Conventions: "Fail-open DR helpers use structured exceptions plus
+#   a belt-and-suspenders `except Exception` at their public boundary."
 BROAD_EXCEPT_ALLOWED_FILES = {
     SRC_ROOT / "cli" / "main.py",
     SRC_ROOT / "cli" / "commands" / "review.py",
@@ -32,6 +38,7 @@ BROAD_EXCEPT_ALLOWED_FILES = {
     SRC_ROOT / "core" / "security" / "audit_context.py",
     SRC_ROOT / "core" / "security" / "permissions.py",
     SRC_ROOT / "cli" / "commands" / "engagement.py",
+    SRC_ROOT / "pipeline" / "config_snapshot_mirror.py",
 }
 
 

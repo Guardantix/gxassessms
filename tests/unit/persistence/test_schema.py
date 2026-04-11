@@ -251,10 +251,10 @@ class TestEnumSchemaSync:
         )
 
 
-class TestSchemaAndMigrationSync:
-    def test_schema_sql_matches_migration(self) -> None:
-        """schema.sql and 001_initial.sql should have identical content."""
-        base = Path(__file__).parent.parent.parent.parent / "src/gxassessms/persistence"
-        schema_content = (base / "schema.sql").read_text().strip()
-        migration_content = (base / "migrations" / "001_initial.sql").read_text().strip()
-        assert schema_content == migration_content, "schema.sql and 001_initial.sql are out of sync"
+# Note: the former TestSchemaAndMigrationSync.test_schema_sql_matches_migration
+# was removed because schema.sql is the cumulative current-state reference
+# (after every migration in migrations/ has been applied), not a copy of
+# 001_initial.sql. tests/integration/test_migrations.py is the authoritative
+# check: it applies the migration chain to a real SQLite database and compares
+# the result against a DB bootstrapped from schema.sql, which catches any
+# drift across either file.

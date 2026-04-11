@@ -11,12 +11,14 @@ from __future__ import annotations
 import glob
 import json
 import logging
+import os
 import re
 import shutil
 import sys
 import tarfile
+import uuid
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from gxassessms.core.config.datetime_utils import format_utc, utc_now
 from gxassessms.core.contracts.errors import PersistenceError
@@ -29,6 +31,8 @@ RAW_OUTPUT_DIR = "raw-output"
 _REPORTS_DIR = "reports"
 _ARCHIVE_NAME = "raw-output.tar.gz"
 _RESTORE_STAGING_DIR = ".restore-staging"
+_CONFIG_SNAPSHOT_FILE = "config_snapshot.json"
+_CONFIG_SNAPSHOT_MAX_BYTES = 1_048_576  # 1 MB -- DoS ceiling for parse
 
 LifecycleAction = Literal["archive", "restore", "purge"]
 
@@ -181,6 +185,108 @@ class ArtifactManager:
                 _validate_path_within_root(entry, self._engagements_root)
                 return entry
         raise PersistenceError(f"Engagement directory not found for: {engagement_id}")
+
+    def write_config_snapshot(self, engagement_id: str, snapshot: dict[str, Any]) -> Path:
+        """Write config_snapshot.json to the engagement directory atomically.
+
+        Unlike raw-output writes (which copy adapter-produced files), this is
+        the one metadata file whose bytes this class owns end-to-end. Callers
+        provide a decoded dict; this method owns serialization and atomicity.
+
+        Uses temp-file + atomic rename so concurrent readers never observe a
+        partial file. `os.open` with `O_CREAT | O_EXCL | mode=0o600` applies
+        to the tmp file: it eliminates the write-then-chmod race window and
+        prevents silent overwrite of a pre-created tmp file. The target
+        itself is overwritten on every call via `replace()` -- target-level
+        semantics are last-writer-wins; no cross-process locking.
+
+        **Sensitive data note:** the snapshot contains client tenant ID,
+        subscription ID, client ID, and certificate path. It is protected by
+        0o600 (the parent engagement dir is 0o700, secure_mkdir-owned). Do
+        NOT add logging statements that dump the full snapshot dict -- the
+        logger.debug line below deliberately logs only the engagement_id.
+        """
+        eng_dir = self.get_engagement_dir(engagement_id)
+        target = eng_dir / _CONFIG_SNAPSHOT_FILE
+        # Keep tmp inside eng_dir: os.replace is non-atomic cross-filesystem (EXDEV).
+        tmp = eng_dir / f".{_CONFIG_SNAPSHOT_FILE}.tmp-{uuid.uuid4().hex}"
+        try:
+            # O_CREAT|O_EXCL: fail if a stale tmp file already exists (no
+            # silent overwrite of attacker-planted files). mode=0o600 at
+            # creation time closes the write-then-chmod race window;
+            # Windows ignores the mode and inherits NTFS ACLs from the
+            # 0o700 parent (matches existing _write_lifecycle_audit convention).
+            fd = os.open(
+                str(tmp),
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                0o600,
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(snapshot, f, indent=2)
+            tmp.replace(target)
+        finally:
+            # Only reached on write failure before replace(): after a
+            # successful replace(), tmp no longer exists.
+            if tmp.exists():
+                try:
+                    tmp.unlink()
+                except OSError:
+                    logger.debug("Failed to clean up temp snapshot file %s", tmp)
+        logger.debug("Wrote config snapshot for engagement %s", engagement_id)
+        return target
+
+    def read_config_snapshot(self, engagement_id: str) -> dict[str, Any]:
+        """Read config_snapshot.json from the engagement directory.
+
+        Returns the raw decoded dict. Caller owns Pydantic validation --
+        this class deliberately does not import `EngagementConfig` to keep
+        `persistence/` independent of pydantic config models.
+
+        Raises PersistenceError if the file is absent, unreadable, or
+        not valid JSON.
+        """
+        eng_dir = self.get_engagement_dir(engagement_id)
+        target = eng_dir / _CONFIG_SNAPSHOT_FILE
+        _validate_path_within_root(target, self._engagements_root)
+        if not target.is_file():
+            raise PersistenceError(
+                f"No config_snapshot.json for engagement {engagement_id!r} "
+                f"(expected at {target}). This engagement was likely created "
+                "before filesystem config persistence was added; replay requires "
+                "a DB record."
+            )
+        # DoS ceiling: refuse to parse pathologically large files. A sane
+        # config_snapshot is a few KB (client name, IDs, tool dict).
+        try:
+            size = target.stat().st_size
+        except OSError as exc:
+            raise PersistenceError(
+                f"Cannot stat config_snapshot.json for engagement {engagement_id!r}: {exc}"
+            ) from exc
+        if size > _CONFIG_SNAPSHOT_MAX_BYTES:
+            raise PersistenceError(
+                f"config_snapshot.json for engagement {engagement_id!r} is "
+                f"suspiciously large ({size} bytes, ceiling is "
+                f"{_CONFIG_SNAPSHOT_MAX_BYTES} bytes); refusing to parse"
+            )
+        try:
+            raw = target.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise PersistenceError(
+                f"Cannot read config_snapshot.json for engagement {engagement_id!r}: {exc}"
+            ) from exc
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise PersistenceError(
+                f"config_snapshot.json for engagement {engagement_id!r} is corrupt: {exc}"
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise PersistenceError(
+                f"config_snapshot.json for engagement {engagement_id!r} is not a JSON object "
+                f"(got {type(parsed).__name__})"
+            )
+        return cast(dict[str, Any], parsed)
 
     def archive(self, engagement_id: str, operator: str = "system") -> Path:
         """Archive raw output to a compressed tarball.

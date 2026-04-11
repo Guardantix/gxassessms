@@ -37,6 +37,16 @@ Design spec: `../gxassessms-guardantix/docs/specs/2026-03-25-gxassessms-architec
 - PowerShell templates in `adapters/_verification_scripts/` are static; all dynamic data flows through JSON input (no string substitution)
 - Config `module_policy_override` can narrow policy (exact version pin, hash subset) but never widen it
 - Heavy third-party imports (httpx, azure.*, subprocess internals) must be function-scoped in adapter methods, not module-level -- keeps the base package importable without optional dependencies
+- Disaster-recovery mirror files (e.g., `<eng_dir>/config_snapshot.json`)
+  are written from the DB-persisted value, not the in-memory config, to
+  guarantee DB/filesystem parity across re-collection against existing
+  engagements with edited YAML inputs.
+- Fail-open DR helpers use structured exceptions plus a belt-and-suspenders
+  `except Exception` at their public boundary. The pattern is reserved for
+  helpers whose entire contract is "never block the primary pipeline" --
+  use a narrow typed exception (e.g., `ConfigSnapshotMirrorError`) for
+  branch coverage in tests, then swallow-and-log at the public entry point.
+  Do NOT generalize this pattern to non-DR code paths.
 
 ## Workspace
 

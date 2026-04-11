@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from gxassessms.core.config.datetime_utils import format_utc, utc_now
 from gxassessms.core.contracts.errors import PersistenceError
@@ -13,6 +13,54 @@ from gxassessms.core.domain.enums import EngagementState
 from gxassessms.persistence.database import DatabaseManager
 
 logger = logging.getLogger(__name__)
+
+
+_CONFIG_SNAPSHOT_MAX_BYTES = 1_048_576  # 1 MB -- DoS ceiling for parse
+
+
+def decode_config_snapshot(engagement_row: dict[str, Any]) -> dict[str, Any]:
+    """Decode the `config_snapshot` column of an engagement row to a dict.
+
+    The column is stored as a JSON string by `EngagementRepo.create()`,
+    but some DB adapters may pre-hydrate it to a dict. Accepts either;
+    rejects anything else.
+
+    Raises PersistenceError if the column is absent, null, corrupt JSON,
+    or not a JSON object. A missing key and a null value are reported
+    distinctly: the former implies a schema/query regression, while the
+    latter implies the column was written null.
+    """
+    if "config_snapshot" not in engagement_row:
+        raise PersistenceError("engagement row is missing config_snapshot column")
+    raw = engagement_row["config_snapshot"]
+    if raw is None:
+        raise PersistenceError("engagement row has null config_snapshot")
+    if isinstance(raw, dict):
+        return cast(dict[str, Any], raw)
+    if not isinstance(raw, str):
+        raise PersistenceError(
+            f"engagement row config_snapshot is {type(raw).__name__}, expected str or dict"
+        )
+    if raw == "":
+        raise PersistenceError("engagement row has empty config_snapshot")
+    # DoS ceiling: SQLite TEXT column can hold up to 1 GB, but a sane
+    # config_snapshot is a few KB. Refuse to parse pathologically large
+    # values (hand-edited or adversarial rows).
+    if len(raw) > _CONFIG_SNAPSHOT_MAX_BYTES:
+        raise PersistenceError(
+            f"engagement row config_snapshot is suspiciously large "
+            f"({len(raw)} bytes, ceiling is {_CONFIG_SNAPSHOT_MAX_BYTES}); "
+            "refusing to parse"
+        )
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise PersistenceError(f"engagement row config_snapshot is corrupt JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise PersistenceError(
+            f"engagement row config_snapshot decoded to {type(parsed).__name__}, expected object"
+        )
+    return cast(dict[str, Any], parsed)
 
 
 class EngagementRepo:
@@ -51,6 +99,62 @@ class EngagementRepo:
             )
         logger.info("Created engagement %s for client %s", engagement_id, client_name)
         return engagement_id
+
+    def rehydrate_from_snapshot(
+        self,
+        engagement_id: str,
+        client_name: str,
+        tenant_id: str,
+        config_snapshot: dict[str, Any],
+        engagement_dir: str | None = None,
+        initial_state: EngagementState = EngagementState.CREATED,
+    ) -> None:
+        """Rehydrate a missing engagement row from a persisted config snapshot.
+
+        Used only by the disaster-recovery path in `mseco replay` after a
+        DB wipe. Unlike `create()`, which generates a fresh UUID, this
+        method inserts a row keyed by the caller-supplied engagement_id
+        so downstream stages find the same row the filesystem already
+        carries. Raises PersistenceError if a row with this ID already
+        exists -- the caller is expected to confirm the row is missing
+        before invoking this method.
+
+        The row is seeded at `initial_state` (default CREATED); the
+        subsequent `reset_for_rerun` call in the replay flow will
+        `force_update_state` the row to the correct stage entry state.
+        """
+        now = format_utc(utc_now())
+        config_json = json.dumps(config_snapshot)
+
+        with self._db.connect() as conn:
+            existing = conn.execute(
+                "SELECT 1 FROM engagements WHERE engagement_id = ?",
+                (engagement_id,),
+            ).fetchone()
+            if existing is not None:
+                raise PersistenceError(
+                    f"Cannot rehydrate engagement {engagement_id!r}: row already exists"
+                )
+
+            conn.execute(
+                "INSERT INTO engagements "
+                "(engagement_id, client_name, tenant_id, state, created_at, "
+                "config_snapshot, engagement_dir) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (
+                    engagement_id,
+                    client_name,
+                    tenant_id,
+                    initial_state.value,
+                    now,
+                    config_json,
+                    engagement_dir,
+                ),
+            )
+        logger.warning(
+            "Rehydrated engagement %s from filesystem snapshot (DR path)",
+            engagement_id,
+        )
 
     def get(self, engagement_id: str) -> dict[str, Any]:
         """Get an engagement by ID. Raises PersistenceError if not found."""

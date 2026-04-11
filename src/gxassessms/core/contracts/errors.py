@@ -195,6 +195,24 @@ class MigrationError(PersistenceError):
     """Schema migration failed."""
 
 
+class ConfigSnapshotMirrorError(PersistenceError):
+    """Raised when writing the filesystem mirror of config_snapshot fails.
+
+    This is a disaster-recovery helper -- a failure here does not block
+    normal pipeline execution, but it does mean `mseco replay` cannot
+    recover this engagement after a DB wipe. The caller (pipeline
+    runner) logs at ERROR level and continues.
+
+    `engagement_id` is required -- every raise site in the mirror module
+    has a bound engagement_id, and defaulting it would hide context from
+    the operator log format string that relies on it.
+    """
+
+    def __init__(self, message: str, engagement_id: str) -> None:
+        self.engagement_id = engagement_id
+        super().__init__(message)
+
+
 class LockTimeoutError(PersistenceError):
     """Advisory lock acquisition timed out."""
 

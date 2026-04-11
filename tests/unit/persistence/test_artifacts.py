@@ -2,6 +2,7 @@
 
 import hashlib as _hashlib
 import json
+import os as _os
 import sys as _sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -652,3 +653,188 @@ class TestLifecycleAudit:
         # traverse above audit_dir via ..
         with pytest.raises(PersistenceError, match="path traversal"):
             mgr._write_lifecycle_audit("purge", "x/../../../escape", "test", {})
+
+
+class TestConfigSnapshot:
+    def test_write_and_read_roundtrip(self, tmp_path: Path) -> None:
+        mgr = ArtifactManager(engagements_root=tmp_path)
+        eng_id = "abc-123"
+        (tmp_path / f"client-{eng_id}").mkdir()
+        snapshot = {"client_name": "Acme", "tenant_id": "t-1"}
+        mgr.write_config_snapshot(eng_id, snapshot)
+        assert mgr.read_config_snapshot(eng_id) == snapshot
+
+    def test_write_overwrites_existing(self, tmp_path: Path) -> None:
+        """Last-writer-wins semantics, required when re-collecting against
+        an existing engagement whose YAML has been edited since creation."""
+        mgr = ArtifactManager(engagements_root=tmp_path)
+        eng_id = "abc-456"
+        (tmp_path / f"client-{eng_id}").mkdir()
+        mgr.write_config_snapshot(eng_id, {"v": 1})
+        mgr.write_config_snapshot(eng_id, {"v": 2})
+        assert mgr.read_config_snapshot(eng_id) == {"v": 2}
+
+    def test_write_is_atomic_no_temp_leftover(self, tmp_path: Path) -> None:
+        mgr = ArtifactManager(engagements_root=tmp_path)
+        eng_id = "abc-atom"
+        eng_dir = tmp_path / f"client-{eng_id}"
+        eng_dir.mkdir()
+        mgr.write_config_snapshot(eng_id, {"k": "v"})
+        leftovers = list(eng_dir.glob(".config_snapshot.json.tmp-*"))
+        assert leftovers == []
+
+    def test_failed_replace_cleans_up_tmp(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # If Path.replace() raises, the finally block must still unlink tmp.
+        mgr = ArtifactManager(engagements_root=tmp_path)
+        eng_id = "abc-failreplace"
+        eng_dir = tmp_path / f"client-{eng_id}"
+        eng_dir.mkdir()
+
+        def bad_replace(self: Path, target: Path) -> Path:
+            raise OSError("simulated replace failure")
+
+        monkeypatch.setattr(Path, "replace", bad_replace)
+
+        with pytest.raises(OSError, match="simulated"):
+            mgr.write_config_snapshot(eng_id, {"k": "v"})
+        leftovers = list(eng_dir.glob(".config_snapshot.json.tmp-*"))
+        assert leftovers == []  # finally cleaned up even on failure
+
+    def test_write_produces_indented_json(self, tmp_path: Path) -> None:
+        mgr = ArtifactManager(engagements_root=tmp_path)
+        eng_id = "abc-pretty"
+        (tmp_path / f"client-{eng_id}").mkdir()
+        path = mgr.write_config_snapshot(eng_id, {"client_name": "Acme"})
+        body = path.read_text(encoding="utf-8")
+        assert "\n  " in body  # 2-space indent visible on wrapped lines
+
+    def test_read_rejects_oversized_file(self, tmp_path: Path) -> None:
+        mgr = ArtifactManager(engagements_root=tmp_path)
+        eng_id = "abc-huge"
+        eng_dir = tmp_path / f"client-{eng_id}"
+        eng_dir.mkdir()
+        target = eng_dir / "config_snapshot.json"
+        huge = {"padding": "x" * (1_500_000)}
+        target.write_text(json.dumps(huge), encoding="utf-8")
+        with pytest.raises(PersistenceError, match="suspiciously large"):
+            mgr.read_config_snapshot(eng_id)
+
+    def test_write_refuses_preexisting_tmp(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # O_EXCL should fail if the tmp path is somehow pre-created
+        # (defense against attacker planting a stale tmp file).
+        mgr = ArtifactManager(engagements_root=tmp_path)
+        eng_id = "abc-planted"
+        eng_dir = tmp_path / f"client-{eng_id}"
+        eng_dir.mkdir()
+        # Force a deterministic uuid so we can pre-plant the tmp path.
+        fixed_hex = "0123456789abcdef0123456789abcdef"  # pragma: allowlist secret
+
+        class _FixedUUID:
+            hex = fixed_hex
+
+        monkeypatch.setattr(
+            "gxassessms.persistence.artifacts.uuid.uuid4",
+            lambda: _FixedUUID(),
+        )
+        (eng_dir / f".config_snapshot.json.tmp-{fixed_hex}").write_text("stale")
+        with pytest.raises(FileExistsError):
+            mgr.write_config_snapshot(eng_id, {"k": "v"})
+
+    def test_read_missing_raises(self, tmp_path: Path) -> None:
+        mgr = ArtifactManager(engagements_root=tmp_path)
+        eng_id = "abc-789"
+        (tmp_path / f"client-{eng_id}").mkdir()
+        with pytest.raises(PersistenceError, match=r"No config_snapshot\.json"):
+            mgr.read_config_snapshot(eng_id)
+
+    def test_read_empty_file_raises(self, tmp_path: Path) -> None:
+        mgr = ArtifactManager(engagements_root=tmp_path)
+        eng_id = "abc-empty"
+        eng_dir = tmp_path / f"client-{eng_id}"
+        eng_dir.mkdir()
+        (eng_dir / "config_snapshot.json").write_text("", encoding="utf-8")
+        with pytest.raises(PersistenceError, match="corrupt"):
+            mgr.read_config_snapshot(eng_id)
+
+    def test_read_corrupt_json_raises(self, tmp_path: Path) -> None:
+        mgr = ArtifactManager(engagements_root=tmp_path)
+        eng_id = "abc-bad"
+        eng_dir = tmp_path / f"client-{eng_id}"
+        eng_dir.mkdir()
+        (eng_dir / "config_snapshot.json").write_text("not-json", encoding="utf-8")
+        with pytest.raises(PersistenceError, match="corrupt"):
+            mgr.read_config_snapshot(eng_id)
+
+    @pytest.mark.parametrize(
+        ("payload", "description"),
+        [
+            ("null", "null"),
+            ("[]", "list"),
+            ("42", "int"),
+            ("true", "bool"),
+            ('"hello"', "string"),
+        ],
+    )
+    def test_read_non_object_json_raises(
+        self, tmp_path: Path, payload: str, description: str
+    ) -> None:
+        mgr = ArtifactManager(engagements_root=tmp_path)
+        eng_id = f"abc-{description}"
+        eng_dir = tmp_path / f"client-{eng_id}"
+        eng_dir.mkdir()
+        (eng_dir / "config_snapshot.json").write_text(payload, encoding="utf-8")
+        with pytest.raises(PersistenceError, match="not a JSON object"):
+            mgr.read_config_snapshot(eng_id)
+
+    def test_read_when_engagement_dir_missing_raises(self, tmp_path: Path) -> None:
+        mgr = ArtifactManager(engagements_root=tmp_path)
+        with pytest.raises(PersistenceError, match="Engagement directory not found"):
+            mgr.read_config_snapshot("nonexistent-id")
+
+    @pytest.mark.skipif(_sys.platform == "win32", reason="POSIX only")
+    def test_write_sets_0o600(self, tmp_path: Path) -> None:
+        mgr = ArtifactManager(engagements_root=tmp_path)
+        eng_id = "abc-perm"
+        (tmp_path / f"client-{eng_id}").mkdir()
+        path = mgr.write_config_snapshot(eng_id, {})
+        assert oct(path.stat().st_mode & 0o777) == oct(0o600)
+
+    @pytest.mark.skipif(_sys.platform == "win32", reason="chmod 0 blocks reads only on POSIX")
+    def test_read_unreadable_file_raises_persistence_error(self, tmp_path: Path) -> None:
+        if hasattr(_os, "geteuid") and _os.geteuid() == 0:
+            pytest.skip("chmod 0 does not block reads when running as root")
+        mgr = ArtifactManager(engagements_root=tmp_path)
+        eng_id = "abc-unreadable"
+        eng_dir = tmp_path / f"client-{eng_id}"
+        eng_dir.mkdir()
+        target = eng_dir / "config_snapshot.json"
+        target.write_text('{"k": "v"}', encoding="utf-8")
+        target.chmod(0o000)
+        try:
+            with pytest.raises(PersistenceError, match="Cannot read"):
+                mgr.read_config_snapshot(eng_id)
+        finally:
+            target.chmod(0o600)
+
+    def test_write_survives_archive_boundary(self, tmp_path: Path) -> None:
+        # Snapshot lives outside raw-output/, so archive() (which only
+        # archives raw-output/) must not touch it.
+        engagements_root = tmp_path / "engagements"
+        engagements_root.mkdir()
+        audit_dir = tmp_path / "audit"
+        audit_dir.mkdir()
+        mgr = ArtifactManager(engagements_root=engagements_root, audit_dir=audit_dir)
+        eng_id = "abc-arch"
+        eng_dir = engagements_root / f"client-{eng_id}"
+        (eng_dir / "raw-output" / "manifests").mkdir(parents=True)
+        (eng_dir / "raw-output" / "artifacts").mkdir(parents=True)
+        # Archive requires at least one real file under raw-output/.
+        (eng_dir / "raw-output" / "artifacts" / "results.json").write_text("{}", encoding="utf-8")
+        mgr.write_config_snapshot(eng_id, {"sentinel": True})
+        mgr.archive(eng_id, operator="test")
+        assert (eng_dir / "config_snapshot.json").exists()
+        assert mgr.read_config_snapshot(eng_id) == {"sentinel": True}
