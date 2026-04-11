@@ -137,12 +137,22 @@ tool access. Common in heavily regulated environments.
    mseco engagement create engagement.yaml
    ```
 
-2. Copy the client's raw output files into the engagement directory,
-   matching the adapter's expected subdirectory layout:
+2. Ingest the client's raw output files using `mseco ingest` (see
+   issue #78 -- command not yet implemented):
 
    ```
-   cp -r client-scubagear/ ~/.gxassessms/engagements/<id>/scubagear/
+   mseco ingest <id> --tool scubagear --from client-scubagear/
    ```
+
+   `mseco ingest` copies the artifacts into the engagement directory
+   under `raw-output/artifacts/<slug>/` and writes the required
+   `RawToolOutput` manifest to `raw-output/manifests/<slug>.json`.
+   Without a valid manifest, `mseco replay` will fail.
+
+   **Until `mseco ingest` is available:** This scenario requires
+   manually constructing a `RawToolOutput` JSON manifest and placing
+   artifacts at the correct paths. Engagement directories are named
+   `<slug>-<id>` (e.g., `acme-corp-<id>`), not `<id>` alone.
 
 3. Replay the pipeline from PARSE (skipping COLLECT):
 
@@ -409,7 +419,7 @@ simultaneously. The advisory `filelock` serializes these operations.
 1. Check what holds the lock:
 
    ```
-   lsof ~/.gxassessms/engagements/<id>/.lock
+   lsof ~/.gxassessms/engagements/.locks/<id>.lock
    ```
 
 2. Check if the holding process is alive.
@@ -423,7 +433,7 @@ simultaneously. The advisory `filelock` serializes these operations.
   lingers. Delete it manually:
 
   ```
-  rm ~/.gxassessms/engagements/<id>/.lock
+  rm ~/.gxassessms/engagements/.locks/<id>.lock
   ```
 
   Then re-run the failed command. (There is no `mseco engagement unlock`
