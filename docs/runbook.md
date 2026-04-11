@@ -286,14 +286,18 @@ a *-ing state without a corresponding transition to the *-ed state.
 
 **Resolution:**
 
-1. Re-run `mseco run` with `--force-stage` pointing at the stuck stage:
+1. Re-run `mseco run` with `--force-stage COLLECT`:
 
    ```
-   mseco run <config.yaml> --engagement-id <id> --force-stage CONSOLIDATE
+   mseco run <config.yaml> --engagement-id <id> --force-stage COLLECT
    ```
 
-   The orchestrator's `reset_for_rerun` clears stale running state,
-   invalidates the target stage's content hash, and re-enters it.
+   `reset_for_rerun` forces the engagement state back to the target
+   stage's entry state, and `run_from` re-executes from there. Use
+   `COLLECT` for any stuck state -- it has no upstream preconditions.
+   If you know the pipeline completed further (e.g., stuck at
+   CONSOLIDATING but NORMALIZING finished), use the matching stage
+   to avoid re-running earlier work.
 
 2. If `force-stage` rejects the transition due to an invalid state, use
    `--rerun` to re-run the entire pipeline:
