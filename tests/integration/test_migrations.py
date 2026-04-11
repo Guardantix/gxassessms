@@ -11,7 +11,10 @@ _schema_migrations tracker. Verifies:
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
+
+import pytest
 
 import gxassessms.persistence as _persist
 from gxassessms.persistence import DatabaseManager
@@ -26,6 +29,9 @@ from tests.fixtures.engagements.seed_snapshot import (
 _PERSIST_DIR = Path(_persist.__file__).parent
 SCHEMA_SQL_PATH = _PERSIST_DIR / "schema.sql"
 MIGRATIONS_DIR = _PERSIST_DIR / "migrations"
+
+# Read once at module level -- schema.sql is static during a test run.
+_SCHEMA_SQL = SCHEMA_SQL_PATH.read_text(encoding="utf-8")
 
 
 # Helpers ---------------------------------------------------------------
@@ -152,43 +158,46 @@ class TestSeededDataSurvives:
 class TestSchemaMatchesCanonical:
     """Migrated schema matches schema.sql (current-state reference)."""
 
-    def test_same_tables_as_schema_sql(self, tmp_path: Path) -> None:
-        # Apply migrations
+    @pytest.fixture
+    def schema_db_pair(
+        self, tmp_path: Path
+    ) -> Iterator[tuple[sqlite3.Connection, sqlite3.Connection]]:
+        """Yield (migrated_conn, fresh_conn), both closed on exit even if assertions fail."""
         migrated_path = tmp_path / "migrated.db"
         DatabaseManager(db_path=migrated_path).initialize()
 
-        # Create a fresh DB from schema.sql alone
-        fresh_path = tmp_path / "fresh_from_schema.db"
+        fresh_path = tmp_path / "fresh.db"
         fresh_conn = sqlite3.connect(str(fresh_path))
-        fresh_conn.executescript(SCHEMA_SQL_PATH.read_text(encoding="utf-8"))
+        fresh_conn.executescript(_SCHEMA_SQL)
         fresh_conn.commit()
 
         migrated_conn = sqlite3.connect(str(migrated_path))
         migrated_conn.row_factory = sqlite3.Row
 
+        try:
+            yield migrated_conn, fresh_conn
+        finally:
+            fresh_conn.close()
+            migrated_conn.close()
+
+    def test_same_tables_as_schema_sql(
+        self,
+        schema_db_pair: tuple[sqlite3.Connection, sqlite3.Connection],
+    ) -> None:
+        migrated_conn, fresh_conn = schema_db_pair
         migrated_tables = _get_user_tables(migrated_conn) - {"_schema_migrations"}
         fresh_tables = _get_user_tables(fresh_conn)
-
         assert migrated_tables == fresh_tables, (
             f"Table set mismatch:\n"
             f"  Only in migrated DB: {sorted(migrated_tables - fresh_tables)}\n"
             f"  Only in schema.sql: {sorted(fresh_tables - migrated_tables)}"
         )
 
-        fresh_conn.close()
-        migrated_conn.close()
-
-    def test_same_columns_per_table(self, tmp_path: Path) -> None:
-        migrated_path = tmp_path / "migrated2.db"
-        DatabaseManager(db_path=migrated_path).initialize()
-        fresh_path = tmp_path / "fresh2.db"
-        fresh_conn = sqlite3.connect(str(fresh_path))
-        fresh_conn.executescript(SCHEMA_SQL_PATH.read_text(encoding="utf-8"))
-        fresh_conn.commit()
-
-        migrated_conn = sqlite3.connect(str(migrated_path))
-        migrated_conn.row_factory = sqlite3.Row
-
+    def test_same_columns_per_table(
+        self,
+        schema_db_pair: tuple[sqlite3.Connection, sqlite3.Connection],
+    ) -> None:
+        migrated_conn, fresh_conn = schema_db_pair
         fresh_tables = _get_user_tables(fresh_conn)
         for table in fresh_tables:
             migrated_cols = _get_table_column_attrs(migrated_conn, table)
@@ -199,26 +208,15 @@ class TestSchemaMatchesCanonical:
                 f"  Only in schema.sql: {sorted(fresh_cols - migrated_cols)}"
             )
 
-        fresh_conn.close()
-        migrated_conn.close()
-
-    def test_same_indexes(self, tmp_path: Path) -> None:
-        migrated_path = tmp_path / "migrated3.db"
-        DatabaseManager(db_path=migrated_path).initialize()
-        fresh_path = tmp_path / "fresh3.db"
-        fresh_conn = sqlite3.connect(str(fresh_path))
-        fresh_conn.executescript(SCHEMA_SQL_PATH.read_text(encoding="utf-8"))
-        fresh_conn.commit()
-
-        migrated_conn = sqlite3.connect(str(migrated_path))
+    def test_same_indexes(
+        self,
+        schema_db_pair: tuple[sqlite3.Connection, sqlite3.Connection],
+    ) -> None:
+        migrated_conn, fresh_conn = schema_db_pair
         migrated_indexes = _get_user_indexes(migrated_conn)
         fresh_indexes = _get_user_indexes(fresh_conn)
-
         assert migrated_indexes == fresh_indexes, (
             f"Index set mismatch:\n"
             f"  Only in migrated: {sorted(migrated_indexes - fresh_indexes)}\n"
             f"  Only in schema.sql: {sorted(fresh_indexes - migrated_indexes)}"
         )
-
-        fresh_conn.close()
-        migrated_conn.close()

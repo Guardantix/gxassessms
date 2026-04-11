@@ -18,7 +18,6 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
-import yaml
 
 from gxassessms.adapters.scubagear import ScubaGearAdapter
 from gxassessms.consolidation.rules import DefaultConsolidationRule
@@ -138,34 +137,6 @@ def isolated_data_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
-def normalization_rules() -> dict[str, Any]:
-    rules_path = (
-        Path(__file__).parent.parent.parent
-        / "src"
-        / "gxassessms"
-        / "policy"
-        / "rules"
-        / "normalization.yaml"
-    )
-    with open(rules_path, encoding="utf-8") as f:
-        return yaml.safe_load(f)  # type: ignore[no-any-return]
-
-
-@pytest.fixture
-def consolidation_rules() -> dict[str, Any]:
-    rules_path = (
-        Path(__file__).parent.parent.parent
-        / "src"
-        / "gxassessms"
-        / "policy"
-        / "rules"
-        / "consolidation.yaml"
-    )
-    with open(rules_path, encoding="utf-8") as f:
-        return yaml.safe_load(f)  # type: ignore[no-any-return]
-
-
-@pytest.fixture
 def e2e_config() -> EngagementConfig:
     """Minimal engagement config enabling ScubaGear with JSON marker output."""
     return EngagementConfig(
@@ -244,7 +215,6 @@ def scubagear_adapter_with_fixture(
         return PrerequisiteResult(satisfied=True, message="Fixture mode")
 
     monkeypatch.setattr(adapter, "collect", fake_collect)
-    # Short-circuit prerequisite check -- fixtures do not need PowerShell.
     monkeypatch.setattr(adapter, "check_prerequisites", fake_check_prerequisites)
     monkeypatch.setattr(adapter, "authenticate", fake_authenticate)
     return adapter
@@ -257,7 +227,7 @@ def db(isolated_data_dir: Path) -> DatabaseManager:
     The isolated_data_dir parameter is required so the env var is set
     before DatabaseManager() reads GXASSESSMS_DATA_DIR.
     """
-    _ = isolated_data_dir  # force fixture evaluation order
+    _ = isolated_data_dir  # force fixture evaluation; env var must be set before DatabaseManager()
     mgr = DatabaseManager()
     mgr.initialize()
     return mgr
@@ -319,6 +289,34 @@ def orchestrator(
 class TestPipelineEndToEnd:
     """Full pipeline via Orchestrator against real ScubaGear fixtures."""
 
+    def _run_pipeline(
+        self,
+        orchestrator: Orchestrator,
+        engagement_repo: EngagementRepo,
+        config: EngagementConfig,
+        adapters: list[Any],
+        normalization_rules: dict[str, Any],
+        consolidation_rules: dict[str, Any],
+    ) -> str:
+        """Create an engagement and run the full pipeline. Returns engagement_id."""
+        engagement_id = engagement_repo.create(
+            client_name=config.client_name,
+            tenant_id=config.tenant_id,
+            config_snapshot=config.model_dump(),
+        )
+        orchestrator.run(
+            engagement_id=engagement_id,
+            config=config,
+            adapters=adapters,
+            normalization_policy=DefaultNormalizationPolicy(rules=normalization_rules),
+            consolidation_rule=DefaultConsolidationRule(
+                policy=DefaultConsolidationPolicy(rules=consolidation_rules)
+            ),
+            qa_strategy=NoOpQAStrategy(),
+            renderers=[JsonMarkerRenderer()],
+        )
+        return engagement_id
+
     def test_full_pipeline_reaches_complete(
         self,
         orchestrator: Orchestrator,
@@ -329,27 +327,14 @@ class TestPipelineEndToEnd:
         consolidation_rules: dict[str, Any],
     ) -> None:
         """Full pipeline: CREATED -> COLLECT -> PARSE -> NORMALIZE -> CONSOLIDATE -> RENDER -> COMPLETE."""  # noqa: E501
-        engagement_id = engagement_repo.create(
-            client_name=e2e_config.client_name,
-            tenant_id=e2e_config.tenant_id,
-            config_snapshot=e2e_config.model_dump(),
+        engagement_id = self._run_pipeline(
+            orchestrator,
+            engagement_repo,
+            e2e_config,
+            [scubagear_adapter_with_fixture],
+            normalization_rules,
+            consolidation_rules,
         )
-
-        norm_policy = DefaultNormalizationPolicy(rules=normalization_rules)
-        consol_rule = DefaultConsolidationRule(
-            policy=DefaultConsolidationPolicy(rules=consolidation_rules)
-        )
-
-        orchestrator.run(
-            engagement_id=engagement_id,
-            config=e2e_config,
-            adapters=[scubagear_adapter_with_fixture],
-            normalization_policy=norm_policy,
-            consolidation_rule=consol_rule,
-            qa_strategy=NoOpQAStrategy(),
-            renderers=[JsonMarkerRenderer()],
-        )
-
         engagement = engagement_repo.get(engagement_id)
         assert engagement is not None
         assert engagement["state"] == EngagementState.COMPLETE.value
@@ -366,21 +351,13 @@ class TestPipelineEndToEnd:
         consolidation_rules: dict[str, Any],
     ) -> None:
         """Consolidated findings and coverage records land in the DB."""
-        engagement_id = engagement_repo.create(
-            client_name=e2e_config.client_name,
-            tenant_id=e2e_config.tenant_id,
-            config_snapshot=e2e_config.model_dump(),
-        )
-        orchestrator.run(
-            engagement_id=engagement_id,
-            config=e2e_config,
-            adapters=[scubagear_adapter_with_fixture],
-            normalization_policy=DefaultNormalizationPolicy(rules=normalization_rules),
-            consolidation_rule=DefaultConsolidationRule(
-                policy=DefaultConsolidationPolicy(rules=consolidation_rules)
-            ),
-            qa_strategy=NoOpQAStrategy(),
-            renderers=[JsonMarkerRenderer()],
+        engagement_id = self._run_pipeline(
+            orchestrator,
+            engagement_repo,
+            e2e_config,
+            [scubagear_adapter_with_fixture],
+            normalization_rules,
+            consolidation_rules,
         )
 
         consolidated = finding_repo.get_consolidated(engagement_id)
@@ -416,26 +393,16 @@ class TestPipelineEndToEnd:
         consolidation_rules: dict[str, Any],
     ) -> None:
         """JsonMarkerRenderer produces a file in the engagement output directory."""
-        engagement_id = engagement_repo.create(
-            client_name=e2e_config.client_name,
-            tenant_id=e2e_config.tenant_id,
-            config_snapshot=e2e_config.model_dump(),
-        )
-        orchestrator.run(
-            engagement_id=engagement_id,
-            config=e2e_config,
-            adapters=[scubagear_adapter_with_fixture],
-            normalization_policy=DefaultNormalizationPolicy(rules=normalization_rules),
-            consolidation_rule=DefaultConsolidationRule(
-                policy=DefaultConsolidationPolicy(rules=consolidation_rules)
-            ),
-            qa_strategy=NoOpQAStrategy(),
-            renderers=[JsonMarkerRenderer()],
+        engagement_id = self._run_pipeline(
+            orchestrator,
+            engagement_repo,
+            e2e_config,
+            [scubagear_adapter_with_fixture],
+            normalization_rules,
+            consolidation_rules,
         )
 
-        # JsonMarkerRenderer writes <engagement_id>.json into the reports dir.
         engagement_dir = artifact_manager.get_engagement_dir(engagement_id)
-        # Reports are written under the engagement dir; find the marker file.
         matches = list(engagement_dir.rglob(f"{engagement_id}.json"))
         assert matches, f"No render output found under {engagement_dir}"
         data = json.loads(matches[0].read_text(encoding="utf-8"))
@@ -456,21 +423,13 @@ class TestPipelineEndToEnd:
 
         The real ScubaGear adapter's output still flows through to RENDER.
         """
-        engagement_id = engagement_repo.create(
-            client_name=e2e_config.client_name,
-            tenant_id=e2e_config.tenant_id,
-            config_snapshot=e2e_config.model_dump(),
-        )
-        orchestrator.run(
-            engagement_id=engagement_id,
-            config=e2e_config,
-            adapters=[scubagear_adapter_with_fixture, FailingStubAdapter()],
-            normalization_policy=DefaultNormalizationPolicy(rules=normalization_rules),
-            consolidation_rule=DefaultConsolidationRule(
-                policy=DefaultConsolidationPolicy(rules=consolidation_rules)
-            ),
-            qa_strategy=NoOpQAStrategy(),
-            renderers=[JsonMarkerRenderer()],
+        engagement_id = self._run_pipeline(
+            orchestrator,
+            engagement_repo,
+            e2e_config,
+            [scubagear_adapter_with_fixture, FailingStubAdapter()],
+            normalization_rules,
+            consolidation_rules,
         )
         engagement = engagement_repo.get(engagement_id)
         assert engagement["state"] == EngagementState.COMPLETE.value

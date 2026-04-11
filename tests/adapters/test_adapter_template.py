@@ -112,22 +112,6 @@ class TemplateConformanceTest(AdapterConformanceSuite):
             execution_metadata={},
         )
 
-    @pytest.fixture
-    def normalization_rules(self) -> dict[str, Any]:
-        # Load the bundled rules from src/gxassessms/policy/rules/normalization.yaml
-        import yaml
-
-        rules_path = (
-            Path(__file__).parent.parent.parent
-            / "src"
-            / "gxassessms"
-            / "policy"
-            / "rules"
-            / "normalization.yaml"
-        )
-        with rules_path.open(encoding="utf-8") as f:
-            return yaml.safe_load(f)  # type: ignore[no-any-return]
-
 
 # -----------------------------------------------------------------------
 # Section 2: Parser unit test scaffold
