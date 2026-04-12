@@ -388,7 +388,7 @@ class TestRepairEventHappyPath:
                 "tool": tool_source_value,
                 "tool_slug": tool_slug,
                 "schema_version": "1.0.0",
-                "manifest_version": "1.0.0",
+                "manifest_version": "1.1.0",
                 "timestamp": "2026-01-01T00:00:00Z",
                 "file_manifest": {
                     f"{tool_slug}/results.json": {
@@ -619,7 +619,7 @@ def _make_repair_manifest_json(tool_slug: str = _TOOL_SLUG, replaced: bool = Fal
             "tool": tool_source_value,
             "tool_slug": tool_slug,
             "schema_version": "1.0.0",
-            "manifest_version": "1.0.0",
+            "manifest_version": "1.1.0",
             "timestamp": "2026-01-01T00:00:00Z",
             "file_manifest": {
                 f"{tool_slug}/results.json": {
@@ -843,3 +843,255 @@ class TestIngestErrorPaths:
         )
         assert result.exit_code != 0
         assert "Repair failed" in result.output
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
+    @patch("gxassessms.cli._helpers.resolve_enabled_adapter", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_adapter_ingest_error_exits_nonzero(
+        self,
+        mock_get_repo: MagicMock,
+        mock_resolve: MagicMock,
+        mock_require: MagicMock,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """CollectionError from adapter -> exit nonzero with 'Ingest failed'."""
+        from gxassessms.core.contracts.errors import CollectionError
+
+        source_dir = tmp_path / "output"
+        source_dir.mkdir()
+        mock_get_repo.return_value.get.return_value = _make_engagement_row()
+        adapter = _make_mock_adapter()
+        mock_resolve.return_value = adapter
+        mock_require.return_value = adapter
+        adapter.ingest_from_directory.side_effect = CollectionError(
+            "parse failed", adapter_name="scubagear"
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["ingest", _ENGAGEMENT_ID, "--tool", _TOOL_SLUG, "--from", str(source_dir)],
+        )
+        assert result.exit_code != 0
+        assert "Ingest failed" in result.output
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
+    @patch("gxassessms.cli._helpers.resolve_enabled_adapter", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_valueerror_from_adapter_exits_nonzero(
+        self,
+        mock_get_repo: MagicMock,
+        mock_resolve: MagicMock,
+        mock_require: MagicMock,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """ValueError from adapter (e.g., bad relpath) -> exit nonzero."""
+        source_dir = tmp_path / "output"
+        source_dir.mkdir()
+        mock_get_repo.return_value.get.return_value = _make_engagement_row()
+        adapter = _make_mock_adapter()
+        mock_resolve.return_value = adapter
+        mock_require.return_value = adapter
+        adapter.ingest_from_directory.side_effect = ValueError("bad relpath")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["ingest", _ENGAGEMENT_ID, "--tool", _TOOL_SLUG, "--from", str(source_dir)],
+        )
+        assert result.exit_code != 0
+        assert "Ingest failed" in result.output
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
+    @patch("gxassessms.cli._helpers.resolve_enabled_adapter", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_oserror_from_adapter_exits_nonzero(
+        self,
+        mock_get_repo: MagicMock,
+        mock_resolve: MagicMock,
+        mock_require: MagicMock,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """OSError from adapter -> exit nonzero."""
+        source_dir = tmp_path / "output"
+        source_dir.mkdir()
+        mock_get_repo.return_value.get.return_value = _make_engagement_row()
+        adapter = _make_mock_adapter()
+        mock_resolve.return_value = adapter
+        mock_require.return_value = adapter
+        adapter.ingest_from_directory.side_effect = OSError("permission denied")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["ingest", _ENGAGEMENT_ID, "--tool", _TOOL_SLUG, "--from", str(source_dir)],
+        )
+        assert result.exit_code != 0
+        assert "Ingest failed" in result.output
+
+    def test_repair_event_invalid_slug_exits_nonzero(self) -> None:
+        """--repair-event with path traversal slug exits nonzero."""
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "ingest",
+                _ENGAGEMENT_ID,
+                "--tool",
+                "../../etc/passwd",
+                "--repair-event",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "Invalid tool slug" in result.output
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
+    @patch("gxassessms.cli._helpers.resolve_enabled_adapter", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_invalid_schema_version_format_exits_nonzero(
+        self,
+        mock_get_repo: MagicMock,
+        mock_resolve: MagicMock,
+        mock_require: MagicMock,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--schema-version with non-matching format -> exit nonzero."""
+        source_dir = tmp_path / "output"
+        source_dir.mkdir()
+        mock_get_repo.return_value.get.return_value = _make_engagement_row()
+        adapter = _make_mock_adapter()
+        mock_resolve.return_value = adapter
+        mock_require.return_value = adapter
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "ingest",
+                _ENGAGEMENT_ID,
+                "--tool",
+                _TOOL_SLUG,
+                "--from",
+                str(source_dir),
+                "--schema-version",
+                "garbage",
+            ],
+        )
+        assert result.exit_code != 0
+        assert (
+            "schema-version" in result.output.lower() or "version string" in result.output.lower()
+        )
+
+
+# ---------------------------------------------------------------------------
+# 7. Happy path additional tests (operator, schema-version wiring)
+# ---------------------------------------------------------------------------
+
+
+class TestIngestWiringHappyPath:
+    """Tests that CLI flags are correctly forwarded to lower layers."""
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
+    @patch("gxassessms.cli._helpers.resolve_enabled_adapter", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_operator_override_flows_to_provenance(
+        self,
+        mock_get_repo: MagicMock,
+        mock_resolve: MagicMock,
+        mock_require: MagicMock,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--operator alice results in ingested_by='human:alice' in provenance."""
+        source_dir = tmp_path / "output"
+        source_dir.mkdir()
+
+        mock_get_repo.return_value.get.return_value = _make_engagement_row()
+        adapter = _make_mock_adapter()
+        mock_resolve.return_value = adapter
+        mock_require.return_value = adapter
+        adapter.ingest_from_directory.return_value = _make_collection_output()
+        loaded = _make_loaded_manifest(replaced=False)
+        mock_get_artifacts.return_value.save_ingested_raw_output.return_value = loaded
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "ingest",
+                _ENGAGEMENT_ID,
+                "--tool",
+                _TOOL_SLUG,
+                "--from",
+                str(source_dir),
+                "--operator",
+                "alice",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        call_kwargs = mock_get_artifacts.return_value.save_ingested_raw_output.call_args.kwargs
+        prov = call_kwargs["ingest_provenance"]
+        assert prov.ingested_by == "human:alice"
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
+    @patch("gxassessms.cli._helpers.resolve_enabled_adapter", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_schema_version_override_forwarded(
+        self,
+        mock_get_repo: MagicMock,
+        mock_resolve: MagicMock,
+        mock_require: MagicMock,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--schema-version 2.0.0 is forwarded to adapter.ingest_from_directory."""
+        source_dir = tmp_path / "output"
+        source_dir.mkdir()
+
+        mock_get_repo.return_value.get.return_value = _make_engagement_row()
+        adapter = _make_mock_adapter()
+        mock_resolve.return_value = adapter
+        mock_require.return_value = adapter
+        adapter.ingest_from_directory.return_value = _make_collection_output()
+        loaded = _make_loaded_manifest(replaced=False)
+        mock_get_artifacts.return_value.save_ingested_raw_output.return_value = loaded
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "ingest",
+                _ENGAGEMENT_ID,
+                "--tool",
+                _TOOL_SLUG,
+                "--from",
+                str(source_dir),
+                "--schema-version",
+                "2.0.0",
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        call_kwargs = adapter.ingest_from_directory.call_args.kwargs
+        assert call_kwargs["schema_version"] == "2.0.0"

@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, m
 
 from gxassessms.core.config.datetime_utils import ensure_utc
 from gxassessms.core.domain.constants import (
+    INGEST_CAPABLE_MANIFEST_VERSIONS,
     ConfidenceProvenance,
     FileEncoding,
     RemediationPhaseName,
@@ -273,7 +274,7 @@ class IngestProvenance(BaseModel):
     on actual pre-commit state, not the operator's --replace flag.
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", frozen=True)
 
     source_path: str
     ingested_at: datetime
@@ -300,12 +301,16 @@ class IngestProvenance(BaseModel):
     @field_validator("ingested_by")
     @classmethod
     def ingested_by_must_be_human(cls, v: str) -> str:
-        if not v.startswith("human:") or not v[len("human:") :].strip():
+        prefix = "human:"
+        if not v.startswith(prefix):
             raise ValueError(
-                f"ingested_by must be 'human:<non-empty operator>' (manifest ingest is "
+                f"ingested_by must start with 'human:' (manifest ingest is "
                 f"a human-driven operation), got {v!r}"
             )
-        return v
+        operator = v.removeprefix(prefix).strip()
+        if not operator:
+            raise ValueError(f"ingested_by must be 'human:<non-empty operator>', got {v!r}")
+        return f"human:{operator}"
 
 
 class RawToolOutput(BaseModel):
@@ -356,6 +361,14 @@ class RawToolOutput(BaseModel):
             raise ValueError("source_mode='ingested' requires ingest_provenance to be set")
         if self.source_mode == "collected" and self.ingest_provenance is not None:
             raise ValueError("source_mode='collected' must not carry ingest_provenance")
+        if (
+            self.source_mode == "ingested"
+            and self.manifest_version not in INGEST_CAPABLE_MANIFEST_VERSIONS
+        ):
+            raise ValueError(
+                f"source_mode='ingested' requires manifest_version in "
+                f"{sorted(INGEST_CAPABLE_MANIFEST_VERSIONS)}, got {self.manifest_version!r}"
+            )
         return self
 
 

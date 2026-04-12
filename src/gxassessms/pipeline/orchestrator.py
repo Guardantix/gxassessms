@@ -41,6 +41,7 @@ from gxassessms.pipeline.state import (
     EngagementState,
     EventType,
     PipelineEvent,
+    RawOutputIngestedPayload,
     _extract_payload,
 )
 
@@ -242,16 +243,17 @@ class Orchestrator:
         replaced: bool,
     ) -> None:
         """Record a raw_output_ingested event in the engagement journal."""
+        payload: RawOutputIngestedPayload = {
+            "tool_slug": tool_slug,
+            "source_path": source_path,
+            "file_count": file_count,
+            "replaced": replaced,
+        }
         self._emit_event(
             engagement_id,
             "raw_output_ingested",
             actor,
-            {
-                "tool_slug": tool_slug,
-                "source_path": source_path,
-                "file_count": file_count,
-                "replaced": replaced,
-            },
+            dict(payload),
         )
 
     def has_raw_output_ingested_event(self, engagement_id: str, tool_slug: str) -> bool:
@@ -261,6 +263,11 @@ class Orchestrator:
             try:
                 payload = _extract_payload(event)
             except PersistenceError:
+                logger.warning(
+                    "Skipping event with corrupt payload for engagement %s",
+                    engagement_id,
+                    exc_info=True,
+                )
                 continue
             if payload.get("tool_slug") == tool_slug:
                 return True

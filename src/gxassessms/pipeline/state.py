@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal, get_args
+from typing import Any, Literal, TypedDict, get_args
 
 from filelock import BaseFileLock, FileLock, Timeout
 
@@ -90,6 +90,15 @@ def _extract_payload(event: Any) -> dict[str, Any]:  # pyright: ignore[reportUnu
             return result
         return raw  # type: ignore[no-any-return]
     return dict(event.payload)  # type: ignore[union-attr]
+
+
+class RawOutputIngestedPayload(TypedDict):
+    """Typed payload for raw_output_ingested events."""
+
+    tool_slug: str
+    source_path: str
+    file_count: int
+    replaced: bool
 
 
 ENGAGEMENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")

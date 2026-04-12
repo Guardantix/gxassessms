@@ -4,7 +4,7 @@ Single source of truth for all domain value sets. Never use raw string
 literals for these values outside this module.
 """
 
-from typing import Literal
+from typing import Literal, get_args
 
 from gxassessms.core.domain.enums import Category, FindingStatus, Severity
 
@@ -108,6 +108,10 @@ SourceMode = Literal["collected", "ingested"]
 
 SOURCE_MODES: frozenset[str] = frozenset({"collected", "ingested"})
 
+assert frozenset(get_args(SourceMode)) == SOURCE_MODES, (  # noqa: S101
+    "SourceMode Literal and SOURCE_MODES frozenset must match"
+)
+
 SOURCE_MODE_COLLECTED: SourceMode = "collected"
 SOURCE_MODE_INGESTED: SourceMode = "ingested"
 
@@ -164,6 +168,12 @@ ManifestVersion = Literal["1.0.0", "1.1.0"]
 MANIFEST_VERSION_CURRENT: ManifestVersion = "1.1.0"
 
 RECOGNIZED_MANIFEST_VERSIONS: frozenset[str] = frozenset({"1.0.0", "1.1.0"})
+
+INGEST_CAPABLE_MANIFEST_VERSIONS: frozenset[str] = frozenset({"1.1.0"})
+
+assert INGEST_CAPABLE_MANIFEST_VERSIONS <= RECOGNIZED_MANIFEST_VERSIONS, (  # noqa: S101
+    "INGEST_CAPABLE_MANIFEST_VERSIONS must be a subset of RECOGNIZED_MANIFEST_VERSIONS"
+)
 
 # Regex for storage_slug: [a-z0-9][a-z0-9-]*
 TOOL_SLUG_PATTERN: str = r"[a-z0-9][a-z0-9-]*"
