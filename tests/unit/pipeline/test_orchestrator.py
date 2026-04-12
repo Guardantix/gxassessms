@@ -1505,3 +1505,38 @@ class TestHasRawOutputIngestedEvent:
             }
         ]
         assert orchestrator.has_raw_output_ingested_event("eng-001", "scubagear") is False
+
+    def test_returns_true_when_slug_and_source_path_match(
+        self, orchestrator: Orchestrator, mock_event_repo: MagicMock
+    ) -> None:
+        payload_json = (
+            '{"tool_slug": "scubagear", "source_path": "/home/user/data",'
+            ' "file_count": 1, "replaced": false}'
+        )
+        mock_event_repo.get_events_by_type.return_value = [
+            {"event_type": "raw_output_ingested", "payload": payload_json}
+        ]
+        assert (
+            orchestrator.has_raw_output_ingested_event(
+                "eng-001", "scubagear", source_path="/home/user/data"
+            )
+            is True
+        )
+
+    def test_returns_false_when_source_path_differs(
+        self, orchestrator: Orchestrator, mock_event_repo: MagicMock
+    ) -> None:
+        """Slug matches but source_path differs -- replacement ingest needs repair."""
+        payload_json = (
+            '{"tool_slug": "scubagear", "source_path": "/old/path",'
+            ' "file_count": 1, "replaced": false}'
+        )
+        mock_event_repo.get_events_by_type.return_value = [
+            {"event_type": "raw_output_ingested", "payload": payload_json}
+        ]
+        assert (
+            orchestrator.has_raw_output_ingested_event(
+                "eng-001", "scubagear", source_path="/new/path"
+            )
+            is False
+        )

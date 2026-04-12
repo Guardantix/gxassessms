@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
-from pathlib import Path
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
@@ -294,7 +294,7 @@ class IngestProvenance(BaseModel):
             raise ValueError("source_path must be non-empty")
         if len(stripped) > 4096:
             raise ValueError("source_path must not exceed 4096 characters")
-        if not Path(stripped).is_absolute():
+        if not (PurePosixPath(stripped).is_absolute() or PureWindowsPath(stripped).is_absolute()):
             raise ValueError(f"source_path must be absolute: {stripped!r}")
         return stripped
 

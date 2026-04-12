@@ -12,7 +12,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from gxassessms.cli import _helpers
 from gxassessms.cli.output import console
-from gxassessms.core.contracts.errors import GxAssessError, PersistenceError
+from gxassessms.core.contracts.errors import GxAssessError, LockTimeoutError, PersistenceError
 from gxassessms.core.domain.constants import SOURCE_MODE_INGESTED
 from gxassessms.persistence.artifacts import RAW_OUTPUT_DIR
 
@@ -91,11 +91,11 @@ def ingest_cmd(
             )
             raise SystemExit(1)
 
-    actor = f"human:{_helpers.resolve_operator(operator)}"
-
     if repair_event:
-        _repair_event(engagement_id, tool_slug, actor)
+        _repair_event(engagement_id, tool_slug)
         return
+
+    actor = f"human:{_helpers.resolve_operator(operator)}"
 
     try:
         repo = _helpers.get_engagement_repo()
@@ -191,36 +191,42 @@ def _ingest_normal(
         replaced=False,  # persistence layer corrects this from actual pre-commit state
     )
 
+    lock = _helpers.get_engagement_lock()
     try:
-        artifacts = _helpers.get_artifact_manager()
-        loaded = artifacts.save_ingested_raw_output(
-            engagement_id,
-            collection_output,
-            ingest_provenance=provenance,
-            replace=replace,
-        )
-    except PersistenceError as exc:
-        console.print(f"[bright_red]Persistence error:[/bright_red] {exc}")
-        raise SystemExit(1) from None
+        with lock.hold(engagement_id):
+            try:
+                artifacts = _helpers.get_artifact_manager()
+                loaded = artifacts.save_ingested_raw_output(
+                    engagement_id,
+                    collection_output,
+                    ingest_provenance=provenance,
+                    replace=replace,
+                )
+            except PersistenceError as exc:
+                console.print(f"[bright_red]Persistence error:[/bright_red] {exc}")
+                raise SystemExit(1) from None
 
-    try:
-        orchestrator = _helpers.build_orchestrator()
-        orchestrator.record_raw_output_ingested(
-            engagement_id=engagement_id,
-            actor=actor,
-            tool_slug=tool_slug,
-            source_path=str(resolved_source),
-            file_count=len(collection_output.artifacts),
-            replaced=loaded.raw_output.ingest_provenance.replaced,
-        )
-    except GxAssessError as exc:
-        logger.warning("Failed to record ingest event: %s", exc, exc_info=True)
-        # Non-fatal: data is committed, event is advisory
-        console.print(
-            f"[yellow]Warning:[/yellow] Data committed but event recording failed. "
-            f"Run [bold]mseco ingest {engagement_id} --tool {tool_slug} --repair-event[/bold] "
-            f"to fix the audit trail."
-        )
+            try:
+                orchestrator = _helpers.build_orchestrator()
+                orchestrator.record_raw_output_ingested(
+                    engagement_id=engagement_id,
+                    actor=actor,
+                    tool_slug=tool_slug,
+                    source_path=str(resolved_source),
+                    file_count=len(collection_output.artifacts),
+                    replaced=loaded.raw_output.ingest_provenance.replaced,
+                )
+            except GxAssessError as exc:
+                logger.warning("Failed to record ingest event: %s", exc, exc_info=True)
+                # Non-fatal: data is committed, event is advisory
+                console.print(
+                    f"[yellow]Warning:[/yellow] Data committed but event recording failed. "
+                    f"Run [bold]mseco ingest {engagement_id} --tool {tool_slug}"
+                    f" --repair-event[/bold] to fix the audit trail."
+                )
+    except LockTimeoutError as exc:
+        console.print(f"[bright_red]Engagement locked:[/bright_red] {exc}")
+        raise SystemExit(1) from None
 
     console.print(f"[bright_green]Ingested {tool_slug}[/bright_green] into {engagement_id}")
     console.print(f"  Source: {resolved_source}")
@@ -232,7 +238,6 @@ def _ingest_normal(
 def _repair_event(
     engagement_id: str,
     tool_slug: str,
-    actor: str,
 ) -> None:
     """Audit-neutral repair path -- emit missing event from committed manifest.
 
@@ -272,36 +277,43 @@ def _repair_event(
         prov = raw.ingest_provenance
         assert prov is not None  # noqa: S101 -- model invariant, already validated above
 
-        orchestrator = _helpers.build_orchestrator()
-        try:
-            if orchestrator.has_raw_output_ingested_event(engagement_id, tool_slug):
-                console.print(
-                    f"[yellow]Event already exists for {tool_slug} -- nothing to do[/yellow]"
+        lock = _helpers.get_engagement_lock()
+        with lock.hold(engagement_id):
+            orchestrator = _helpers.build_orchestrator()
+            try:
+                if orchestrator.has_raw_output_ingested_event(
+                    engagement_id, tool_slug, source_path=prov.source_path
+                ):
+                    console.print(
+                        f"[yellow]Event already exists for {tool_slug} -- nothing to do[/yellow]"
+                    )
+                    return
+            except GxAssessError as exc:
+                logger.warning(
+                    "Could not check for existing event for %s/%s: %s",
+                    engagement_id,
+                    tool_slug,
+                    exc,
+                    exc_info=True,
                 )
-                return
-        except GxAssessError as exc:
-            logger.warning(
-                "Could not check for existing event for %s/%s: %s",
-                engagement_id,
-                tool_slug,
-                exc,
-                exc_info=True,
-            )
-            console.print(
-                f"[yellow]Warning:[/yellow] Could not check for existing event "
-                f"({exc}); a duplicate may be emitted."
-            )
+                console.print(
+                    f"[yellow]Warning:[/yellow] Could not check for existing event "
+                    f"({exc}); a duplicate may be emitted."
+                )
 
-        orchestrator.record_raw_output_ingested(
-            engagement_id=engagement_id,
-            actor=actor,
-            tool_slug=tool_slug,
-            source_path=prov.source_path,
-            file_count=len(raw.file_manifest),
-            replaced=prov.replaced,
-        )
+            orchestrator.record_raw_output_ingested(
+                engagement_id=engagement_id,
+                actor=prov.ingested_by,  # from committed manifest, not current CLI invocation
+                tool_slug=tool_slug,
+                source_path=prov.source_path,
+                file_count=len(raw.file_manifest),
+                replaced=prov.replaced,
+            )
         console.print(f"[bright_green]Repaired ingest event for {tool_slug}[/bright_green]")
 
+    except LockTimeoutError as exc:
+        console.print(f"[bright_red]Engagement locked:[/bright_red] {exc}")
+        raise SystemExit(1) from None
     except SystemExit:
         raise
     except (

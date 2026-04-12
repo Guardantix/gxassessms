@@ -256,8 +256,18 @@ class Orchestrator:
             dict(payload),
         )
 
-    def has_raw_output_ingested_event(self, engagement_id: str, tool_slug: str) -> bool:
-        """Return True if a raw_output_ingested event for tool_slug already exists."""
+    def has_raw_output_ingested_event(
+        self,
+        engagement_id: str,
+        tool_slug: str,
+        *,
+        source_path: str | None = None,
+    ) -> bool:
+        """Return True if a matching raw_output_ingested event exists.
+
+        If source_path is provided, both tool_slug and source_path must match.
+        If source_path is None, only tool_slug is checked (backward-compatible).
+        """
         events = self._event_repo.get_events_by_type(engagement_id, "raw_output_ingested")
         for event in events:
             try:
@@ -269,7 +279,9 @@ class Orchestrator:
                     exc_info=True,
                 )
                 continue
-            if payload.get("tool_slug") == tool_slug:
+            if payload.get("tool_slug") == tool_slug and (
+                source_path is None or payload.get("source_path") == source_path
+            ):
                 return True
         return False
 

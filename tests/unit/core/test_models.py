@@ -1073,6 +1073,43 @@ class TestIngestProvenance:
                 replaced=False,
             )
 
+    @pytest.mark.parametrize(
+        "win_path",
+        [
+            r"C:\Users\alice\scubagear-output",
+            "C:/Users/alice/scubagear-output",
+            r"\\server\share\scubagear",  # UNC path
+        ],
+    )
+    def test_source_path_accepts_windows_absolute(self, win_path: str) -> None:
+        prov = IngestProvenance(
+            source_path=win_path,
+            ingested_at=datetime(2026, 4, 11, tzinfo=UTC),
+            ingested_by="human:alice",
+            replaced=False,
+        )
+        assert prov.source_path == win_path
+
+    def test_source_path_rejects_drive_relative_windows_path(self) -> None:
+        """C:relative has a drive but no root -- not absolute."""
+        with pytest.raises(ValidationError, match="must be absolute"):
+            IngestProvenance(
+                source_path="C:relative",
+                ingested_at=datetime(2026, 4, 11, tzinfo=UTC),
+                ingested_by="human:alice",
+                replaced=False,
+            )
+
+    def test_source_path_rejects_windows_root_relative_path(self) -> None:
+        r"""\rooted-no-drive has a root but no drive -- not absolute on Windows."""
+        with pytest.raises(ValidationError, match="must be absolute"):
+            IngestProvenance(
+                source_path=r"\rooted-no-drive",
+                ingested_at=datetime(2026, 4, 11, tzinfo=UTC),
+                ingested_by="human:alice",
+                replaced=False,
+            )
+
     def test_source_path_rejects_empty(self) -> None:
         with pytest.raises(ValidationError, match="must be non-empty"):
             IngestProvenance(

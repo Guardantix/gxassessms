@@ -214,6 +214,7 @@ class TestRepairEventRejectReplace:
 class TestIngestNormalHappyPath:
     """Happy path: mock all deps, verify exit 0 and save called."""
 
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
     @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
@@ -226,6 +227,7 @@ class TestIngestNormalHappyPath:
         mock_require: MagicMock,
         mock_get_artifacts: MagicMock,
         mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
         tmp_path: Path,
     ) -> None:
         """A fresh ingest with all mocked deps exits 0."""
@@ -240,6 +242,9 @@ class TestIngestNormalHappyPath:
         adapter.ingest_from_directory.return_value = collection_output
         loaded = _make_loaded_manifest(replaced=False)
         mock_get_artifacts.return_value.save_ingested_raw_output.return_value = loaded
+        mock_lock = mock_get_lock.return_value
+        mock_lock.hold.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.hold.return_value.__exit__ = MagicMock(return_value=False)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -249,6 +254,7 @@ class TestIngestNormalHappyPath:
 
         assert result.exit_code == 0, result.output
 
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
     @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
@@ -261,6 +267,7 @@ class TestIngestNormalHappyPath:
         mock_require: MagicMock,
         mock_get_artifacts: MagicMock,
         mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
         tmp_path: Path,
     ) -> None:
         """save_ingested_raw_output() is called exactly once on success."""
@@ -275,6 +282,9 @@ class TestIngestNormalHappyPath:
         adapter.ingest_from_directory.return_value = collection_output
         loaded = _make_loaded_manifest(replaced=False)
         mock_get_artifacts.return_value.save_ingested_raw_output.return_value = loaded
+        mock_lock = mock_get_lock.return_value
+        mock_lock.hold.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.hold.return_value.__exit__ = MagicMock(return_value=False)
 
         runner = CliRunner()
         runner.invoke(
@@ -284,6 +294,7 @@ class TestIngestNormalHappyPath:
 
         mock_get_artifacts.return_value.save_ingested_raw_output.assert_called_once()
 
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
     @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
@@ -296,6 +307,7 @@ class TestIngestNormalHappyPath:
         mock_require: MagicMock,
         mock_get_artifacts: MagicMock,
         mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
         tmp_path: Path,
     ) -> None:
         """record_raw_output_ingested() is called with the correct tool_slug."""
@@ -310,6 +322,9 @@ class TestIngestNormalHappyPath:
         adapter.ingest_from_directory.return_value = collection_output
         loaded = _make_loaded_manifest(replaced=False)
         mock_get_artifacts.return_value.save_ingested_raw_output.return_value = loaded
+        mock_lock = mock_get_lock.return_value
+        mock_lock.hold.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.hold.return_value.__exit__ = MagicMock(return_value=False)
 
         runner = CliRunner()
         runner.invoke(
@@ -323,6 +338,7 @@ class TestIngestNormalHappyPath:
         assert call_kwargs["tool_slug"] == _TOOL_SLUG
         assert call_kwargs["engagement_id"] == _ENGAGEMENT_ID
 
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
     @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
@@ -335,6 +351,7 @@ class TestIngestNormalHappyPath:
         mock_require: MagicMock,
         mock_get_artifacts: MagicMock,
         mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
         tmp_path: Path,
     ) -> None:
         """When replaced=True, 'Replaced' appears in console output."""
@@ -349,6 +366,9 @@ class TestIngestNormalHappyPath:
         adapter.ingest_from_directory.return_value = collection_output
         loaded = _make_loaded_manifest(replaced=True)
         mock_get_artifacts.return_value.save_ingested_raw_output.return_value = loaded
+        mock_lock = mock_get_lock.return_value
+        mock_lock.hold.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.hold.return_value.__exit__ = MagicMock(return_value=False)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -407,6 +427,7 @@ class TestRepairEventHappyPath:
             }
         )
 
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
     @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
@@ -419,6 +440,7 @@ class TestRepairEventHappyPath:
         mock_require: MagicMock,
         mock_get_artifacts: MagicMock,
         mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
         tmp_path: Path,
     ) -> None:
         """repair-event reads manifest and calls record_raw_output_ingested."""
@@ -440,6 +462,9 @@ class TestRepairEventHappyPath:
         # No existing events
         orchestrator = mock_build_orch.return_value
         orchestrator.has_raw_output_ingested_event.return_value = False
+        mock_lock = mock_get_lock.return_value
+        mock_lock.hold.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.hold.return_value.__exit__ = MagicMock(return_value=False)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -454,11 +479,77 @@ class TestRepairEventHappyPath:
         )
 
         assert result.exit_code == 0, result.output
+        orchestrator.has_raw_output_ingested_event.assert_called_once_with(
+            _ENGAGEMENT_ID,
+            _TOOL_SLUG,
+            source_path="/home/testuser/scubagear-output",  # from _make_manifest_json
+        )
         orchestrator.record_raw_output_ingested.assert_called_once()
         call_kwargs = orchestrator.record_raw_output_ingested.call_args.kwargs
         assert call_kwargs["tool_slug"] == _TOOL_SLUG
         assert call_kwargs["engagement_id"] == _ENGAGEMENT_ID
+        assert call_kwargs["actor"] == "human:testuser"  # prov.ingested_by from manifest fixture
 
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
+    @patch("gxassessms.cli._helpers.resolve_enabled_adapter", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_repair_event_uses_manifest_ingested_by_not_current_operator(
+        self,
+        mock_get_repo: MagicMock,
+        mock_resolve: MagicMock,
+        mock_require: MagicMock,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--operator override must NOT override the committed manifest actor."""
+        mock_get_repo.return_value.get.return_value = _make_engagement_row()
+        adapter = _make_mock_adapter()
+        mock_resolve.return_value = adapter
+        mock_require.return_value = adapter
+
+        # Create a real manifest file in the expected location
+        eng_dir = tmp_path / _ENGAGEMENT_ID
+        manifest_dir = eng_dir / "raw-output" / "manifests"
+        manifest_dir.mkdir(parents=True)
+        manifest_path = manifest_dir / f"{_TOOL_SLUG}.json"
+        # Manifest records ingested_by as "human:testuser"
+        manifest_path.write_text(self._make_manifest_json(), encoding="utf-8")
+
+        mock_get_artifacts.return_value.get_engagement_dir.return_value = eng_dir
+
+        # No existing events
+        orchestrator = mock_build_orch.return_value
+        orchestrator.has_raw_output_ingested_event.return_value = False
+        mock_lock = mock_get_lock.return_value
+        mock_lock.hold.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.hold.return_value.__exit__ = MagicMock(return_value=False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "ingest",
+                _ENGAGEMENT_ID,
+                "--tool",
+                _TOOL_SLUG,
+                "--repair-event",
+                "--operator",
+                "differentuser",
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        orchestrator.record_raw_output_ingested.assert_called_once()
+        call_kwargs = orchestrator.record_raw_output_ingested.call_args.kwargs
+        # The manifest's ingested_by wins; the current --operator must not override it
+        assert call_kwargs["actor"] == "human:testuser"
+
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
     @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
@@ -471,6 +562,7 @@ class TestRepairEventHappyPath:
         mock_require: MagicMock,
         mock_get_artifacts: MagicMock,
         mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
         tmp_path: Path,
     ) -> None:
         """If the event already exists, repair-event skips emission and exits 0."""
@@ -489,6 +581,9 @@ class TestRepairEventHappyPath:
         # Existing matching event
         orchestrator = mock_build_orch.return_value
         orchestrator.has_raw_output_ingested_event.return_value = True
+        mock_lock = mock_get_lock.return_value
+        mock_lock.hold.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.hold.return_value.__exit__ = MagicMock(return_value=False)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -660,6 +755,7 @@ class TestIngestErrorPaths:
         )
         assert result.exit_code != 0
 
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
     @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
@@ -672,6 +768,7 @@ class TestIngestErrorPaths:
         mock_require: MagicMock,
         mock_get_artifacts: MagicMock,
         mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
         tmp_path: Path,
     ) -> None:
         """save_ingested_raw_output raising PersistenceError -> exit nonzero."""
@@ -685,6 +782,9 @@ class TestIngestErrorPaths:
         mock_get_artifacts.return_value.save_ingested_raw_output.side_effect = PersistenceError(
             "disk full"
         )
+        mock_lock = mock_get_lock.return_value
+        mock_lock.hold.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.hold.return_value.__exit__ = MagicMock(return_value=False)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -732,6 +832,7 @@ class TestIngestErrorPaths:
         assert result.exit_code != 0
         assert "run-at" in result.output.lower()
 
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
     @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
@@ -744,6 +845,7 @@ class TestIngestErrorPaths:
         mock_require: MagicMock,
         mock_get_artifacts: MagicMock,
         mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Event recording failure is non-fatal: exit 0 with --repair-event hint."""
@@ -761,6 +863,9 @@ class TestIngestErrorPaths:
         mock_build_orch.return_value.record_raw_output_ingested.side_effect = GxAssessError(
             "db locked"
         )
+        mock_lock = mock_get_lock.return_value
+        mock_lock.hold.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.hold.return_value.__exit__ = MagicMock(return_value=False)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -770,12 +875,14 @@ class TestIngestErrorPaths:
         assert result.exit_code == 0
         assert "--repair-event" in result.output
 
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
     def test_repair_event_proceeds_when_idempotency_check_fails(
         self,
         mock_get_artifacts: MagicMock,
         mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
         tmp_path: Path,
     ) -> None:
         """Repair path: idempotency check failure is non-fatal; event still emitted."""
@@ -790,6 +897,9 @@ class TestIngestErrorPaths:
 
         orchestrator = mock_build_orch.return_value
         orchestrator.has_raw_output_ingested_event.side_effect = GxAssessError("db error")
+        mock_lock = mock_get_lock.return_value
+        mock_lock.hold.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.hold.return_value.__exit__ = MagicMock(return_value=False)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -1007,6 +1117,7 @@ class TestIngestErrorPaths:
 class TestIngestWiringHappyPath:
     """Tests that CLI flags are correctly forwarded to lower layers."""
 
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
     @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
@@ -1019,6 +1130,7 @@ class TestIngestWiringHappyPath:
         mock_require: MagicMock,
         mock_get_artifacts: MagicMock,
         mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
         tmp_path: Path,
     ) -> None:
         """--operator alice results in ingested_by='human:alice' in provenance."""
@@ -1032,6 +1144,9 @@ class TestIngestWiringHappyPath:
         adapter.ingest_from_directory.return_value = _make_collection_output()
         loaded = _make_loaded_manifest(replaced=False)
         mock_get_artifacts.return_value.save_ingested_raw_output.return_value = loaded
+        mock_lock = mock_get_lock.return_value
+        mock_lock.hold.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.hold.return_value.__exit__ = MagicMock(return_value=False)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -1052,6 +1167,7 @@ class TestIngestWiringHappyPath:
         prov = call_kwargs["ingest_provenance"]
         assert prov.ingested_by == "human:alice"
 
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
     @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
@@ -1064,6 +1180,7 @@ class TestIngestWiringHappyPath:
         mock_require: MagicMock,
         mock_get_artifacts: MagicMock,
         mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
         tmp_path: Path,
     ) -> None:
         """--schema-version 2.0.0 is forwarded to adapter.ingest_from_directory."""
@@ -1077,6 +1194,9 @@ class TestIngestWiringHappyPath:
         adapter.ingest_from_directory.return_value = _make_collection_output()
         loaded = _make_loaded_manifest(replaced=False)
         mock_get_artifacts.return_value.save_ingested_raw_output.return_value = loaded
+        mock_lock = mock_get_lock.return_value
+        mock_lock.hold.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.hold.return_value.__exit__ = MagicMock(return_value=False)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -1095,3 +1215,150 @@ class TestIngestWiringHappyPath:
         assert result.exit_code == 0, result.output
         call_kwargs = adapter.ingest_from_directory.call_args.kwargs
         assert call_kwargs["schema_version"] == "2.0.0"
+
+
+# ---------------------------------------------------------------------------
+# 8. Lock acquisition tests
+# ---------------------------------------------------------------------------
+
+
+class TestIngestLockAcquisition:
+    """Tests that verify EngagementLock is acquired for mutation operations."""
+
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
+    @patch("gxassessms.cli._helpers.resolve_enabled_adapter", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_ingest_normal_acquires_engagement_lock(
+        self,
+        mock_get_repo: MagicMock,
+        mock_resolve: MagicMock,
+        mock_require: MagicMock,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Normal ingest acquires per-engagement lock before writing artifacts."""
+        source_dir = tmp_path / "output"
+        source_dir.mkdir()
+        mock_get_repo.return_value.get.return_value = _make_engagement_row()
+        adapter = _make_mock_adapter()
+        mock_resolve.return_value = adapter
+        mock_require.return_value = adapter
+        collection_output = _make_collection_output()
+        adapter.ingest_from_directory.return_value = collection_output
+        loaded = _make_loaded_manifest(replaced=False)
+        mock_get_artifacts.return_value.save_ingested_raw_output.return_value = loaded
+        mock_lock = mock_get_lock.return_value
+        mock_lock.hold.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.hold.return_value.__exit__ = MagicMock(return_value=False)
+
+        runner = CliRunner()
+        runner.invoke(
+            cli, ["ingest", _ENGAGEMENT_ID, "--tool", _TOOL_SLUG, "--from", str(source_dir)]
+        )
+
+        mock_get_lock.return_value.hold.assert_called_once_with(_ENGAGEMENT_ID)
+
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    def test_repair_event_acquires_engagement_lock(
+        self,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--repair-event acquires per-engagement lock before idempotency check."""
+        eng_dir = tmp_path / _ENGAGEMENT_ID
+        manifest_dir = eng_dir / "raw-output" / "manifests"
+        manifest_dir.mkdir(parents=True)
+        manifest_path = manifest_dir / f"{_TOOL_SLUG}.json"
+        manifest_path.write_text(_make_repair_manifest_json(), encoding="utf-8")
+        mock_get_artifacts.return_value.get_engagement_dir.return_value = eng_dir
+        orchestrator = mock_build_orch.return_value
+        orchestrator.has_raw_output_ingested_event.return_value = False
+        mock_lock = mock_get_lock.return_value
+        mock_lock.hold.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.hold.return_value.__exit__ = MagicMock(return_value=False)
+
+        runner = CliRunner()
+        runner.invoke(cli, ["ingest", _ENGAGEMENT_ID, "--tool", _TOOL_SLUG, "--repair-event"])
+
+        mock_get_lock.return_value.hold.assert_called_once_with(_ENGAGEMENT_ID)
+
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
+    @patch("gxassessms.cli._helpers.resolve_enabled_adapter", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_ingest_normal_lock_timeout_exits_nonzero(
+        self,
+        mock_get_repo: MagicMock,
+        mock_resolve: MagicMock,
+        mock_require: MagicMock,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """LockTimeoutError during ingest shows clean error and exits 1."""
+        from gxassessms.core.contracts.errors import LockTimeoutError
+
+        source_dir = tmp_path / "output"
+        source_dir.mkdir()
+        mock_get_repo.return_value.get.return_value = _make_engagement_row()
+        adapter = _make_mock_adapter()
+        mock_resolve.return_value = adapter
+        mock_require.return_value = adapter
+        collection_output = _make_collection_output()
+        adapter.ingest_from_directory.return_value = collection_output
+        mock_get_lock.return_value.hold.side_effect = LockTimeoutError(
+            message="Engagement locked by another process",
+            engagement_id=_ENGAGEMENT_ID,
+            timeout_seconds=30.0,
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["ingest", _ENGAGEMENT_ID, "--tool", _TOOL_SLUG, "--from", str(source_dir)]
+        )
+        assert result.exit_code == 1
+        assert "locked" in result.output.lower()
+
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    def test_repair_event_lock_timeout_exits_nonzero(
+        self,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """LockTimeoutError during --repair-event shows clean error and exits 1."""
+        from gxassessms.core.contracts.errors import LockTimeoutError
+
+        eng_dir = tmp_path / _ENGAGEMENT_ID
+        manifest_dir = eng_dir / "raw-output" / "manifests"
+        manifest_dir.mkdir(parents=True)
+        manifest_path = manifest_dir / f"{_TOOL_SLUG}.json"
+        manifest_path.write_text(_make_repair_manifest_json(), encoding="utf-8")
+        mock_get_artifacts.return_value.get_engagement_dir.return_value = eng_dir
+        mock_get_lock.return_value.hold.side_effect = LockTimeoutError(
+            message="Engagement locked by another process",
+            engagement_id=_ENGAGEMENT_ID,
+            timeout_seconds=30.0,
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli, ["ingest", _ENGAGEMENT_ID, "--tool", _TOOL_SLUG, "--repair-event"]
+        )
+        assert result.exit_code == 1
+        assert "locked" in result.output.lower()
