@@ -757,7 +757,7 @@ class ArtifactManager:
             manifest_path = staging_manifests / f"{slug}.json"
             manifest_path.write_text(raw_output.model_dump_json(indent=2), encoding="utf-8")
 
-        except OSError, PersistenceError, ValueError:
+        except (OSError, PersistenceError, ValueError):  # fmt: skip
             shutil.rmtree(staging_dir, ignore_errors=True)
             raise
 

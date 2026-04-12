@@ -93,7 +93,7 @@ def ingest_cmd(
     # 2. Resolve operator
     try:
         op = operator or getpass.getuser()
-    except OSError, KeyError:
+    except (OSError, KeyError):  # fmt: skip
         op = "unknown"
     actor = f"human:{op}"
 
@@ -273,7 +273,7 @@ def _repair_event(
                     payload: dict[str, Any] = (
                         json.loads(raw_payload) if isinstance(raw_payload, str) else raw_payload
                     )
-                except json.JSONDecodeError, KeyError:
+                except (json.JSONDecodeError, KeyError):  # fmt: skip
                     payload = {}
                 if payload.get("tool_slug") == tool_slug:
                     console.print(

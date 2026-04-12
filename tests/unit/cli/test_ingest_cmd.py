@@ -122,8 +122,8 @@ class TestMissingFromFlag:
         runner = CliRunner()
         result = runner.invoke(cli, ["ingest", _ENGAGEMENT_ID, "--tool", _TOOL_SLUG])
         # Output goes to stderr via Rich console; CliRunner mixes them
-        combined = (result.output or "") + (result.stderr if hasattr(result, "stderr") else "")
-        assert "--from" in combined or result.exit_code != 0
+        assert result.exit_code != 0
+        assert "--from" in (result.output or "")
 
 
 # ---------------------------------------------------------------------------
