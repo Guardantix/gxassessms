@@ -8,6 +8,7 @@ by mypy).
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, NotRequired, Protocol, TypedDict, runtime_checkable
 
@@ -98,6 +99,27 @@ class ToolAdapter(Protocol):
     def coverage(self, raw: ResolvedManifest) -> list[CoverageRecord]:
         """Extract per-control coverage records from raw output."""
         ...
+
+
+@runtime_checkable
+class IngestCapableAdapter(ToolAdapter, Protocol):
+    """ToolAdapter that can construct a CollectionOutput from operator-
+    provided raw tool output.
+
+    An adapter declares this capability via ``"ingest" in capabilities``,
+    by implementing ``ingest_from_directory``, AND by declaring
+    ``default_schema_version`` as a class attribute.
+    """
+
+    default_schema_version: str
+
+    def ingest_from_directory(
+        self,
+        source_dir: Path,
+        *,
+        schema_version: str,
+        timestamp: datetime,
+    ) -> CollectionOutput: ...
 
 
 @runtime_checkable
