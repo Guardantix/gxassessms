@@ -123,12 +123,26 @@ def build_orchestrator() -> Any:
 
 
 def resolve_operator(override: str | None = None) -> str:
-    """Resolve operator identity for audit attribution. Never raises."""
+    """Resolve operator identity for audit attribution. Never raises.
+
+    If *override* is non-empty, it is returned as-is. Otherwise the OS
+    username from getpass.getuser() is used. Falls back to 'unknown' on
+    OSError or KeyError (e.g., missing HOME in restricted environments).
+
+    Kept separate from build_audit_context()['os_user'] so that operator
+    identity can come from an external source (e.g., --operator flag or a
+    CI wrapper) rather than the local OS user.
+    """
     import getpass
 
     try:
         return override or getpass.getuser()
-    except (OSError, KeyError):  # fmt: skip
+    except (OSError, KeyError) as exc:  # fmt: skip
+        logger.warning(
+            "Could not determine OS user for audit attribution (%s); "
+            "use --operator to set identity explicitly",
+            exc,
+        )
         return "unknown"
 
 
@@ -461,6 +475,11 @@ def require_ingest_capable(adapter: Any) -> Any:
         raise click.UsageError(
             f"Adapter {getattr(adapter, 'tool_name', '?')!r} declares 'ingest' capability but "
             f"does not implement ingest_from_directory()."
+        )
+    if not adapter.default_schema_version.strip():
+        raise click.UsageError(
+            f"Adapter {adapter.tool_name!r} declares ingest capability but has "
+            f"empty default_schema_version."
         )
     return adapter
 
