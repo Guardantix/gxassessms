@@ -143,11 +143,28 @@ WAL mode mitigates most of these, but not all.
 
 ## 3. Client-Provided Pre-Collected Output Ingestion
 
-**Symptom:** Client sends their own ScubaGear / Maester / Monkey365
-output files instead of providing credentials for live collection.
+**Symptom:** Client sends their own tool output files instead of
+providing credentials for live collection.
 
 **Likely cause:** Client security policy prohibits granting assessment
 tool access. Common in heavily regulated environments.
+
+**Supported tools:** ScubaGear, Maester, Prowler, Azure Advisor, Secure
+Score. Pass the appropriate slug with `--tool`:
+
+| Tool | Slug |
+|------|------|
+| ScubaGear | `scubagear` |
+| Maester | `maester` |
+| Prowler | `prowler` |
+| Azure Advisor | `azure-advisor` |
+| Secure Score | `secure-score` |
+
+**Not supported:** Monkey365 and M365-Assess ingest is not supported.
+Both tools embed collection timestamps inside their output in a way that
+cannot be reliably disambiguated from processing time (freshness
+ambiguity). Use live collection for these tools or contact Guardantix
+support for guidance.
 
 **Resolution:**
 
@@ -157,8 +174,7 @@ tool access. Common in heavily regulated environments.
    mseco engagement create engagement.yaml
    ```
 
-2. Ingest the client's raw output files using `mseco ingest` (see
-   issue #78 -- command not yet implemented):
+2. Ingest the client's raw output files:
 
    ```
    mseco ingest <id> --tool scubagear --from client-scubagear/
@@ -169,10 +185,38 @@ tool access. Common in heavily regulated environments.
    `RawToolOutput` manifest to `raw-output/manifests/<slug>.json`.
    Without a valid manifest, `mseco replay` will fail.
 
-   **Until `mseco ingest` is available:** This scenario requires
-   manually constructing a `RawToolOutput` JSON manifest and placing
-   artifacts at the correct paths. Engagement directories are named
-   `<slug>-<id>` (e.g., `acme-corp-<id>`), not `<id>` alone.
+   **Specifying when the client ran the tool:** Use `--run-at` to set
+   the assessment timestamp in the manifest. This controls the
+   "assessment date" shown in the report. Pass an ISO 8601 datetime:
+
+   ```
+   mseco ingest <id> --tool scubagear --from client-scubagear/ \
+     --run-at 2026-03-15T10:00:00Z
+   ```
+
+   If `--run-at` is omitted, the ingest time is used as the timestamp.
+
+   **Replacing an existing ingest:** Use `--replace` if re-ingesting
+   after receiving corrected output files from the client:
+
+   ```
+   mseco ingest <id> --tool scubagear --from client-scubagear-v2/ \
+     --replace
+   ```
+
+   **Audit recovery (`--repair-event`):** If the ingest event is
+   missing from the DB (e.g., after a DB wipe that occurred between
+   ingest and replay), use `--repair-event` to re-emit the event from
+   the committed manifest without re-copying files. This is an
+   audit-neutral operation -- it reads the on-disk provenance and
+   emits the event with the original source path and timestamp:
+
+   ```
+   mseco ingest <id> --tool scubagear --repair-event
+   ```
+
+   `--repair-event` is mutually exclusive with `--from`, `--replace`,
+   `--schema-version`, and `--run-at`.
 
 3. Replay the pipeline from PARSE (skipping COLLECT):
 
@@ -193,7 +237,8 @@ tool access. Common in heavily regulated environments.
   unexpected fields. Check the parser log output for warnings.
 
 - The assessment date in the report reflects when the client ran the
-  tools, not when you processed them. Set this in metadata if needed.
+  tools, not when you processed them. Use `--run-at` to set this
+  explicitly when the client provides the run timestamp.
 
 ---
 
