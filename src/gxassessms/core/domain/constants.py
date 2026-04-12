@@ -117,6 +117,7 @@ AdapterCapability = Literal[
     "shared_auth",
     "coverage_export",
     "benchmark_mapping",
+    "ingest",
 ]
 
 ADAPTER_CAPABILITIES: frozenset[AdapterCapability] = frozenset(
@@ -127,6 +128,7 @@ ADAPTER_CAPABILITIES: frozenset[AdapterCapability] = frozenset(
         "shared_auth",
         "coverage_export",
         "benchmark_mapping",
+        "ingest",
     }
 )
 
@@ -146,11 +148,11 @@ ADAPTER_PLACEHOLDERS: frozenset[str] = frozenset(
 # Manifest / Replay Security
 # ---------------------------------------------------------------------------
 
-ManifestVersion = Literal["1.0.0"]
+ManifestVersion = Literal["1.0.0", "1.1.0"]
 
-MANIFEST_VERSION_CURRENT: str = "1.0.0"
+MANIFEST_VERSION_CURRENT: str = "1.1.0"
 
-RECOGNIZED_MANIFEST_VERSIONS: frozenset[str] = frozenset({"1.0.0"})
+RECOGNIZED_MANIFEST_VERSIONS: frozenset[str] = frozenset({"1.0.0", "1.1.0"})
 
 # Regex for storage_slug: [a-z0-9][a-z0-9-]*
 TOOL_SLUG_PATTERN: str = r"[a-z0-9][a-z0-9-]*"
@@ -164,6 +166,15 @@ ENCODING_BY_EXTENSION: dict[str, FileEncoding] = {
 # Keys not in the allowlist are silently dropped during persistence.
 EXECUTION_METADATA_ALLOWLIST: dict[str, dict[str, frozenset[str]]] = {
     "1.0.0": {
+        "scubagear": frozenset({"modules", "module_provenance"}),
+        "maester": frozenset({"module_provenance"}),
+        "monkey365": frozenset({"output_dir", "module_provenance"}),
+        "m365-assess": frozenset({"script", "tenant_id", "controls_dir"}),
+        "prowler": frozenset({"output_dir", "auth_method", "checks"}),
+        "azure-advisor": frozenset({"recommendation_count"}),
+        "secure-score": frozenset({"profiles_count", "scores_count"}),
+    },
+    "1.1.0": {
         "scubagear": frozenset({"modules", "module_provenance"}),
         "maester": frozenset({"module_provenance"}),
         "monkey365": frozenset({"output_dir", "module_provenance"}),

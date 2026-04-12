@@ -1042,3 +1042,135 @@ class TestResolvedManifest:
                 execution_metadata={},
                 bonus="bad",
             )
+
+
+# ---------------------------------------------------------------------------
+# Task 1: IngestProvenance model (Spec Section 2.1)
+# ---------------------------------------------------------------------------
+
+from gxassessms.core.domain.models import IngestProvenance  # noqa: E402
+
+
+class TestIngestProvenance:
+    """Spec Section 2.1: IngestProvenance model."""
+
+    def test_valid_provenance(self) -> None:
+        prov = IngestProvenance(
+            source_path="/tmp/client-export",  # noqa: S108
+            ingested_at=datetime(2026, 4, 11, 12, 0, 0, tzinfo=UTC),
+            ingested_by="human:alice",
+            replaced=False,
+        )
+        assert prov.source_path == "/tmp/client-export"  # noqa: S108
+        assert prov.replaced is False
+
+    def test_source_path_must_be_absolute(self) -> None:
+        with pytest.raises(ValidationError, match="must be absolute"):
+            IngestProvenance(
+                source_path="relative/path",
+                ingested_at=datetime(2026, 4, 11, tzinfo=UTC),
+                ingested_by="human:alice",
+                replaced=False,
+            )
+
+    def test_source_path_rejects_empty(self) -> None:
+        with pytest.raises(ValidationError, match="must be non-empty"):
+            IngestProvenance(
+                source_path="",
+                ingested_at=datetime(2026, 4, 11, tzinfo=UTC),
+                ingested_by="human:alice",
+                replaced=False,
+            )
+
+    def test_ingested_by_must_be_human_prefixed(self) -> None:
+        with pytest.raises(ValidationError, match="human:"):
+            IngestProvenance(
+                source_path="/tmp/export",  # noqa: S108
+                ingested_at=datetime(2026, 4, 11, tzinfo=UTC),
+                ingested_by="bot:automation",
+                replaced=False,
+            )
+
+    def test_ingested_at_must_be_utc(self) -> None:
+        prov = IngestProvenance(
+            source_path="/tmp/export",  # noqa: S108
+            ingested_at=datetime(2026, 4, 11, 12, 0, 0),  # naive
+            ingested_by="human:alice",
+            replaced=False,
+        )
+        assert prov.ingested_at.tzinfo is not None
+
+
+# ---------------------------------------------------------------------------
+# Task 1: RawToolOutput source_mode invariant (Spec Section 2.2)
+# ---------------------------------------------------------------------------
+
+from gxassessms.core.domain.models import ArtifactRecord  # noqa: E402
+
+_MINIMAL_MANIFEST = {"output/report.json": ArtifactRecord(encoding="utf-8", sha256="a" * 64)}
+
+
+class TestRawToolOutputSourceMode:
+    """Spec Section 2.2: source_mode + ingest_provenance fields."""
+
+    def test_default_source_mode_is_collected(self) -> None:
+        raw = RawToolOutput(
+            tool=ToolSource.SCUBAGEAR,
+            tool_slug="scubagear",
+            schema_version="1.7.1",
+            manifest_version="1.0.0",
+            timestamp=datetime(2026, 4, 11, tzinfo=UTC),
+            file_manifest=_MINIMAL_MANIFEST,
+            execution_metadata={},
+        )
+        assert raw.source_mode == "collected"
+        assert raw.ingest_provenance is None
+
+    def test_ingested_requires_provenance(self) -> None:
+        with pytest.raises(ValidationError, match="requires ingest_provenance"):
+            RawToolOutput(
+                tool=ToolSource.SCUBAGEAR,
+                tool_slug="scubagear",
+                schema_version="1.7.1",
+                manifest_version="1.1.0",
+                timestamp=datetime(2026, 4, 11, tzinfo=UTC),
+                file_manifest=_MINIMAL_MANIFEST,
+                execution_metadata={},
+                source_mode="ingested",
+                ingest_provenance=None,
+            )
+
+    def test_collected_rejects_provenance(self) -> None:
+        prov = IngestProvenance(
+            source_path="/tmp/export",  # noqa: S108
+            ingested_at=datetime(2026, 4, 11, tzinfo=UTC),
+            ingested_by="human:alice",
+            replaced=False,
+        )
+        with pytest.raises(ValidationError, match="must not carry"):
+            RawToolOutput(
+                tool=ToolSource.SCUBAGEAR,
+                tool_slug="scubagear",
+                schema_version="1.7.1",
+                manifest_version="1.1.0",
+                timestamp=datetime(2026, 4, 11, tzinfo=UTC),
+                file_manifest=_MINIMAL_MANIFEST,
+                execution_metadata={},
+                source_mode="collected",
+                ingest_provenance=prov,
+            )
+
+    def test_backward_read_compat_1_0_0_manifest(self) -> None:
+        """A 1.0.0 manifest JSON without source_mode parses correctly."""
+        raw_json = {
+            "tool": "ScubaGear",
+            "tool_slug": "scubagear",
+            "schema_version": "1.7.1",
+            "manifest_version": "1.0.0",
+            "timestamp": "2026-04-11T00:00:00+00:00",
+            "file_manifest": {"output/report.json": {"encoding": "utf-8", "sha256": "a" * 64}},
+            "execution_metadata": {},
+        }
+        raw = RawToolOutput.model_validate(raw_json)
+        assert raw.source_mode == "collected"
+        assert raw.ingest_provenance is None
