@@ -209,7 +209,9 @@ support for guidance.
    ingest and replay), use `--repair-event` to re-emit the event from
    the committed manifest without re-copying files. This is an
    audit-neutral operation -- it reads the on-disk provenance and
-   emits the event with the original source path and timestamp:
+   emits the event with the original source path and provenance -- note
+   the event timestamp reflects when the repair was run, not the original
+   ingest time:
 
    ```
    mseco ingest <id> --tool scubagear --repair-event
