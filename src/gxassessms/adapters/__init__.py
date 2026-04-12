@@ -123,6 +123,20 @@ def _validate_adapter(name: str, adapter_class: Any) -> list[str]:
             f"Adapter {name!r} tool_name must be a non-empty string; got {tool_name_value!r}"
         )
 
+    caps: frozenset[str] = getattr(instance, "capabilities", frozenset())
+    if "ingest" in caps:
+        if not callable(getattr(instance, "ingest_from_directory", None)):
+            failures.append(
+                f"{name!r} declares 'ingest' capability but has no "
+                f"callable ingest_from_directory method"
+            )
+        schema_ver = getattr(instance, "default_schema_version", "")
+        if not isinstance(schema_ver, str) or not schema_ver:
+            failures.append(
+                f"{name!r} declares 'ingest' capability but has no "
+                f"non-empty default_schema_version class attribute"
+            )
+
     return failures
 
 
