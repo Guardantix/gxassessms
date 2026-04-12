@@ -14,6 +14,7 @@ import logging
 import platform
 import re
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from subprocess import CompletedProcess
 from typing import Any
@@ -24,6 +25,10 @@ from gxassessms.core.contracts.verification import (
     ModulePolicyOverride,
     ModuleVerificationResult,
 )
+from gxassessms.core.domain.enums import ToolSource
+from gxassessms.core.domain.models import CollectedArtifact, CollectionOutput
+from gxassessms.core.domain.path_validation import validate_canonical_posix_path
+from gxassessms.core.hashing import sha256_file
 
 logger = logging.getLogger(__name__)
 
@@ -318,4 +323,67 @@ def run_verified_powershell(
         adapter_name=adapter_name,
         engagement_id=engagement_id,
         timeout_seconds=timeout_seconds,
+    )
+
+
+def build_collection_output(
+    *,
+    tool: ToolSource,
+    tool_slug: str,
+    items: list[tuple[Path, str]],
+    schema_version: str,
+    timestamp: datetime,
+    execution_metadata: dict[str, Any],
+) -> CollectionOutput:
+    """Hash source files and assemble a CollectionOutput.
+
+    Called AFTER the caller has done adapter-specific discovery (and, for
+    live collect(), adapter-specific freshness filtering). The helper is
+    layout-agnostic: callers provide pre-computed (source_path,
+    target_relpath) pairs.
+
+    Raises:
+        CollectionError: On hash failure or zero items.
+        ValueError: On target_relpath format violation.
+    """
+    if not items:
+        raise CollectionError(
+            f"No items to collect for {tool_slug!r} (empty items list)",
+            adapter_name=tool_slug,
+        )
+
+    slug_prefix = f"{tool_slug}/"
+    artifacts: list[CollectedArtifact] = []
+    for source_path, target_relpath in items:
+        validate_canonical_posix_path(target_relpath)
+        if not target_relpath.startswith(slug_prefix):
+            raise ValueError(
+                f"target_relpath {target_relpath!r} must start with "
+                f"{slug_prefix!r} for tool_slug {tool_slug!r}"
+            )
+        try:
+            sha = sha256_file(source_path)
+        except OSError as exc:
+            raise CollectionError(
+                f"Cannot hash {source_path}: {exc}",
+                adapter_name=tool_slug,
+            ) from exc
+        artifacts.append(
+            CollectedArtifact(
+                source_path=str(source_path),
+                target_relpath=target_relpath,
+                encoding="utf-8",
+                sha256=sha,
+            )
+        )
+
+    artifacts.sort(key=lambda a: a.target_relpath)
+
+    return CollectionOutput(
+        tool=tool,
+        tool_slug=tool_slug,
+        schema_version=schema_version,
+        timestamp=timestamp,
+        artifacts=artifacts,
+        execution_metadata=execution_metadata,
     )
