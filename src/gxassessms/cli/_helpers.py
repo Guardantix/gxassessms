@@ -408,6 +408,60 @@ def build_normalization_policy() -> Any:
     return DefaultNormalizationPolicy(rules=rules)
 
 
+def resolve_enabled_adapter(
+    tool_slug: str,
+    config: Any,
+) -> Any:
+    """Find an adapter by storage_slug and verify it is enabled in config."""
+    import click
+
+    from gxassessms.adapters import discover_adapters
+
+    registry = discover_adapters()
+    matches = [
+        cls for cls in registry.adapters.values() if getattr(cls, "storage_slug", None) == tool_slug
+    ]
+    if not matches:
+        available = sorted(getattr(cls, "storage_slug", "?") for cls in registry.adapters.values())
+        raise click.UsageError(
+            f"Unknown tool slug {tool_slug!r}. Available: {', '.join(available)}"
+        )
+    adapter = matches[0]()
+    enabled_names = {name.lower() for name, tc in config.tools.items() if tc.enabled}
+    if adapter.tool_name.lower() not in enabled_names:
+        raise click.UsageError(
+            f"Tool {tool_slug!r} (adapter {adapter.tool_name!r}) is not enabled "
+            f"in this engagement's config."
+        )
+    return adapter
+
+
+def require_ingest_capable(adapter: Any) -> Any:
+    """Narrow a ToolAdapter to IngestCapableAdapter or raise."""
+    import click
+
+    from gxassessms.core.contracts.types import IngestCapableAdapter
+
+    if "ingest" not in getattr(adapter, "capabilities", frozenset[str]()):
+        raise click.UsageError(
+            f"Adapter {getattr(adapter, 'tool_name', '?')!r} does not support ingest "
+            f"(capability 'ingest' not declared)."
+        )
+    if not isinstance(adapter, IngestCapableAdapter):
+        raise click.UsageError(
+            f"Adapter {getattr(adapter, 'tool_name', '?')!r} declares 'ingest' capability but "
+            f"does not implement ingest_from_directory()."
+        )
+    return adapter
+
+
+def get_engagement_lock() -> Any:
+    """Factory for the EngagementLock matching the engagements root."""
+    from gxassessms.pipeline.state import EngagementLock
+
+    return EngagementLock(get_engagements_root())
+
+
 def build_consolidation_rule() -> Any:
     """Return a ConsolidationRule for the CLI.
 
