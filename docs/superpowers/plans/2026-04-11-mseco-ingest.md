@@ -145,6 +145,14 @@ class TestIngestProvenance:
 ```python
 # tests/unit/core/test_models.py — append
 
+from gxassessms.core.domain.models import ArtifactRecord, RawToolOutput
+
+
+_MINIMAL_MANIFEST = {
+    "output/report.json": ArtifactRecord(encoding="utf-8", sha256="a" * 64)
+}
+
+
 class TestRawToolOutputSourceMode:
     """Spec Section 2.2: source_mode + ingest_provenance fields."""
 
@@ -156,7 +164,7 @@ class TestRawToolOutputSourceMode:
             schema_version="1.7.1",
             manifest_version="1.0.0",
             timestamp=datetime(2026, 4, 11, tzinfo=timezone.utc),
-            file_manifest={},
+            file_manifest=_MINIMAL_MANIFEST,
             execution_metadata={},
         )
         assert raw.source_mode == "collected"
@@ -170,7 +178,7 @@ class TestRawToolOutputSourceMode:
                 schema_version="1.7.1",
                 manifest_version="1.1.0",
                 timestamp=datetime(2026, 4, 11, tzinfo=timezone.utc),
-                file_manifest={},
+                file_manifest=_MINIMAL_MANIFEST,
                 execution_metadata={},
                 source_mode="ingested",
                 ingest_provenance=None,
@@ -190,7 +198,7 @@ class TestRawToolOutputSourceMode:
                 schema_version="1.7.1",
                 manifest_version="1.1.0",
                 timestamp=datetime(2026, 4, 11, tzinfo=timezone.utc),
-                file_manifest={},
+                file_manifest=_MINIMAL_MANIFEST,
                 execution_metadata={},
                 source_mode="collected",
                 ingest_provenance=prov,
@@ -204,7 +212,7 @@ class TestRawToolOutputSourceMode:
             "schema_version": "1.7.1",
             "manifest_version": "1.0.0",
             "timestamp": "2026-04-11T00:00:00+00:00",
-            "file_manifest": {},
+            "file_manifest": {"output/report.json": {"encoding": "utf-8", "sha256": "a" * 64}},
             "execution_metadata": {},
         }
         raw = RawToolOutput.model_validate(raw_json)
