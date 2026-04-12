@@ -17,16 +17,17 @@ This spec defines `mseco ingest`, the command that closes that gap.
 ## Goals
 
 1. Allow operators to take an operator-provided directory of raw tool output and produce a valid `RawToolOutput` manifest + `raw-output/artifacts/<slug>/` layout such that `mseco replay <id> --from parse` works as documented in runbook section 3.
-2. Apply to all 7 collection-capable built-in adapters (ScubaGear, Maester, Monkey365, M365-Assess, Prowler, Azure Advisor, Secure Score).
+2. Apply to **5 of the 7 collection-capable built-in adapters**: ScubaGear, Maester, Prowler, Azure Advisor, Secure Score. Monkey365 and M365-Assess are deliberately excluded; see Non-goals for the rationale.
 3. Record unambiguous audit provenance distinguishing ingested manifests from live-collected ones, at the manifest level, so reviews months later can tell how the data arrived.
 4. Preserve the `save_raw_outputs()` / replay trust boundary: ingest is a write-side convenience, not a relaxation of replay's read-side validation.
-5. Update runbook scenario 3 to reference the new command.
+5. Update runbook scenario 3 to reference the new command for the 5 supported adapters and clearly document that Monkey365 and M365-Assess ingest require a follow-up design.
 
 ## Non-goals
 
 - **Ingesting from a `raw-output.tar.gz` archive** — covered by the existing archive/restore path; out of scope here.
 - **Multi-tool ingest in a single invocation** — one `--tool` per call; operators run it 3× for a 3-tool engagement. Keeps the error surface tight.
-- **Stricter ingest-time discovery than live collect** — ingest inherits each adapter's pick-first-match and other quirks verbatim. See Section 3.2 for the UX tradeoff.
+- **Ingest support for Monkey365 and M365-Assess.** Both adapters' live `collect()` methods rely on pre-run filesystem snapshots to filter out stale files from prior runs: Monkey365 captures an `existing_files` set at `monkey365/adapter.py:130`, and M365-Assess captures a `pre_run_state` mtime+size dict at `m365_assess/adapter.py:211-219`. Ingest has no "before" snapshot to filter against. A naive ingest implementation for these adapters would silently merge stale and current files from the operator's source directory into a single manifest, producing wrong or duplicated findings with no error surfaced. We deliberately ship ingest without these two adapters rather than with a known silent-data-corruption failure mode. Monkey365 and M365-Assess ingest is deferred to a follow-up issue where the freshness-ambiguity problem is solved with a proper design (operator-supplied file lists, timestamp-grouped validation, or a "single-run export" adapter contract). Parity tests for the `build_collection_output` refactor still cover all 7 adapters; the scope reduction applies only to the new `ingest_from_directory()` code path.
+- **Stricter ingest-time discovery than live collect for the 5 supported adapters** — ingest inherits each supported adapter's pick-first-match and other quirks verbatim. See Section 3.2 for the UX tradeoff.
 - **Propagating `source_mode` into `ResolvedManifest` / reports** — collected vs. ingested is recorded on `RawToolOutput` at the storage layer, but the pipeline-internal `ResolvedManifest` does not carry the distinction. If reports need to surface it later, that's a follow-up.
 - **Write-side canonical path enforcement for `raw-output/`** — a broader pre-existing repo concern, not introduced by ingest.
 
@@ -39,7 +40,7 @@ The design has seven coordinated pieces across the layers:
 1. **Engagement bootstrap fix** (`cli/commands/engagement.py`): `mseco engagement create` is extended to provision the on-disk engagement directory AND write the `config_snapshot.json` mirror immediately after inserting the DB row, with an orphan-row rollback if filesystem provisioning fails. This is the foundation that lets ingest-only engagements work end-to-end and is the single place where the replay DR snapshot path gets seeded for both collect and ingest workflows.
 2. **Data model** (`core/domain/models.py`, `core/domain/constants.py`): two new optional fields on `RawToolOutput` plus a new `IngestProvenance` model, gated by a `manifest_version` bump from `"1.0.0"` to `"1.1.0"` that preserves backward-read compatibility for existing engagements on disk.
 3. **Shared adapter helper** (`adapters/_base.py`): new module-level `build_collection_output()` that hashes a pre-computed list of `(source_path, target_relpath)` pairs and assembles a `CollectionOutput`. Used by both live `collect()` and the new ingest path. Discovery and freshness filtering stay in each adapter's `collect()` exactly as today.
-4. **Per-adapter ingest method** (`adapters/<tool>/adapter.py`): new `ingest_from_directory()` method on each of the 7 adapters, implementing the same file-walk logic as live collect but without freshness filtering (since ingest has no "before" snapshot).
+4. **Per-adapter ingest method** (`adapters/<tool>/adapter.py`): new `ingest_from_directory()` method on **5 of the 7** adapters (ScubaGear, Maester, Prowler, Azure Advisor, Secure Score), implementing the same file-walk logic as live collect. Monkey365 and M365-Assess are explicitly excluded per Non-goals — their freshness-dependent discovery makes directory-based ingest unsafe without a follow-up design.
 5. **Protocol extension** (`core/contracts/types.py`): new `IngestCapableAdapter(ToolAdapter, Protocol)` adding `ingest_from_directory()` and a `default_schema_version: str` class attribute, plus an `"ingest"` entry in `AdapterCapability`.
 6. **Persistence layer** (`persistence/artifacts.py`): new `save_ingested_raw_output()` method on `ArtifactManager`, providing atomic single-slug writes (unlike the existing full-generation-swap `save_raw_outputs()`), fail-closed on missing engagement directory for the normal path, with a narrow legacy-migration fallback that auto-provisions for engagements created before this PR, and a per-side rollback on commit failure.
 7. **CLI command** (`cli/commands/ingest.py`, `cli/main.py`, `cli/_helpers.py`, `pipeline/orchestrator.py`, `pipeline/state.py`): the `mseco ingest` Click command, new canonical helpers (`resolve_enabled_adapter`, `require_ingest_capable`, `get_engagement_lock`), a new `"raw_output_ingested"` `EventType` variant and public `record_raw_output_ingested` orchestrator wrapper, and state reset via `reset_for_rerun(Stage.PARSE)` ordered **before** the filesystem commit so any commit failure leaves the engagement in a cleanly retryable state.
@@ -107,8 +108,9 @@ The design has seven coordinated pieces across the layers:
      That's a benign, idempotent, retryable state -- the operator just
      reruns ingest. By contrast, reversing the order (commit first,
      then reset) would leave a committed filesystem with stale DB state
-     on DB failure, which is the split-brain case Codex Finding 3 called
-     out.
+     on DB failure, which is the DB/filesystem split-brain case Codex
+     called out in the first adversarial review round (the reordering
+     here is the fix for that finding).
 
 9. Atomic single-slug filesystem commit
    - ArtifactManager.save_ingested_raw_output(
@@ -185,14 +187,22 @@ def mirror_config_snapshot_from_db_strict(
 
 ### 1a.2 New behavior of `mseco engagement create`
 
+Prerequisite: `EngagementRepo.create()` gets a new additive keyword argument (detailed in Section 1a.6). Today, `create()` at `engagement_repo.py:72-101` generates its own UUID internally, so the CLI cannot pre-compute the engagement directory path before inserting the row — the UUID doesn't exist until `create()` returns. The additive `engagement_id: str | None = None` parameter lets the CLI pre-generate the UUID when it needs an atomic bootstrap flow, while preserving today's auto-generate behavior for all other callers.
+
+With that prerequisite in place, the new bootstrap flow is:
+
 1. Validate the config file (unchanged from today).
-2. **NEW:** Compute the engagement directory path via `artifact_manager.create_engagement_dir(engagement_id, client_name)` AFTER but atomically with the DB row creation. The creation order is: (a) generate engagement_id via `uuid.uuid4()`, (b) compute the expected directory path (same `_sanitize_slug(client_name)-<id>` logic `artifacts.py:158` uses), (c) insert the DB row via `EngagementRepo.create(..., engagement_dir=<computed path>)` so the `engagement_dir` column is populated from the start, (d) actually create the directory tree on disk, (e) write the config snapshot mirror.
-3. **NEW:** Call `mirror_config_snapshot_from_db_strict(engagement_repo, artifact_manager, engagement_id)` to write `<engagement_dir>/config_snapshot.json`.
-4. **NEW orphan-row + orphan-directory rollback:** If any step between (c) and (e) fails, the rollback must:
-    1. Best-effort `shutil.rmtree(engagement_dir, ignore_errors=True)` — clean up any partially-created directory tree. Skipped if the directory wasn't created yet.
-    2. `engagement_repo.delete(engagement_id)` — removes the row from `engagements` and all child tables in dependency order, using the existing method at `engagement_repo.py:237`. No new delete helper needed.
+2. **NEW:** CLI pre-generates the engagement identity so the row and the directory can be committed atomically:
+    - (a) Generate `engagement_id = str(uuid.uuid4())` at the CLI layer.
+    - (b) Compute the target directory path using the same `_sanitize_slug(client_name)-<engagement_id>` logic `artifacts.py:158` uses (expose the slug helper or duplicate the one-liner — implementation plan decides).
+    - (c) Insert the DB row via `EngagementRepo.create(client_name, tenant_id, config_snapshot, engagement_id=<pre-generated>, engagement_dir=<computed path as str>)`. Both new kwargs populated. The row now claims `engagement_dir=<path>` but the directory does not yet exist on disk.
+    - (d) Call `artifact_manager.create_engagement_dir(engagement_id, client_name)` to materialize the directory tree on disk. This method uses the same path computation as (b), so the resolved path MUST match the value stored in (c). The implementation plan should either have both sides call a single shared helper, or add a post-create assertion that the returned path equals the pre-stored value — drift here would silently break the `engagement_dir IS NOT NULL` discriminator.
+3. **NEW:** Call `mirror_config_snapshot_from_db_strict(engagement_repo, artifact_manager, engagement_id)` to write `<engagement_dir>/config_snapshot.json`. Strict, not fail-open, so the rollback path actually fires on mirror failure.
+4. **NEW orphan-row + orphan-directory rollback:** If step (c), (d), or 3 fails, the rollback must:
+    1. Best-effort `shutil.rmtree(engagement_dir, ignore_errors=True)` — clean up any partially-created directory tree. Skipped if the directory was never created (step (c) or earlier failed).
+    2. `engagement_repo.delete(engagement_id)` — removes the row from `engagements` and all child tables in dependency order, using the existing method at `engagement_repo.py:237`. No new delete helper needed. Only runs if step (c) succeeded (the row actually exists).
     3. Re-raise as a `GxAssessError` with a message that names which step failed.
-    The user sees a single clean error and the engagement never exists in a half-bootstrapped state on disk or in the DB.
+    The user sees a single clean error. A crash between steps (c) and (d)/3 that escapes the rollback (e.g., SIGKILL) can leave a DB row whose `engagement_dir` column points at a nonexistent directory. That state is indistinguishable from post-PR filesystem corruption and is handled by the Section 4.2a "post-PR corruption" branch, which fails closed and names `mseco engagement purge` as the recovery. The bootstrap flow's rollback covers the programmatic-failure case; the "post-PR corruption" branch covers the crash-during-bootstrap case.
 
 ### 1a.3 Populating `engagements.engagement_dir`
 
@@ -212,14 +222,15 @@ No new column, no new migration, no new marker field — just start maintaining 
 
 ### 1a.5 Files changed
 
-- `cli/commands/engagement.py` — `create_cmd` gets the new provision + mirror + rollback logic. Estimated ~25 lines of additional code (the rollback logic is the bulk of it).
-- `pipeline/config_snapshot_mirror.py` — new `mirror_config_snapshot_from_db_strict()` public function. Estimated ~10 lines (thin wrapper over the existing `_do_mirror`).
+- `cli/commands/engagement.py` — `create_cmd` gets the new provision + mirror + rollback logic. Estimated ~30 lines of additional code (the rollback logic is the bulk of it, plus the pre-generated UUID and path computation).
+- `persistence/engagement_repo.py` — `EngagementRepo.create()` gets an additive `engagement_id: str | None = None` kwarg. When None, the method generates a UUID as today; when provided, it uses the caller's value. Backward-compatible: all existing callers pass None (explicitly or by omission) and see no behavior change. Estimated ~5 lines including the docstring note.
+- `pipeline/config_snapshot_mirror.py` — new `mirror_config_snapshot_from_db_strict()` public function. Estimated ~10 lines (thin wrapper over the existing `_do_mirror`). Per Rick's implementation caveat: the existing fail-open `mirror_config_snapshot_from_db()` stays **exactly as-is** for its existing caller in `_runner.py:84-97`; the strict variant is an additive new public function, not a contract change on the existing one.
 
 ### 1a.6 What this does NOT change
 
 - The lazy `save_raw_outputs` fallback at `artifacts.py:476` stays in place as-is. It's belt-and-suspenders for any write path that hits a missing-dir condition (which should now be impossible for freshly-created engagements but is still the safety net for legacy engagements that haven't hit their first write yet).
-- Collect's fail-open `mirror_config_snapshot_from_db()` call at `_runner.py:84-97` stays in place with its existing signature and fail-open contract. It refreshes the mirror after every successful collect, which is the right behavior when the DB config changes between runs and when a mirror gap shouldn't block the pipeline.
-- `EngagementRepo.create()`'s signature is unchanged; the `engagement_dir` parameter already exists and the CLI just starts passing a non-None value.
+- Collect's fail-open `mirror_config_snapshot_from_db()` call at `_runner.py:84-97` stays in place with its existing signature and fail-open contract. It refreshes the mirror after every successful collect, which is the right behavior when the DB config changes between runs and when a mirror gap shouldn't block the pipeline. The strict variant from Section 1a.1 is additive, not a replacement.
+- `EngagementRepo.create()`'s existing parameters are unchanged. The new `engagement_id` kwarg is additive and optional; all existing callers (zero-argument pass-through) keep their current behavior and return value semantics.
 - The non-ingest path `engagement status` → `engagement create` → `engagement status` gets marginally different output (the second `status` call sees a directory that didn't exist before), but this is benign and not tested behavior today.
 
 ## Section 2: Data model changes
@@ -663,35 +674,36 @@ except PersistenceError:
 
     # Legacy migration: engagement_dir IS NULL in the DB row, meaning this
     # engagement was created before PR #78 and never had its directory
-    # provisioned. Provision it now as a one-time migration.
+    # provisioned. Provision it now AS A ONE-SHOT TRANSITION to post-PR
+    # state: create directory, write strict mirror, backfill the column.
+    # After this migration succeeds, the row is indistinguishable from a
+    # post-PR bootstrap row, and any FUTURE missing-directory case for
+    # this engagement hits the fail-closed corruption branch -- NOT the
+    # migration branch. Codex Finding 3: without the backfill, migrated
+    # rows stayed "legacy forever" and masked later data loss.
     logger.warning(
         "Legacy engagement %s has engagement_dir IS NULL and no on-disk "
-        "directory; provisioning it now as a one-time migration. Future "
-        "engagements created via `mseco engagement create` will have the "
-        "directory provisioned at bootstrap time instead.",
+        "directory; provisioning it now as a one-time migration. After "
+        "successful migration, the engagement_dir column is backfilled "
+        "and subsequent missing-directory cases for this engagement will "
+        "fail closed as corruption.",
         engagement_id,
     )
+
+    # Step 1: Create the directory on disk.
     eng_dir = self.create_engagement_dir(engagement_id, client_name)
 
-    # Mirror the config_snapshot so replay's DR path works for this
-    # engagement. Use the new STRICT variant (Section 1a.1) so any
-    # mirror failure propagates up and we abort the ingest before any
-    # raw output is committed. The existing fail-open helper would
-    # silently log and return, leaving the operator thinking the
-    # migration succeeded when the mirror is actually missing.
+    # Step 2: Write the strict mirror. Fails -> clean up directory, reraise.
     from gxassessms.pipeline.config_snapshot_mirror import (
         mirror_config_snapshot_from_db_strict,
     )
     try:
         mirror_config_snapshot_from_db_strict(
-            engagement_repo=engagement_repo,
-            artifact_manager=self,
-            engagement_id=engagement_id,
+            engagement_repo,
+            self,  # ArtifactManager
+            engagement_id,
         )
     except ConfigSnapshotMirrorError as exc:
-        # Best-effort cleanup of the directory we just created, then
-        # re-raise as PersistenceError so the CLI's outer handler
-        # produces a clean user-facing message.
         shutil.rmtree(eng_dir, ignore_errors=True)
         raise PersistenceError(
             f"Legacy migration failed for engagement {engagement_id}: "
@@ -699,19 +711,37 @@ except PersistenceError:
             f"was committed. Directory cleanup attempted."
         ) from exc
 
-    # NOTE: updating the engagements.engagement_dir column to reflect
-    # the newly-provisioned path is deliberately deferred to a follow-up
-    # observation, NOT done here. Reasoning: this method's layer contract
-    # is "filesystem writes only, no DB updates." The CLI layer OR a
-    # one-shot migration command is the right place to backfill
-    # engagement_dir for migrated legacy rows. See "Open question" below.
+    # Step 3: Backfill engagement_dir in the DB. This is the commit step
+    # that turns the row from "legacy" into "post-PR bootstrap equivalent."
+    # If it fails, roll back steps 1 and 2.
+    try:
+        engagement_repo.update_engagement_dir(
+            engagement_id,
+            engagement_dir=str(eng_dir),
+        )
+    except PersistenceError as exc:
+        # Clean up directory + mirror. The mirror lives inside eng_dir so
+        # rmtree of eng_dir takes it out automatically.
+        shutil.rmtree(eng_dir, ignore_errors=True)
+        raise PersistenceError(
+            f"Legacy migration failed for engagement {engagement_id}: "
+            f"backfill of engagement_dir column failed ({exc}). No raw "
+            f"output was committed. Directory cleanup attempted."
+        ) from exc
+
+    # Migration complete: eng_dir is now provisioned AND the DB row has
+    # engagement_dir populated. Any FUTURE missing-directory case for
+    # this engagement hits the "post-PR corruption" branch above instead
+    # of re-entering this migration branch. Proceed with the normal
+    # three-phase ingest commit.
 ```
 
 **Why this is narrow, not "relax the fail-closed rule entirely":**
 
 - The `except PersistenceError` block only fires when the directory is missing. Every other failure mode (wrong permissions, partial state on disk, etc.) still falls through the original code path.
 - The `engagement_dir IS NULL` check is the explicit legacy discriminator. Post-PR engagements have a non-null value in that column and go to the fail-closed branch. Legacy engagements have NULL and go to the migration branch.
-- The legacy migration calls `create_engagement_dir()` AND `mirror_config_snapshot_from_db_strict()`. If either fails, the error propagates, the partially-created directory is cleaned up, and no raw output is written.
+- The legacy migration calls `create_engagement_dir()`, `mirror_config_snapshot_from_db_strict()`, AND `update_engagement_dir()` as a three-step sequence. If any step fails, the rollback cleans up the directory and the error propagates with no raw output committed.
+- **The migration is truly one-shot because step 3 backfills the column.** After a successful migration, the row's `engagement_dir` is populated and the next ingest sees the discriminator flip to post-PR. If the directory is later deleted or corrupted, the next ingest hits the fail-closed corruption branch — NOT a silent re-migration that could mask data loss. This is the Codex Finding 3 fix.
 - The WARNING log line distinguishes a legacy-migration auto-provision from a first-write provision, so operators can tell the difference when reviewing logs months later.
 - New engagements created via the fixed `engagement create` will never hit this path, because the directory is always already present AND `engagement_dir` is populated. Over time, the legacy branch becomes cold code, and the "engagement_dir is set but the directory is gone" branch becomes the only way to hit this error at all.
 
@@ -720,7 +750,7 @@ except PersistenceError:
 - This is NOT a general-purpose "auto-create if missing" behavior for `save_ingested_raw_output`. It is a one-shot migration gated on `engagement_dir IS NULL`. Filesystem corruption or manual deletion of a post-PR engagement directory hits the other branch and raises.
 - It does NOT handle the case where the DB row itself is missing. That case is caught earlier at the CLI layer by `EngagementRepo.get(engagement_id)` and results in a clean user-facing error.
 
-**Constructor wiring:** `ArtifactManager` does not currently hold a reference to `EngagementRepo` — the two are independent layers. The legacy migration path needs the engagement row AND a repo handle to call `mirror_config_snapshot_from_db_strict`. The CLI layer, which already holds both, passes them into `save_ingested_raw_output` as optional keyword arguments:
+**Constructor wiring:** `ArtifactManager` does not currently hold a reference to `EngagementRepo` — the two are independent layers. The legacy migration path needs the engagement row AND a repo handle to call `mirror_config_snapshot_from_db_strict` and `update_engagement_dir`. The CLI layer, which already holds both, passes them into `save_ingested_raw_output` as optional keyword arguments:
 
 ```python
 def save_ingested_raw_output(
@@ -739,7 +769,53 @@ def save_ingested_raw_output(
 
 On the normal path (directory already exists), the three new parameters are unused. On the legacy path, they're required; if any is None, `save_ingested_raw_output` raises `PersistenceError` with a "legacy migration requested but CLI did not supply migration context" message. This keeps the happy-path signature usable in tests that don't need migration support, while making the migration path explicit at every call site.
 
-**Open question (flagged for implementation plan):** Should the legacy migration backfill `engagements.engagement_dir` after successful directory creation? Arguments for yes: the migration is meant to be one-shot per engagement, and backfilling means the next ingest call will hit the normal path instead of re-entering the migration branch (which is harmless but noisy). Arguments for no: updating the DB column means the method reaches into `EngagementRepo.update_engagement_dir(engagement_id, path)` (which doesn't exist today), crossing the layering line the rest of the method respects. Simpler alternative: leave the column NULL on legacy rows, accept that every ingest against a legacy engagement re-enters the migration branch until a no-op (the `create_engagement_dir` and mirror calls are idempotent), and provide a one-shot `mseco engagement migrate` command in a follow-up PR to batch-backfill `engagement_dir` for all legacy rows. Recommend the simpler alternative for this PR; flag the follow-up migrate command in Future Work.
+**Layering note on `update_engagement_dir`:** The migration branch calls `engagement_repo.update_engagement_dir(engagement_id, engagement_dir=...)`, which is a new thin method on `EngagementRepo` that this PR adds. Rationale: the method's general layer contract is "filesystem writes only, no DB updates" (see the list in Section 4.4), but the legacy-migration branch is explicitly an exception. It's a one-shot state transition that atomically (a) creates a filesystem directory, (b) writes a filesystem mirror, and (c) commits the DB column flip that makes (a) and (b) "official." Splitting (c) across layers would break the one-shot atomicity — a separate CLI-layer call to `update_engagement_dir` after `save_ingested_raw_output` returns would open a window where the migration looks successful to the operator but isn't committed in the DB, and a subsequent crash would leave a migrated directory with a NULL column. The layering exception is narrow (one branch inside one method) and is acceptable because the alternative splits a state transition that must be atomic.
+
+**`EngagementRepo.update_engagement_dir` — new method:**
+
+```python
+# persistence/engagement_repo.py — new thin method, ~10 lines
+
+def update_engagement_dir(
+    self,
+    engagement_id: str,
+    engagement_dir: str | None,
+) -> None:
+    """Set or clear the engagement_dir column on an engagement row.
+
+    Used by:
+    - save_ingested_raw_output's legacy-migration path, which backfills
+      a non-null path after successfully provisioning the directory (the
+      one-shot transition from "legacy" to "post-PR equivalent").
+    - Potentially by a future `mseco engagement migrate` batch command
+      (see Future work) that backfills legacy rows without ingesting.
+
+    Accepts None to explicitly clear the column (used by the legacy
+    migration's rollback path if a later step fails after this one
+    succeeds; not used in this PR's final rollback shape but exposed for
+    completeness).
+
+    Raises PersistenceError if the engagement row does not exist.
+    """
+    now = format_utc(utc_now())
+    with self._db.connect() as conn:
+        row = conn.execute(
+            "SELECT 1 FROM engagements WHERE engagement_id = ?",
+            (engagement_id,),
+        ).fetchone()
+        if row is None:
+            raise PersistenceError(f"Engagement not found: {engagement_id}")
+        conn.execute(
+            "UPDATE engagements SET engagement_dir = ?, updated_at = ? "
+            "WHERE engagement_id = ?",
+            (engagement_dir, now, engagement_id),
+        )
+    logger.info(
+        "Updated engagement_dir for %s to %r",
+        engagement_id,
+        engagement_dir,
+    )
+```
 
 ### 4.3 Per-side rollback for single-slug atomicity
 
@@ -1022,10 +1098,11 @@ This wrapper is the single public entry point for writing `raw_output_ingested` 
 
 `docs/runbook.md:144-197` — the "Client-Provided Pre-Collected Output Ingestion" section gets updated to:
 
-- Remove the "(see issue #78 -- command not yet implemented)" note
-- Remove the "Until `mseco ingest` is available:" manual-workaround paragraph
-- Add a concrete example showing a three-tool ingest workflow
-- Add a caveat about the pick-first-match UX tradeoff
+- Remove the "(see issue #78 -- command not yet implemented)" note for the 5 supported adapters
+- Remove the "Until `mseco ingest` is available:" manual-workaround paragraph for those same 5 adapters
+- Add a concrete example showing a 2-tool supported ingest workflow (ScubaGear + Maester are the most common case)
+- **Explicitly document that Monkey365 and M365-Assess ingest is NOT yet supported** and still requires the manual-manifest-construction workaround the original runbook section described. The runbook should name both adapters, cite the freshness-ambiguity reason ("their live collectors use pre-run filesystem snapshots that ingest has no way to reconstruct"), and point at the follow-up issue tracking the proper design.
+- Add a caveat about the pick-first-match UX tradeoff (applies only to the 5 supported adapters)
 - Add a caveat about `--run-at` / assessment-date
 
 ## Section 6: Testing strategy
@@ -1034,7 +1111,8 @@ This wrapper is the single public entry point for writing `raw_output_ingested` 
 
 - `tests/unit/cli/test_ingest_cmd.py` — CLI unit tests (18 cases, enumerated below)
 - `tests/unit/adapters/test_build_collection_output.py` — shared helper (validation, sorting, target_relpath checks, empty items rejection)
-- `tests/unit/adapters/test_<each>_ingest.py` — one file per adapter (7 files) combining parity tests and ingest tests for that adapter
+- **`tests/unit/adapters/test_<each>_ingest.py`** — one file per **ingest-supporting** adapter (5 files: ScubaGear, Maester, Prowler, Azure Advisor, Secure Score). Each file contains the adapter's `ingest_from_directory` happy path + error paths + `default_schema_version` parity test. Monkey365 and M365-Assess do NOT get ingest test files (those two don't implement `ingest_from_directory` in this PR).
+- **`tests/unit/adapters/test_<each>_collect_parity.py`** — one file per **refactor-affected** adapter (7 files: all the built-in adapters). Each file contains the collect() parity test proving the `build_collection_output` extraction is behavior-preserving. These are separate from the ingest test files because the refactor covers all 7 adapters even though ingest only covers 5.
 - `tests/integration/test_ingest_flow.py` — 4 end-to-end scenarios
 
 ### 6.2 Existing test files to extend
@@ -1087,7 +1165,7 @@ Plus a `test_rollback_itself_fails` case: both the second rename AND the rollbac
 
 ### 6.5 Per-adapter `default_schema_version` parity tests
 
-One test per adapter asserting `adapter.default_schema_version == <hardcoded expected value>`. The expected value is written inline in the test, not read from the same constant the adapter uses — so drift between the two values is caught by the test:
+One test per **ingest-supporting** adapter (5 adapters) asserting `adapter.default_schema_version == <hardcoded expected value>`. The expected value is written inline in the test, not read from the same constant the adapter uses — so drift between the two values is caught by the test:
 
 ```python
 # test_scubagear_ingest.py
@@ -1098,10 +1176,37 @@ def test_default_schema_version_matches_collect():
 def test_default_schema_version_matches_collect():
     assert MaesterAdapter().default_schema_version == "1.0.0"
 
+# test_prowler_ingest.py
+def test_default_schema_version_matches_collect():
+    assert ProwlerAdapter().default_schema_version == "<existing _SCHEMA_VERSION>"
+
 # test_azure_advisor_ingest.py
 def test_default_schema_version_matches_collect():
     assert AzureAdvisorAdapter().default_schema_version == "2025-01-01"
+
+# test_secure_score_ingest.py
+def test_default_schema_version_matches_collect():
+    assert SecureScoreAdapter().default_schema_version == "<existing _SCHEMA_VERSION>"
 ```
+
+Plus a **negative** test asserting that Monkey365 and M365-Assess do NOT declare `"ingest"` in their `capabilities` frozenset and do NOT have a `default_schema_version` attribute (those are the two adapters excluded by the Section "Non-goals" scope reduction — the test pins that exclusion so a future well-intentioned "add ingest to every adapter" change is caught):
+
+```python
+# tests/unit/adapters/test_adapter_capabilities.py (extend existing file)
+def test_monkey365_has_no_ingest_capability():
+    adapter = Monkey365Adapter()
+    assert "ingest" not in adapter.capabilities
+    assert not hasattr(adapter, "default_schema_version") or adapter.default_schema_version == ""
+    assert not hasattr(adapter, "ingest_from_directory")
+
+def test_m365_assess_has_no_ingest_capability():
+    adapter = M365AssessAdapter()
+    assert "ingest" not in adapter.capabilities
+    assert not hasattr(adapter, "default_schema_version") or adapter.default_schema_version == ""
+    assert not hasattr(adapter, "ingest_from_directory")
+```
+
+Rationale for the negative tests: the scope exclusion is a deliberate safety line from Codex Finding 2. If someone in a later PR adds ingest to these adapters without addressing the freshness-ambiguity problem, the negative test forces them to confront the deletion and (presumably) also delete the Non-goals paragraph that explains why the exclusion existed.
 
 ### 6.6 CLI unit tests
 
@@ -1128,14 +1233,16 @@ All 18 cases go in `tests/unit/cli/test_ingest_cmd.py`. Each uses Click's `CliRu
 
 ### 6.7 Integration tests
 
-`tests/integration/test_ingest_flow.py`, 4 scenarios:
+`tests/integration/test_ingest_flow.py`, 4 scenarios. All use supported adapters only (ScubaGear, Maester, Prowler, Azure Advisor, Secure Score):
 
 1. **Single-tool ingest + replay** — create engagement, ingest scubagear from fixture, assert state is COLLECTED, replay `--from parse` with `--qa-strategy noop` for determinism, assert findings landed.
 2. **Multi-tool mixed** — live-collect maester (mocked subprocess), ingest scubagear from fixture, assert both coexist, maester's manifest unchanged, scubagear's manifest shows `source_mode="ingested"`.
 3. **Replace path** — ingest scubagear, ingest again with `--replace` and different content, assert new files in place, two separate `raw_output_ingested` events in the journal.
-4. **Runbook scenario 3 end-to-end** — reproduce the exact command sequence from the updated runbook (`engagement create` → 3× `ingest` → `replay --from parse --qa-strategy noop`), assert the pipeline reaches RENDERED state.
+4. **Runbook scenario 3 end-to-end for supported adapters** — reproduce the exact command sequence from the updated runbook for the 5 supported adapters. A realistic operator workflow: `engagement create` → `ingest --tool scubagear` → `ingest --tool maester` → `replay --from parse --qa-strategy noop`. Assert the pipeline reaches RENDERED state with findings from both tools.
 
 All integration tests pin `--qa-strategy noop` explicitly for determinism even though `pyproject.toml:50` currently registers only noop — future QA strategies shouldn't be able to make these tests flaky.
+
+**Explicit non-test:** no integration test attempts to ingest Monkey365 or M365-Assess. If someone adds `"ingest"` capability to those adapters in a future PR without addressing the freshness ambiguity problem, the negative tests from Section 6.5 (`test_monkey365_has_no_ingest_capability`, `test_m365_assess_has_no_ingest_capability`) will fail before this integration layer is even exercised.
 
 ### 6.8 `record_raw_output_ingested` test scope
 
@@ -1164,11 +1271,13 @@ Two tests:
 
 New cases in `tests/unit/persistence/test_artifacts.py`:
 
-1. `test_legacy_migration_provisions_dir_and_mirrors_snapshot`: pre-condition is a DB row with `engagement_dir IS NULL` and no on-disk directory (simulate by creating an engagement row via `repo.create()` with `engagement_dir=None` — the current default — and NOT calling `create_engagement_dir`). Call `save_ingested_raw_output` with a valid `CollectionOutput`, passing `client_name`, `engagement_row`, and `engagement_repo` as kwargs. Assert: (a) the engagement directory is created via `create_engagement_dir`, (b) `<engagement_dir>/config_snapshot.json` is written and its content round-trips to the original snapshot via `decode_config_snapshot`, (c) the raw output commit proceeds and succeeds, (d) a WARNING log line is emitted mentioning "legacy engagement" and "one-time migration".
-2. `test_legacy_migration_fails_if_dir_creation_fails`: same pre-condition, but monkey-patch `create_engagement_dir` to raise `OSError`. Assert `PersistenceError` raised, no raw output committed, no partial state on disk.
-3. `test_legacy_migration_fails_if_strict_mirror_fails_and_cleans_up_dir`: same pre-condition, but monkey-patch `mirror_config_snapshot_from_db_strict` to raise `ConfigSnapshotMirrorError`. Assert: (a) `PersistenceError` raised, (b) no raw output committed, (c) the engagement directory created at the first step of migration is removed via `shutil.rmtree(..., ignore_errors=True)`, (d) the error message mentions "config_snapshot mirror write failed" and "Directory cleanup attempted".
-4. `test_post_pr_engagement_with_missing_dir_fails_closed`: simulate a post-PR engagement (DB row has `engagement_dir="/path/to/eng-dir"` populated, but the directory was manually deleted). Call `save_ingested_raw_output` with the engagement_row containing the populated `engagement_dir` column. Assert: (a) `PersistenceError` raised, (b) the error message mentions `engagement_dir=...` from the DB and "filesystem corruption or manual deletion", (c) `create_engagement_dir` is NOT called (the migration branch is NOT entered), (d) no raw output committed, (e) the error message names the `mseco engagement purge` recovery option.
-5. `test_legacy_migration_requires_migration_kwargs`: pre-condition is a DB row with `engagement_dir IS NULL` and no on-disk directory, but the caller does NOT pass `client_name`, `engagement_row`, or `engagement_repo`. Assert `PersistenceError` raised with a message naming "legacy migration requested but CLI did not supply migration context".
+1. `test_legacy_migration_provisions_dir_mirrors_snapshot_and_backfills_column`: pre-condition is a DB row with `engagement_dir IS NULL` and no on-disk directory (simulate by creating an engagement row via `repo.create()` with `engagement_dir=None` — the current default — and NOT calling `create_engagement_dir`). Call `save_ingested_raw_output` with a valid `CollectionOutput`, passing `client_name`, `engagement_row`, and `engagement_repo` as kwargs. Assert: (a) the engagement directory is created via `create_engagement_dir`, (b) `<engagement_dir>/config_snapshot.json` is written and its content round-trips to the original snapshot via `decode_config_snapshot`, (c) `EngagementRepo.update_engagement_dir` is called with the provisioned path and the DB column is now populated, (d) the raw output commit proceeds and succeeds, (e) a WARNING log line is emitted mentioning "legacy engagement" and "one-time migration". This test pins the Codex Finding 3 fix: without the backfill assertion (c), the test would pass even if backfill is silently omitted.
+2. `test_legacy_migration_fails_if_dir_creation_fails`: same pre-condition, but monkey-patch `create_engagement_dir` to raise `OSError`. Assert `PersistenceError` raised, no raw output committed, no partial state on disk, `update_engagement_dir` was NOT called.
+3. `test_legacy_migration_fails_if_strict_mirror_fails_and_cleans_up_dir`: same pre-condition, but monkey-patch `mirror_config_snapshot_from_db_strict` to raise `ConfigSnapshotMirrorError`. Assert: (a) `PersistenceError` raised, (b) no raw output committed, (c) the engagement directory created at the first step of migration is removed via `shutil.rmtree(..., ignore_errors=True)`, (d) `update_engagement_dir` was NOT called (the engagement_dir column remains NULL so the next ingest will retry from scratch), (e) the error message mentions "config_snapshot mirror write failed" and "Directory cleanup attempted".
+4. `test_legacy_migration_fails_if_backfill_fails_and_rolls_back`: same pre-condition, but monkey-patch `update_engagement_dir` to raise `PersistenceError` after both `create_engagement_dir` and `mirror_config_snapshot_from_db_strict` have succeeded. Assert: (a) `PersistenceError` raised, (b) the just-created engagement directory is removed via `shutil.rmtree` (which also takes out the mirror file inside it), (c) the engagement_dir column remains NULL (rollback leaves it in pre-migration state), (d) no raw output committed, (e) the error message mentions "backfill of engagement_dir column failed".
+5. `test_post_pr_engagement_with_missing_dir_fails_closed`: simulate a post-PR engagement (DB row has `engagement_dir="/path/to/eng-dir"` populated, but the directory was manually deleted). Call `save_ingested_raw_output` with the engagement_row containing the populated `engagement_dir` column. Assert: (a) `PersistenceError` raised, (b) the error message mentions `engagement_dir=...` from the DB and "filesystem corruption or manual deletion", (c) `create_engagement_dir` is NOT called (the migration branch is NOT entered), (d) no raw output committed, (e) the error message names the `mseco engagement purge` recovery option.
+6. `test_post_migration_fails_closed_on_later_corruption`: the Codex Finding 3 regression fence. First, run the successful legacy migration from test 1 (engagement now has a populated `engagement_dir` column and a provisioned directory on disk). Then manually delete the directory (`shutil.rmtree(eng_dir)`) to simulate filesystem corruption or manual deletion AFTER migration. Then attempt a second ingest. Assert: (a) `PersistenceError` raised, (b) the error message mentions "filesystem corruption or manual deletion", (c) `create_engagement_dir` is NOT called (the migration branch does NOT re-enter), (d) no raw output committed. Before the Finding 3 fix, this test would have failed because the re-entered migration would silently recreate the directory and mask the data loss.
+7. `test_legacy_migration_requires_migration_kwargs`: pre-condition is a DB row with `engagement_dir IS NULL` and no on-disk directory, but the caller does NOT pass `client_name`, `engagement_row`, or `engagement_repo`. Assert `PersistenceError` raised with a message naming "legacy migration requested but CLI did not supply migration context".
 
 ### 6.12 Engagement bootstrap tests (from Section 1a)
 
@@ -1191,10 +1300,11 @@ One case in `tests/unit/cli/test_ingest_cmd.py`:
 
 ## Future work
 
-- `--strict` flag on `mseco ingest` that rejects ambiguous adapter discovery (e.g., multiple ScubaResults*.json files).
+- **Ingest support for Monkey365 and M365-Assess.** The adapters excluded from this PR by Section "Non-goals" need a proper freshness-safe design before ingest can be added. Open design questions: (a) require operators to provide a clean single-run export directory (documentation contract, no code enforcement — matches current Option A rationale); (b) operator-supplied `--file` arguments listing the exact files to include (clunky for Monkey365's multi-file output but eliminates the ambiguity); (c) timestamp-based grouping for adapters whose filenames include timestamps; (d) a new "single-run export" adapter contract that the tool runners themselves can emit in a well-defined shape. Whichever direction wins, the follow-up issue should explicitly restate the silent-stale-data failure mode as the problem being solved so it doesn't regress.
+- `--strict` flag on `mseco ingest` that rejects ambiguous adapter discovery for the 5 supported adapters too (e.g., multiple ScubaResults*.json files). Complements the pick-first-match current behavior.
 - Multi-tool ingest in a single invocation for engagements where the client sends a single archive containing multiple tools' output.
 - Ingesting from a `raw-output.tar.gz` archive (mirrors `ArtifactManager.restore`).
 - Propagating `source_mode` / `ingest_provenance` into `ResolvedManifest` and the report payload so downstream consumers can distinguish collected vs. ingested data.
 - Reconciling the M365-Assess `script_path` / `script` allowlist mismatch at `adapters/m365_assess/adapter.py:307` vs `core/domain/constants.py:170`.
 - Write-side canonical path enforcement for `raw-output/` (symlink + non-canonical-subtree rejection at write time, matching replay's read-time confinement).
-- **`mseco engagement migrate` batch command** — backfill `engagements.engagement_dir` for all legacy rows where the column is `NULL` but a matching directory exists on disk. Makes the Section 4.2a legacy migration a one-time process instead of a branch that re-enters on every ingest against a legacy engagement. Out of scope for this PR because the branch is idempotent and the noise is minor.
+- **`mseco engagement migrate` batch command** — backfill `engagements.engagement_dir` for all legacy rows that have a matching directory on disk but no first-ingest-driven migration yet. After the Section 4.2a backfill fix (Codex Finding 3), the per-ingest migration is one-shot and durable, so the batch command is a nice-to-have for operators who want to clean up all legacy rows at once without ingesting into each one. Out of scope for this PR because the per-ingest migration already handles the correctness case.
