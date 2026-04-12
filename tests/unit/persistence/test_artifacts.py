@@ -803,6 +803,42 @@ class TestSaveIngestedRawOutput:
         staging = [d for d in raw_dir.iterdir() if d.name.startswith(".ingest-staging-")]
         assert staging == []
 
+    def test_rejects_symlink_source(self, artifact_mgr: ArtifactManager, tmp_path: Path) -> None:
+        """Symlinked source file must be rejected."""
+        artifact_mgr.create_engagement_dir("eng-ingest-08", "Acme")
+
+        # Create a real file and a symlink pointing to it
+        real_file = tmp_path / "real-data" / "results.json"
+        real_file.parent.mkdir(parents=True, exist_ok=True)
+        content = b'{"results": []}'
+        real_file.write_bytes(content)
+        sha = _sha256(content)
+
+        symlink_dir = tmp_path / "ingest-src" / "scubagear"
+        symlink_dir.mkdir(parents=True, exist_ok=True)
+        symlink_file = symlink_dir / "ScubaResults.json"
+        symlink_file.symlink_to(real_file)
+
+        co = CollectionOutput(
+            tool=ToolSource.SCUBAGEAR,
+            tool_slug="scubagear",
+            schema_version="1.0.0",
+            timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+            artifacts=[
+                CollectedArtifact(
+                    source_path=str(symlink_file),
+                    target_relpath="scubagear/ScubaResults.json",
+                    encoding="utf-8",
+                    sha256=sha,
+                ),
+            ],
+            execution_metadata={},
+        )
+        prov = _make_ingest_provenance(tmp_path)
+
+        with pytest.raises(PersistenceError, match="symlink"):
+            artifact_mgr.save_ingested_raw_output("eng-ingest-08", co, ingest_provenance=prov)
+
     def test_purge_audit_path_in_returned_manifest(self, tmp_path: Path) -> None:
         engagements_root = tmp_path / "engagements"
         engagements_root.mkdir()

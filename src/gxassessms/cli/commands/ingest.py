@@ -90,6 +90,10 @@ def ingest_cmd(
 
     actor = f"human:{_helpers.resolve_operator(operator)}"
 
+    if repair_event:
+        _repair_event(engagement_id, tool_slug, actor)
+        return
+
     try:
         repo = _helpers.get_engagement_repo()
         row = repo.get(engagement_id)
@@ -114,19 +118,16 @@ def ingest_cmd(
         console.print(f"[bright_red]Error:[/bright_red] {exc}")
         raise SystemExit(1) from None
 
-    if repair_event:
-        _repair_event(engagement_id, tool_slug, actor)
-    else:
-        _ingest_normal(
-            engagement_id,
-            tool_slug,
-            adapter,
-            source_path,  # type: ignore[arg-type]  # guarded by check above
-            replace,
-            schema_version_override,
-            run_at_arg,
-            actor,
-        )
+    _ingest_normal(
+        engagement_id,
+        tool_slug,
+        adapter,
+        source_path,  # type: ignore[arg-type]  # guarded by check above
+        replace,
+        schema_version_override,
+        run_at_arg,
+        actor,
+    )
 
 
 def _ingest_normal(
@@ -200,6 +201,11 @@ def _ingest_normal(
     except GxAssessError as exc:
         logger.warning("Failed to record ingest event: %s", exc)
         # Non-fatal: data is committed, event is advisory
+        console.print(
+            f"[yellow]Warning:[/yellow] Data committed but event recording failed. "
+            f"Run [bold]mseco ingest {engagement_id} --tool {tool_slug} --repair-event[/bold] "
+            f"to fix the audit trail."
+        )
 
     console.print(f"[bright_green]Ingested {tool_slug}[/bright_green] into {engagement_id}")
     console.print(f"  Source: {resolved_source}")
@@ -219,6 +225,14 @@ def _repair_event(
     for an existing event (idempotency guard), then emits from committed
     provenance.
     """
+    import re
+
+    from gxassessms.core.domain.constants import TOOL_SLUG_PATTERN
+
+    if not re.fullmatch(TOOL_SLUG_PATTERN, tool_slug):
+        console.print(f"[bright_red]Invalid tool slug:[/bright_red] {tool_slug!r}")
+        raise SystemExit(1)
+
     try:
         artifacts = _helpers.get_artifact_manager()
         eng_dir = artifacts.get_engagement_dir(engagement_id)
@@ -253,7 +267,11 @@ def _repair_event(
                 )
                 return
         except GxAssessError:
-            pass  # Can't check; proceed with emission
+            logger.warning("Could not check for existing event; proceeding with emission")
+            console.print(
+                "[yellow]Warning:[/yellow] Could not check for existing event; "
+                "a duplicate may be emitted"
+            )
 
         orchestrator.record_raw_output_ingested(
             engagement_id=engagement_id,
@@ -267,6 +285,11 @@ def _repair_event(
 
     except SystemExit:
         raise
-    except GxAssessError as exc:
+    except (
+        GxAssessError,
+        OSError,
+        PydanticValidationError,
+        UnicodeDecodeError,
+    ) as exc:  # UnicodeDecodeError: binary/corrupted manifest from read_text()
         console.print(f"[bright_red]Repair failed:[/bright_red] {exc}")
         raise SystemExit(1) from None

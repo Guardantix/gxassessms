@@ -300,9 +300,9 @@ class IngestProvenance(BaseModel):
     @field_validator("ingested_by")
     @classmethod
     def ingested_by_must_be_human(cls, v: str) -> str:
-        if not v.startswith("human:") or len(v) <= len("human:"):
+        if not v.startswith("human:") or not v[len("human:") :].strip():
             raise ValueError(
-                f"ingested_by must be 'human:<operator>' (manifest ingest is "
+                f"ingested_by must be 'human:<non-empty operator>' (manifest ingest is "
                 f"a human-driven operation), got {v!r}"
             )
         return v

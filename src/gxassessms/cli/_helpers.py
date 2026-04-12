@@ -128,7 +128,7 @@ def resolve_operator(override: str | None = None) -> str:
 
     try:
         return override or getpass.getuser()
-    except OSError, KeyError:
+    except (OSError, KeyError):  # fmt: skip
         return "unknown"
 
 

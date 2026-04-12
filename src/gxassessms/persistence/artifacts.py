@@ -726,6 +726,14 @@ class ArtifactManager:
             file_manifest: dict[str, ArtifactRecord] = {}
             for artifact in collection_output.artifacts:
                 source = Path(artifact.source_path)
+                if not source.is_file():
+                    raise PersistenceError(
+                        f"Source is not a regular file: {artifact.source_path!r}"
+                    )
+                if source.is_symlink():
+                    raise PersistenceError(
+                        f"Source is a symlink (not allowed): {artifact.source_path!r}"
+                    )
                 # Strip the leading slug/ prefix from target_relpath for dest subpath
                 rel_under_slug = Path(artifact.target_relpath).relative_to(slug)
                 dest = staging_artifacts / rel_under_slug

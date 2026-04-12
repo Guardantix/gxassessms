@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, patch
 from click.testing import CliRunner
 
 from gxassessms.cli.main import cli
+from gxassessms.core.contracts.errors import PersistenceError
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -177,6 +178,7 @@ class TestRepairEventMutualExclusion:
             ],
         )
         assert result.exit_code != 0
+        assert "mutually exclusive" in result.output.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -602,3 +604,242 @@ class TestRepairEventHappyPath:
         )
 
         assert result.exit_code != 0
+
+
+# ---------------------------------------------------------------------------
+# Shared helper for repair-event error-path tests
+# ---------------------------------------------------------------------------
+
+
+def _make_repair_manifest_json(tool_slug: str = _TOOL_SLUG, replaced: bool = False) -> str:
+    """Build a minimal ingested RawToolOutput JSON for repair-event tests."""
+    tool_source_value = "ScubaGear" if tool_slug == "scubagear" else tool_slug
+    return json.dumps(
+        {
+            "tool": tool_source_value,
+            "tool_slug": tool_slug,
+            "schema_version": "1.0.0",
+            "manifest_version": "1.0.0",
+            "timestamp": "2026-01-01T00:00:00Z",
+            "file_manifest": {
+                f"{tool_slug}/results.json": {
+                    "encoding": "utf-8",
+                    "sha256": "a" * 64,
+                }
+            },
+            "execution_metadata": {},
+            "source_mode": "ingested",
+            "ingest_provenance": {
+                "source_path": "/home/testuser/scubagear-output",
+                "ingested_at": "2026-01-01T00:00:00Z",
+                "ingested_by": "human:testuser",
+                "replaced": replaced,
+            },
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# 6. Error path tests
+# ---------------------------------------------------------------------------
+
+
+class TestIngestErrorPaths:
+    """Error paths for both normal and repair ingest flows."""
+
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_engagement_not_found_exits_nonzero(self, mock_get_repo: MagicMock) -> None:
+        """Normal path: engagement lookup failure exits nonzero."""
+        from gxassessms.core.contracts.errors import GxAssessError
+
+        mock_get_repo.return_value.get.side_effect = GxAssessError("not found")
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["ingest", _ENGAGEMENT_ID, "--tool", _TOOL_SLUG, "--from", "/tmp"],  # noqa: S108
+        )
+        assert result.exit_code != 0
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
+    @patch("gxassessms.cli._helpers.resolve_enabled_adapter", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_persistence_error_from_save_exits_nonzero(
+        self,
+        mock_get_repo: MagicMock,
+        mock_resolve: MagicMock,
+        mock_require: MagicMock,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """save_ingested_raw_output raising PersistenceError -> exit nonzero."""
+        source_dir = tmp_path / "output"
+        source_dir.mkdir()
+        mock_get_repo.return_value.get.return_value = _make_engagement_row()
+        adapter = _make_mock_adapter()
+        mock_resolve.return_value = adapter
+        mock_require.return_value = adapter
+        adapter.ingest_from_directory.return_value = _make_collection_output()
+        mock_get_artifacts.return_value.save_ingested_raw_output.side_effect = PersistenceError(
+            "disk full"
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["ingest", _ENGAGEMENT_ID, "--tool", _TOOL_SLUG, "--from", str(source_dir)],
+        )
+        assert result.exit_code != 0
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
+    @patch("gxassessms.cli._helpers.resolve_enabled_adapter", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_invalid_run_at_exits_nonzero(
+        self,
+        mock_get_repo: MagicMock,
+        mock_resolve: MagicMock,
+        mock_require: MagicMock,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Invalid --run-at value exits nonzero with descriptive message."""
+        source_dir = tmp_path / "output"
+        source_dir.mkdir()
+        mock_get_repo.return_value.get.return_value = _make_engagement_row()
+        adapter = _make_mock_adapter()
+        mock_resolve.return_value = adapter
+        mock_require.return_value = adapter
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            [
+                "ingest",
+                _ENGAGEMENT_ID,
+                "--tool",
+                _TOOL_SLUG,
+                "--from",
+                str(source_dir),
+                "--run-at",
+                "not-a-date",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "run-at" in result.output.lower()
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
+    @patch("gxassessms.cli._helpers.resolve_enabled_adapter", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_event_recording_failure_exits_zero_with_warning(
+        self,
+        mock_get_repo: MagicMock,
+        mock_resolve: MagicMock,
+        mock_require: MagicMock,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Event recording failure is non-fatal: exit 0 with --repair-event hint."""
+        from gxassessms.core.contracts.errors import GxAssessError
+
+        source_dir = tmp_path / "output"
+        source_dir.mkdir()
+        mock_get_repo.return_value.get.return_value = _make_engagement_row()
+        adapter = _make_mock_adapter()
+        mock_resolve.return_value = adapter
+        mock_require.return_value = adapter
+        adapter.ingest_from_directory.return_value = _make_collection_output()
+        loaded = _make_loaded_manifest(replaced=False)
+        mock_get_artifacts.return_value.save_ingested_raw_output.return_value = loaded
+        mock_build_orch.return_value.record_raw_output_ingested.side_effect = GxAssessError(
+            "db locked"
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["ingest", _ENGAGEMENT_ID, "--tool", _TOOL_SLUG, "--from", str(source_dir)],
+        )
+        assert result.exit_code == 0
+        assert "--repair-event" in result.output
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    def test_repair_event_proceeds_when_idempotency_check_fails(
+        self,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Repair path: idempotency check failure is non-fatal; event still emitted."""
+        from gxassessms.core.contracts.errors import GxAssessError
+
+        eng_dir = tmp_path / _ENGAGEMENT_ID
+        manifest_dir = eng_dir / "raw-output" / "manifests"
+        manifest_dir.mkdir(parents=True)
+        manifest_path = manifest_dir / f"{_TOOL_SLUG}.json"
+        manifest_path.write_text(_make_repair_manifest_json(), encoding="utf-8")
+        mock_get_artifacts.return_value.get_engagement_dir.return_value = eng_dir
+
+        orchestrator = mock_build_orch.return_value
+        orchestrator.has_raw_output_ingested_event.side_effect = GxAssessError("db error")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["ingest", _ENGAGEMENT_ID, "--tool", _TOOL_SLUG, "--repair-event"],
+        )
+        assert result.exit_code == 0
+        orchestrator.record_raw_output_ingested.assert_called_once()
+        assert "Warning" in result.output
+
+    @patch("gxassessms.cli._helpers.resolve_enabled_adapter", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_adapter_not_enabled_exits_nonzero(
+        self,
+        mock_get_repo: MagicMock,
+        mock_resolve: MagicMock,
+    ) -> None:
+        """Normal path: adapter not enabled in config -> exit nonzero."""
+        import click
+
+        mock_get_repo.return_value.get.return_value = _make_engagement_row()
+        mock_resolve.side_effect = click.UsageError("not enabled")
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["ingest", _ENGAGEMENT_ID, "--tool", "unknown-tool", "--from", "/tmp"],  # noqa: S108
+        )
+        assert result.exit_code != 0
+
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    def test_repair_event_corrupt_manifest_exits_nonzero(
+        self,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """Repair path: binary garbage manifest -> exit nonzero with 'Repair failed'."""
+        eng_dir = tmp_path / _ENGAGEMENT_ID
+        manifest_dir = eng_dir / "raw-output" / "manifests"
+        manifest_dir.mkdir(parents=True)
+        manifest_path = manifest_dir / f"{_TOOL_SLUG}.json"
+        manifest_path.write_bytes(b"\x00\x01\x02\xff\xfe")
+        mock_get_artifacts.return_value.get_engagement_dir.return_value = eng_dir
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["ingest", _ENGAGEMENT_ID, "--tool", _TOOL_SLUG, "--repair-event"],
+        )
+        assert result.exit_code != 0
+        assert "Repair failed" in result.output

@@ -161,7 +161,7 @@ ADAPTER_PLACEHOLDERS: frozenset[str] = frozenset(
 
 ManifestVersion = Literal["1.0.0", "1.1.0"]
 
-MANIFEST_VERSION_CURRENT: str = "1.1.0"
+MANIFEST_VERSION_CURRENT: ManifestVersion = "1.1.0"
 
 RECOGNIZED_MANIFEST_VERSIONS: frozenset[str] = frozenset({"1.0.0", "1.1.0"})
 
@@ -195,6 +195,10 @@ EXECUTION_METADATA_ALLOWLIST: dict[str, dict[str, frozenset[str]]] = {
         "secure-score": frozenset({"profiles_count", "scores_count"}),
     },
 }
+
+assert frozenset(EXECUTION_METADATA_ALLOWLIST) == RECOGNIZED_MANIFEST_VERSIONS, (  # noqa: S101
+    "RECOGNIZED_MANIFEST_VERSIONS and EXECUTION_METADATA_ALLOWLIST keys must match"
+)
 
 # ---------------------------------------------------------------------------
 # Module Verification

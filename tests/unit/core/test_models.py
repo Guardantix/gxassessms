@@ -1091,6 +1091,15 @@ class TestIngestProvenance:
                 replaced=False,
             )
 
+    def test_ingested_by_rejects_whitespace_only_operator(self) -> None:
+        with pytest.raises(ValidationError, match="non-empty"):
+            IngestProvenance(
+                source_path="/tmp/export",  # noqa: S108
+                ingested_at=datetime(2026, 4, 11, tzinfo=UTC),
+                ingested_by="human:   ",
+                replaced=False,
+            )
+
     def test_ingested_at_rejects_naive(self) -> None:
         with pytest.raises(ValidationError, match="timezone-aware"):
             IngestProvenance(

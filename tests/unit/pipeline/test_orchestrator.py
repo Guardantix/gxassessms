@@ -1435,3 +1435,73 @@ class TestRecordRawOutputIngested:
         assert payload["source_path"] == "/var/lib/gxassessms/exports/scubagear"
         assert payload["file_count"] == 1
         assert payload["replaced"] is False
+
+    def test_payload_includes_file_count_and_replaced(
+        self,
+        orchestrator: Orchestrator,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """file_count and replaced kwargs are forwarded to the event payload."""
+        orchestrator.record_raw_output_ingested(
+            engagement_id="eng-002",
+            actor="human:bob",
+            tool_slug="maester",
+            source_path="/tmp/maester-output",  # noqa: S108
+            file_count=7,
+            replaced=True,
+        )
+        event = mock_event_repo.append.call_args[0][0]
+        payload = event.payload
+        assert payload["file_count"] == 7
+        assert payload["replaced"] is True
+
+
+class TestHasRawOutputIngestedEvent:
+    def test_returns_true_when_matching_event_exists(
+        self,
+        orchestrator: Orchestrator,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        payload_json = (
+            '{"tool_slug": "scubagear", "source_path": "/tmp/src",'
+            ' "file_count": 1, "replaced": false}'
+        )
+        mock_event_repo.get_events_by_type.return_value = [
+            {"event_type": "raw_output_ingested", "payload": payload_json}
+        ]
+        assert orchestrator.has_raw_output_ingested_event("eng-001", "scubagear") is True
+
+    def test_returns_false_when_no_events(
+        self,
+        orchestrator: Orchestrator,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        mock_event_repo.get_events_by_type.return_value = []
+        assert orchestrator.has_raw_output_ingested_event("eng-001", "scubagear") is False
+
+    def test_returns_false_when_tool_slug_doesnt_match(
+        self,
+        orchestrator: Orchestrator,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        payload_json = (
+            '{"tool_slug": "maester", "source_path": "/tmp/src",'
+            ' "file_count": 1, "replaced": false}'
+        )
+        mock_event_repo.get_events_by_type.return_value = [
+            {"event_type": "raw_output_ingested", "payload": payload_json}
+        ]
+        assert orchestrator.has_raw_output_ingested_event("eng-001", "scubagear") is False
+
+    def test_skips_corrupt_payload_returns_false(
+        self,
+        orchestrator: Orchestrator,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        mock_event_repo.get_events_by_type.return_value = [
+            {
+                "event_type": "raw_output_ingested",
+                "payload": "NOT VALID JSON",
+            }
+        ]
+        assert orchestrator.has_raw_output_ingested_event("eng-001", "scubagear") is False
