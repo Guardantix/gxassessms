@@ -683,7 +683,7 @@ class ArtifactManager:
         Three-phase commit:
         1. Conflict probe + path validation
         2. Hash-verified copy to per-slug staging dir
-        3. Rename-aside old data (if replace), commit artifacts then manifest
+        3. Rename-aside old data (if replacing), commit artifacts then manifest
 
         Returns LoadedManifest with committed manifest path and RawToolOutput.
         """
@@ -726,6 +726,8 @@ class ArtifactManager:
             file_manifest: dict[str, ArtifactRecord] = {}
             for artifact in collection_output.artifacts:
                 source = Path(artifact.source_path)
+                if not source.is_absolute():
+                    raise PersistenceError(f"Source path is not absolute: {artifact.source_path!r}")
                 if not source.is_file():
                     raise PersistenceError(
                         f"Source is not a regular file: {artifact.source_path!r}"
@@ -787,6 +789,15 @@ class ArtifactManager:
             (staging_dir / "artifacts" / slug).rename(raw_output_dir / "artifacts" / slug)
             (staging_dir / "manifests" / f"{slug}.json").rename(existing_manifest)
         except OSError as e:
+            logger.error(
+                "Phase 3 commit failed for %s (staging: %s): %s. "
+                "Check engagement directory %s for partial state.",
+                slug,
+                staging_dir,
+                e,
+                raw_output_dir,
+            )
+            shutil.rmtree(staging_dir, ignore_errors=True)
             raise PersistenceError(f"Failed to commit ingest for {slug!r}: {e}") from e
 
         # Best-effort cleanup: staging dir and renamed-aside old data

@@ -406,7 +406,13 @@ class ProwlerAdapter:
         """Construct a CollectionOutput from operator-provided Prowler output."""
         from gxassessms.adapters._base import build_collection_output
 
-        ocsf_files = list(source_dir.rglob(f"{_DEFAULT_OUTPUT_FILENAME}{_OCSF_EXTENSION}"))
+        try:
+            ocsf_files = list(source_dir.rglob(f"{_DEFAULT_OUTPUT_FILENAME}{_OCSF_EXTENSION}"))
+        except OSError as exc:
+            raise CollectionError(
+                f"Cannot list files in {source_dir}: {exc}",
+                adapter_name=self.tool_name,
+            ) from exc
 
         if not ocsf_files:
             raise CollectionError(

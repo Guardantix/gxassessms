@@ -184,6 +184,15 @@ class SecureScoreAdapter:
 
         profiles_path = source_dir / _PROFILES_FILENAME
         scores_path = source_dir / _SCORES_FILENAME
+        for expected_path, expected_name in (
+            (profiles_path, _PROFILES_FILENAME),
+            (scores_path, _SCORES_FILENAME),
+        ):
+            if not expected_path.is_file():
+                raise CollectionError(
+                    f"Expected {expected_name!r} not found in {source_dir}",
+                    adapter_name=self.tool_name,
+                )
         items = [
             (profiles_path, f"{self.storage_slug}/{_PROFILES_FILENAME}"),
             (scores_path, f"{self.storage_slug}/{_SCORES_FILENAME}"),

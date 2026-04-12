@@ -202,7 +202,13 @@ class ScubaGearAdapter:
         """Construct a CollectionOutput from operator-provided ScubaGear output."""
         from gxassessms.adapters._base import build_collection_output
 
-        json_files = [f for f in source_dir.iterdir() if f.suffix == ".json"]
+        try:
+            json_files = [f for f in source_dir.iterdir() if f.suffix == ".json"]
+        except OSError as exc:
+            raise CollectionError(
+                f"Cannot list files in {source_dir}: {exc}",
+                adapter_name=self.tool_name,
+            ) from exc
         results_file = self._find_scuba_results_file([str(f) for f in json_files])
 
         if results_file is None:

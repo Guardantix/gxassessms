@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +17,8 @@ from gxassessms.core.domain.constants import SOURCE_MODE_INGESTED
 from gxassessms.persistence.artifacts import RAW_OUTPUT_DIR
 
 logger = logging.getLogger(__name__)
+
+_SCHEMA_VERSION_RE = re.compile(r"\d+\.\d+\.\d+|\d{4}-\d{2}-\d{2}")
 
 
 @click.command("ingest")
@@ -140,7 +143,7 @@ def _ingest_normal(
     run_at_arg: str | None,
     actor: str,
 ) -> None:
-    """Normal ingest path: walk directory, commit artifacts, record event."""
+    """Normal ingest path: resolve timestamp, invoke adapter, persist artifacts, record event."""
     from gxassessms.core.config.datetime_utils import utc_now
     from gxassessms.core.domain.models import IngestProvenance
 
@@ -148,6 +151,18 @@ def _ingest_normal(
     resolved_source = source_dir.resolve()
 
     schema_version = schema_version_override or adapter.default_schema_version
+    if not _SCHEMA_VERSION_RE.fullmatch(schema_version):
+        if schema_version_override:
+            console.print(
+                f"[bright_red]Invalid --schema-version:[/bright_red] "
+                f"{schema_version!r} is not a valid version string (X.Y.Z or YYYY-MM-DD)"
+            )
+        else:
+            console.print(
+                f"[bright_red]Error:[/bright_red] Adapter default_schema_version "
+                f"{schema_version!r} is not a valid version string -- this is an adapter bug"
+            )
+        raise SystemExit(1)
     if run_at_arg:
         from gxassessms.core.config.datetime_utils import parse_utc
 
@@ -165,7 +180,7 @@ def _ingest_normal(
             schema_version=schema_version,
             timestamp=timestamp,
         )
-    except GxAssessError as exc:
+    except (GxAssessError, ValueError, OSError) as exc:
         console.print(f"[bright_red]Ingest failed:[/bright_red] {exc}")
         raise SystemExit(1) from None
 
@@ -199,7 +214,7 @@ def _ingest_normal(
             replaced=loaded.raw_output.ingest_provenance.replaced,
         )
     except GxAssessError as exc:
-        logger.warning("Failed to record ingest event: %s", exc)
+        logger.warning("Failed to record ingest event: %s", exc, exc_info=True)
         # Non-fatal: data is committed, event is advisory
         console.print(
             f"[yellow]Warning:[/yellow] Data committed but event recording failed. "
@@ -225,8 +240,6 @@ def _repair_event(
     for an existing event (idempotency guard), then emits from committed
     provenance.
     """
-    import re
-
     from gxassessms.core.domain.constants import TOOL_SLUG_PATTERN
 
     if not re.fullmatch(TOOL_SLUG_PATTERN, tool_slug):
@@ -266,11 +279,17 @@ def _repair_event(
                     f"[yellow]Event already exists for {tool_slug} -- nothing to do[/yellow]"
                 )
                 return
-        except GxAssessError:
-            logger.warning("Could not check for existing event; proceeding with emission")
+        except GxAssessError as exc:
+            logger.warning(
+                "Could not check for existing event for %s/%s: %s",
+                engagement_id,
+                tool_slug,
+                exc,
+                exc_info=True,
+            )
             console.print(
-                "[yellow]Warning:[/yellow] Could not check for existing event; "
-                "a duplicate may be emitted"
+                f"[yellow]Warning:[/yellow] Could not check for existing event "
+                f"({exc}); a duplicate may be emitted."
             )
 
         orchestrator.record_raw_output_ingested(

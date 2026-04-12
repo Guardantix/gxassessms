@@ -176,7 +176,13 @@ class MaesterAdapter:
         """Construct a CollectionOutput from operator-provided Maester output."""
         from gxassessms.adapters._base import build_collection_output
 
-        json_results = sorted(source_dir.glob("TestResults*.json"))
+        try:
+            json_results = sorted(source_dir.glob("TestResults*.json"))
+        except OSError as exc:
+            raise CollectionError(
+                f"Cannot list files in {source_dir}: {exc}",
+                adapter_name=self.tool_name,
+            ) from exc
 
         if not json_results:
             raise CollectionError(
