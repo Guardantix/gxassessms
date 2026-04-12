@@ -6,6 +6,7 @@ import os as _os
 import sys as _sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -612,6 +613,195 @@ class TestLifecycleAudit:
         assert "os_user" in manifest
         assert "pid" in manifest
         assert "platform" in manifest
+
+
+# ---------------------------------------------------------------------------
+# Task 9: save_ingested_raw_output
+# ---------------------------------------------------------------------------
+
+
+def _make_collection_output(
+    tmp_path: Path,
+    slug: str = "scubagear",
+    filename: str = "ScubaResults.json",
+    content: bytes = b'{"Results": {}}',
+    tool: ToolSource = ToolSource.SCUBAGEAR,
+) -> CollectionOutput:
+    """Create a CollectionOutput backed by a real temp file."""
+    from gxassessms.core.domain.models import CollectedArtifact, CollectionOutput
+
+    source_file = tmp_path / "ingest-src" / slug / filename
+    source_file.parent.mkdir(parents=True, exist_ok=True)
+    source_file.write_bytes(content)
+    sha = _sha256(content)
+    return CollectionOutput(
+        tool=tool,
+        tool_slug=slug,
+        schema_version="1.0.0",
+        timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+        artifacts=[
+            CollectedArtifact(
+                source_path=str(source_file),
+                target_relpath=f"{slug}/{filename}",
+                encoding="utf-8",
+                sha256=sha,
+            ),
+        ],
+        execution_metadata={},
+    )
+
+
+def _make_ingest_provenance(tmp_path: Path, slug: str = "scubagear") -> Any:
+    """Build an IngestProvenance pointing at tmp_path as source."""
+    from gxassessms.core.domain.models import IngestProvenance
+
+    return IngestProvenance(
+        source_path=str(tmp_path / "ingest-src" / slug),
+        ingested_at=datetime(2026, 4, 12, 9, 0, 0, tzinfo=UTC),
+        ingested_by="human:rick",
+        replaced=False,
+    )
+
+
+class TestSaveIngestedRawOutput:
+    """Spec Section 4.1-4.4: save_ingested_raw_output."""
+
+    @pytest.fixture
+    def artifact_mgr(self, tmp_path: Path) -> ArtifactManager:
+        engagements_root = tmp_path / "engagements"
+        engagements_root.mkdir()
+        return ArtifactManager(engagements_root=engagements_root)
+
+    def test_happy_path_fresh_ingest(self, artifact_mgr: ArtifactManager, tmp_path: Path) -> None:
+        """Fresh ingest writes manifest and artifacts atomically."""
+        artifact_mgr.create_engagement_dir("eng-ingest-01", "Acme")
+        co = _make_collection_output(tmp_path)
+        prov = _make_ingest_provenance(tmp_path)
+
+        result = artifact_mgr.save_ingested_raw_output("eng-ingest-01", co, ingest_provenance=prov)
+
+        assert isinstance(result, LoadedManifest)
+        assert result.raw_output.source_mode == "ingested"
+        assert result.raw_output.manifest_version == "1.1.0"
+        assert result.raw_output.tool_slug == "scubagear"
+
+        # Files on disk
+        eng_dir = artifact_mgr.get_engagement_dir("eng-ingest-01")
+        raw_dir = eng_dir / "raw-output"
+        assert (raw_dir / "manifests" / "scubagear.json").exists()
+        assert (raw_dir / "artifacts" / "scubagear" / "ScubaResults.json").exists()
+
+        # source_path on the returned LoadedManifest
+        assert result.source_path == raw_dir / "manifests" / "scubagear.json"
+
+    def test_manifest_content_correct(self, artifact_mgr: ArtifactManager, tmp_path: Path) -> None:
+        """Written manifest round-trips correctly."""
+        artifact_mgr.create_engagement_dir("eng-ingest-02", "Acme")
+        co = _make_collection_output(tmp_path)
+        prov = _make_ingest_provenance(tmp_path)
+
+        artifact_mgr.save_ingested_raw_output("eng-ingest-02", co, ingest_provenance=prov)
+
+        eng_dir = artifact_mgr.get_engagement_dir("eng-ingest-02")
+        manifest_json = (eng_dir / "raw-output" / "manifests" / "scubagear.json").read_text(
+            encoding="utf-8"
+        )
+        data = json.loads(manifest_json)
+        assert data["source_mode"] == "ingested"
+        assert data["manifest_version"] == "1.1.0"
+        assert data["ingest_provenance"]["ingested_by"] == "human:rick"
+        assert "scubagear/ScubaResults.json" in data["file_manifest"]
+
+    def test_artifact_content_matches_source(
+        self, artifact_mgr: ArtifactManager, tmp_path: Path
+    ) -> None:
+        """Artifact bytes are identical after copy."""
+        content = b'{"answer": 42}'
+        artifact_mgr.create_engagement_dir("eng-ingest-03", "Acme")
+        co = _make_collection_output(tmp_path, content=content)
+        prov = _make_ingest_provenance(tmp_path)
+
+        artifact_mgr.save_ingested_raw_output("eng-ingest-03", co, ingest_provenance=prov)
+
+        eng_dir = artifact_mgr.get_engagement_dir("eng-ingest-03")
+        copied = eng_dir / "raw-output" / "artifacts" / "scubagear" / "ScubaResults.json"
+        assert copied.read_bytes() == content
+
+    def test_replaced_false_on_fresh_ingest(
+        self, artifact_mgr: ArtifactManager, tmp_path: Path
+    ) -> None:
+        """ingest_provenance.replaced is False when no prior data exists."""
+        artifact_mgr.create_engagement_dir("eng-ingest-04", "Acme")
+        co = _make_collection_output(tmp_path)
+        prov = _make_ingest_provenance(tmp_path)
+
+        result = artifact_mgr.save_ingested_raw_output("eng-ingest-04", co, ingest_provenance=prov)
+
+        assert result.raw_output.ingest_provenance.replaced is False
+
+    def test_conflict_without_replace_raises(
+        self, artifact_mgr: ArtifactManager, tmp_path: Path
+    ) -> None:
+        """Ingest when data already exists without replace=True -> PersistenceError."""
+        artifact_mgr.create_engagement_dir("eng-ingest-05", "Acme")
+        co = _make_collection_output(tmp_path)
+        prov = _make_ingest_provenance(tmp_path)
+
+        # First ingest succeeds
+        artifact_mgr.save_ingested_raw_output("eng-ingest-05", co, ingest_provenance=prov)
+
+        # Second ingest without replace raises
+        co2 = _make_collection_output(tmp_path, content=b'{"v": 2}')
+        prov2 = _make_ingest_provenance(tmp_path)
+        with pytest.raises(PersistenceError, match="already exists"):
+            artifact_mgr.save_ingested_raw_output("eng-ingest-05", co2, ingest_provenance=prov2)
+
+    def test_replace_path_overwrites_data(
+        self, artifact_mgr: ArtifactManager, tmp_path: Path
+    ) -> None:
+        """replace=True overwrites existing data and sets replaced=True in provenance."""
+        artifact_mgr.create_engagement_dir("eng-ingest-06", "Acme")
+        co = _make_collection_output(tmp_path, filename="v1.json", content=b'{"v": 1}')
+        prov = _make_ingest_provenance(tmp_path)
+        artifact_mgr.save_ingested_raw_output("eng-ingest-06", co, ingest_provenance=prov)
+
+        # Second ingest with replace=True, different content
+        new_content = b'{"v": 2}'
+        co2 = _make_collection_output(tmp_path, filename="v1.json", content=new_content)
+        prov2 = _make_ingest_provenance(tmp_path)
+        result = artifact_mgr.save_ingested_raw_output(
+            "eng-ingest-06", co2, ingest_provenance=prov2, replace=True
+        )
+
+        assert result.raw_output.ingest_provenance.replaced is True
+
+        eng_dir = artifact_mgr.get_engagement_dir("eng-ingest-06")
+        artifact_path = eng_dir / "raw-output" / "artifacts" / "scubagear" / "v1.json"
+        assert artifact_path.read_bytes() == new_content
+
+    def test_nonexistent_engagement_raises(
+        self, artifact_mgr: ArtifactManager, tmp_path: Path
+    ) -> None:
+        """Engagement must exist before ingest."""
+        co = _make_collection_output(tmp_path)
+        prov = _make_ingest_provenance(tmp_path)
+        with pytest.raises(PersistenceError):
+            artifact_mgr.save_ingested_raw_output("eng-does-not-exist", co, ingest_provenance=prov)
+
+    def test_no_staging_dirs_left_on_success(
+        self, artifact_mgr: ArtifactManager, tmp_path: Path
+    ) -> None:
+        """Staging directory is cleaned up after successful commit."""
+        artifact_mgr.create_engagement_dir("eng-ingest-07", "Acme")
+        co = _make_collection_output(tmp_path)
+        prov = _make_ingest_provenance(tmp_path)
+
+        artifact_mgr.save_ingested_raw_output("eng-ingest-07", co, ingest_provenance=prov)
+
+        eng_dir = artifact_mgr.get_engagement_dir("eng-ingest-07")
+        raw_dir = eng_dir / "raw-output"
+        staging = [d for d in raw_dir.iterdir() if d.name.startswith(".ingest-staging-")]
+        assert staging == []
 
     def test_purge_audit_path_in_returned_manifest(self, tmp_path: Path) -> None:
         engagements_root = tmp_path / "engagements"

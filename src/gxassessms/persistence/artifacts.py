@@ -667,3 +667,132 @@ class ArtifactManager:
             )
             for slug, raw_output in persisted.items()
         ]
+
+    def save_ingested_raw_output(
+        self,
+        engagement_id: str,
+        collection_output: Any,  # CollectionOutput
+        *,
+        ingest_provenance: Any,  # IngestProvenance
+        replace: bool = False,
+    ) -> Any:  # LoadedManifest
+        """Persist a single-slug ingested raw output atomically.
+
+        Three-phase commit:
+        1. Conflict probe + path validation
+        2. Hash-verified copy to per-slug staging dir
+        3. Rename-aside old data (if replace), commit artifacts then manifest
+
+        Returns LoadedManifest with committed manifest path and RawToolOutput.
+        """
+        import uuid as uuid_mod
+
+        from gxassessms.core.domain.constants import MANIFEST_VERSION_CURRENT
+        from gxassessms.core.domain.models import ArtifactRecord, RawToolOutput
+        from gxassessms.core.hashing import sha256_file
+        from gxassessms.pipeline.confinement import LoadedManifest
+
+        # Phase 1: Validate and probe for conflicts
+        eng_dir = self.get_engagement_dir(engagement_id)
+        raw_output_dir = eng_dir / RAW_OUTPUT_DIR
+        slug = collection_output.tool_slug
+
+        existing_manifest = raw_output_dir / "manifests" / f"{slug}.json"
+        existing_artifacts = raw_output_dir / "artifacts" / slug
+        has_existing = existing_manifest.exists() or existing_artifacts.exists()
+
+        if has_existing and not replace:
+            raise PersistenceError(
+                f"Raw output already exists for {slug!r} in engagement {engagement_id}. "
+                f"Use --replace to overwrite."
+            )
+
+        # Set replaced based on actual pre-commit state, not the caller's flag
+        ingest_provenance = ingest_provenance.model_copy(update={"replaced": has_existing})
+
+        # Phase 2: Stage into a per-slug temp dir
+        staging_id = str(uuid_mod.uuid4())
+        staging_dir = raw_output_dir / f".ingest-staging-{slug}-{staging_id}"
+        secure_mkdir(staging_dir, parents=True)
+
+        try:
+            staging_artifacts = staging_dir / "artifacts" / slug
+            staging_manifests = staging_dir / "manifests"
+            secure_mkdir(staging_artifacts, parents=True)
+            secure_mkdir(staging_manifests)
+
+            file_manifest: dict[str, ArtifactRecord] = {}
+            for artifact in collection_output.artifacts:
+                source = Path(artifact.source_path)
+                # Strip the leading slug/ prefix from target_relpath for dest subpath
+                rel_under_slug = Path(artifact.target_relpath).relative_to(slug)
+                dest = staging_artifacts / rel_under_slug
+                secure_mkdir(dest.parent, parents=True, exist_ok=True)
+                shutil.copy2(str(source), str(dest))
+
+                copy_hash = sha256_file(dest)
+                if copy_hash != artifact.sha256:
+                    raise PersistenceError(
+                        f"Copy corruption for {artifact.target_relpath!r}: "
+                        f"expected {artifact.sha256}, got {copy_hash}"
+                    )
+
+                file_manifest[artifact.target_relpath] = ArtifactRecord(
+                    encoding=artifact.encoding,
+                    sha256=artifact.sha256,
+                )
+
+            raw_output = RawToolOutput(
+                tool=collection_output.tool,
+                tool_slug=slug,
+                schema_version=collection_output.schema_version,
+                manifest_version=MANIFEST_VERSION_CURRENT,
+                timestamp=collection_output.timestamp,
+                file_manifest=file_manifest,
+                execution_metadata={},
+                source_mode="ingested",
+                ingest_provenance=ingest_provenance,
+            )
+
+            manifest_path = staging_manifests / f"{slug}.json"
+            manifest_path.write_text(raw_output.model_dump_json(indent=2), encoding="utf-8")
+
+        except OSError, PersistenceError, ValueError:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            raise
+
+        # Phase 3: Rename-aside existing data then commit
+        try:
+            if existing_artifacts.exists():
+                existing_artifacts.rename(raw_output_dir / f".old-artifacts-{slug}-{staging_id}")
+            if existing_manifest.exists():
+                existing_manifest.rename(raw_output_dir / f".old-manifest-{slug}-{staging_id}")
+
+            # Ensure parent dirs exist before rename (they are created by create_engagement_dir,
+            # but guard in case an unusual setup omitted them)
+            secure_mkdir(raw_output_dir / "artifacts", exist_ok=True)
+            secure_mkdir(raw_output_dir / "manifests", exist_ok=True)
+
+            # Artifacts first, then manifest (manifest is the commit signal)
+            (staging_dir / "artifacts" / slug).rename(raw_output_dir / "artifacts" / slug)
+            (staging_dir / "manifests" / f"{slug}.json").rename(existing_manifest)
+        except OSError as e:
+            raise PersistenceError(f"Failed to commit ingest for {slug!r}: {e}") from e
+
+        # Best-effort cleanup: staging dir and renamed-aside old data
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        for name in (
+            f".old-artifacts-{slug}-{staging_id}",
+            f".old-manifest-{slug}-{staging_id}",
+        ):
+            old = raw_output_dir / name
+            if old.exists():
+                shutil.rmtree(old, ignore_errors=True)
+
+        committed_manifest_path = raw_output_dir / "manifests" / f"{slug}.json"
+        logger.info("Persisted ingested raw output for %s/%s", engagement_id, slug)
+
+        return LoadedManifest(
+            source_path=committed_manifest_path,
+            raw_output=raw_output,
+        )
