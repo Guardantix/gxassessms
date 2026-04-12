@@ -607,6 +607,7 @@ class ArtifactManager:
                     timestamp=co.timestamp,
                     file_manifest=file_manifest,
                     execution_metadata=filtered_metadata,
+                    source_mode="collected",
                 )
 
                 manifest_path = staging_manifests / f"{slug}.json"

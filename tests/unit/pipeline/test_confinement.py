@@ -642,6 +642,13 @@ class TestCheckArtifactPath:
         assert exc_info.value.check_name == "sha256_verify"
 
 
+def test_recognized_versions_includes_1_1_0() -> None:
+    """1.1.0 manifests pass the version gate."""
+    from gxassessms.core.domain.constants import RECOGNIZED_MANIFEST_VERSIONS
+
+    assert "1.1.0" in RECOGNIZED_MANIFEST_VERSIONS
+
+
 class TestAdapterSlugUnique:
     def test_rejects_duplicate_adapter_slugs(self, tmp_path: Path) -> None:
         eng_dir = tmp_path / "eng"
