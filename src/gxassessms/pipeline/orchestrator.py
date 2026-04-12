@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from gxassessms.core.config.config import EngagementConfig
 from gxassessms.core.config.datetime_utils import parse_utc, utc_now
-from gxassessms.core.contracts.errors import PipelineError
+from gxassessms.core.contracts.errors import PersistenceError, PipelineError
 from gxassessms.core.domain.enums import Severity
 from gxassessms.core.domain.models import Finding
 from gxassessms.persistence import (
@@ -253,6 +253,18 @@ class Orchestrator:
                 "replaced": replaced,
             },
         )
+
+    def has_raw_output_ingested_event(self, engagement_id: str, tool_slug: str) -> bool:
+        """Return True if a raw_output_ingested event for tool_slug already exists."""
+        events = self._event_repo.get_events_by_type(engagement_id, "raw_output_ingested")
+        for event in events:
+            try:
+                payload = _extract_payload(event)
+            except PersistenceError:
+                continue
+            if payload.get("tool_slug") == tool_slug:
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # Content hashing and invalidation

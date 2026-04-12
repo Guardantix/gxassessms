@@ -122,6 +122,16 @@ def build_orchestrator() -> Any:
     )
 
 
+def resolve_operator(override: str | None = None) -> str:
+    """Resolve operator identity for audit attribution. Never raises."""
+    import getpass
+
+    try:
+        return override or getpass.getuser()
+    except OSError, KeyError:
+        return "unknown"
+
+
 def get_engagements_root() -> Path:
     """Return the engagements root directory, creating it if needed."""
     from gxassessms.persistence import get_default_data_dir

@@ -437,7 +437,7 @@ class TestRepairEventHappyPath:
 
         # No existing events
         orchestrator = mock_build_orch.return_value
-        orchestrator._event_repo.get_events_by_type.return_value = []
+        orchestrator.has_raw_output_ingested_event.return_value = False
 
         runner = CliRunner()
         result = runner.invoke(
@@ -485,12 +485,8 @@ class TestRepairEventHappyPath:
         mock_get_artifacts.return_value.get_engagement_dir.return_value = eng_dir
 
         # Existing matching event
-        existing_event = {
-            "event_type": "raw_output_ingested",
-            "payload": json.dumps({"tool_slug": _TOOL_SLUG}),
-        }
         orchestrator = mock_build_orch.return_value
-        orchestrator._event_repo.get_events_by_type.return_value = [existing_event]
+        orchestrator.has_raw_output_ingested_event.return_value = True
 
         runner = CliRunner()
         result = runner.invoke(

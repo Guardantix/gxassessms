@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
@@ -19,6 +19,7 @@ from gxassessms.core.domain.constants import (
     ConfidenceProvenance,
     FileEncoding,
     RemediationPhaseName,
+    SourceMode,
 )
 from gxassessms.core.domain.enums import (
     AdapterRunStatus,
@@ -320,7 +321,7 @@ class RawToolOutput(BaseModel):
     file_manifest: dict[str, ArtifactRecord]  # POSIX-relative -> {encoding, sha256}
     execution_metadata: dict[str, Any]
     # New fields -- defaults preserve backward-read compatibility with 1.0.0
-    source_mode: Literal["collected", "ingested"] = "collected"
+    source_mode: SourceMode = "collected"
     ingest_provenance: IngestProvenance | None = None
 
     @field_validator("timestamp")

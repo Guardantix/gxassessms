@@ -113,6 +113,6 @@ def mirror_config_snapshot_from_db_strict(
 
     Unlike the fail-open wrapper used by collect's runner, this variant
     raises ConfigSnapshotMirrorError on any failure. Used by engagement
-    bootstrap and the save_ingested_raw_output legacy-migration path.
+    bootstrap.
     """
     _do_mirror(engagement_repo, artifact_manager, engagement_id)

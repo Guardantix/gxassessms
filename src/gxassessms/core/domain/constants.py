@@ -101,6 +101,17 @@ ConfidenceProvenance = Literal["system-generated", "human-overridden", "AI-adjus
 AuthMethod = Literal["client_credential", "device_code", "interactive"]
 
 # ---------------------------------------------------------------------------
+# Source Mode (RawToolOutput.source_mode)
+# ---------------------------------------------------------------------------
+
+SourceMode = Literal["collected", "ingested"]
+
+SOURCE_MODES: frozenset[str] = frozenset({"collected", "ingested"})
+
+SOURCE_MODE_COLLECTED: SourceMode = "collected"
+SOURCE_MODE_INGESTED: SourceMode = "ingested"
+
+# ---------------------------------------------------------------------------
 # File Encoding (RawToolOutput file_manifest values)
 # ---------------------------------------------------------------------------
 

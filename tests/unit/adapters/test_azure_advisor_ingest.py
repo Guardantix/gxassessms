@@ -30,7 +30,7 @@ class TestAzureAdvisorIngest:
 
     def test_missing_file_raises(self, tmp_path: Path) -> None:
         adapter = AzureAdvisorAdapter()
-        with pytest.raises(CollectionError, match="Azure Advisor output file not found"):
+        with pytest.raises(CollectionError, match=r"advisor_recommendations\.json"):
             adapter.ingest_from_directory(
                 tmp_path,
                 schema_version="2025-01-01",

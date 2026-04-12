@@ -110,16 +110,12 @@ class EngagementRepo:
         """Set or clear the engagement_dir column on an engagement row."""
         now = format_utc(utc_now())
         with self._db.connect() as conn:
-            row = conn.execute(
-                "SELECT 1 FROM engagements WHERE engagement_id = ?",
-                (engagement_id,),
-            ).fetchone()
-            if row is None:
-                raise PersistenceError(f"Engagement not found: {engagement_id}")
-            conn.execute(
+            result = conn.execute(
                 "UPDATE engagements SET engagement_dir = ?, updated_at = ? WHERE engagement_id = ?",
                 (engagement_dir, now, engagement_id),
             )
+            if result.rowcount == 0:
+                raise PersistenceError(f"Engagement not found: {engagement_id}")
         logger.info("Updated engagement_dir for %s to %r", engagement_id, engagement_dir)
 
     def rehydrate_from_snapshot(

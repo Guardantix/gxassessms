@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import getpass
-import json
 import logging
 from pathlib import Path
 from typing import Any
@@ -14,6 +12,8 @@ from pydantic import ValidationError as PydanticValidationError
 from gxassessms.cli import _helpers
 from gxassessms.cli.output import console
 from gxassessms.core.contracts.errors import GxAssessError, PersistenceError
+from gxassessms.core.domain.constants import SOURCE_MODE_INGESTED
+from gxassessms.persistence.artifacts import RAW_OUTPUT_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +74,6 @@ def ingest_cmd(
     repair_event: bool,
 ) -> None:
     """Ingest client-provided raw tool output into an engagement."""
-    # 1. Mutual exclusion: --repair-event is incompatible with --from, --replace,
-    #    --schema-version, --run-at
     if repair_event:
         if source_path or replace or schema_version_override or run_at_arg:
             console.print(
@@ -90,14 +88,8 @@ def ingest_cmd(
             )
             raise SystemExit(1)
 
-    # 2. Resolve operator
-    try:
-        op = operator or getpass.getuser()
-    except (OSError, KeyError):  # fmt: skip
-        op = "unknown"
-    actor = f"human:{op}"
+    actor = f"human:{_helpers.resolve_operator(operator)}"
 
-    # 3. Engagement lookup
     try:
         repo = _helpers.get_engagement_repo()
         row = repo.get(engagement_id)
@@ -105,7 +97,6 @@ def ingest_cmd(
         console.print(f"[bright_red]Engagement not found:[/bright_red] {exc}")
         raise SystemExit(1) from None
 
-    # 4. Decode config from snapshot
     try:
         from gxassessms.core.config.config import EngagementConfig
         from gxassessms.persistence.engagement_repo import decode_config_snapshot
@@ -116,7 +107,6 @@ def ingest_cmd(
         console.print(f"[bright_red]Config error:[/bright_red] {exc}")
         raise SystemExit(1) from None
 
-    # 5. Resolve adapter
     try:
         adapter = _helpers.resolve_enabled_adapter(tool_slug, config)
         adapter = _helpers.require_ingest_capable(adapter)
@@ -124,7 +114,6 @@ def ingest_cmd(
         console.print(f"[bright_red]Error:[/bright_red] {exc}")
         raise SystemExit(1) from None
 
-    # 6. Dispatch to normal or repair-event path
     if repair_event:
         _repair_event(engagement_id, tool_slug, actor)
     else:
@@ -155,8 +144,8 @@ def _ingest_normal(
     from gxassessms.core.domain.models import IngestProvenance
 
     source_dir = Path(source_path)
+    resolved_source = source_dir.resolve()
 
-    # Resolve schema version and timestamp
     schema_version = schema_version_override or adapter.default_schema_version
     if run_at_arg:
         from gxassessms.core.config.datetime_utils import parse_utc
@@ -169,7 +158,6 @@ def _ingest_normal(
     else:
         timestamp = utc_now()
 
-    # Step 1: Adapter walk -- discover and hash files
     try:
         collection_output = adapter.ingest_from_directory(
             source_dir,
@@ -180,15 +168,13 @@ def _ingest_normal(
         console.print(f"[bright_red]Ingest failed:[/bright_red] {exc}")
         raise SystemExit(1) from None
 
-    # Step 2: Build provenance (replaced will be updated by persistence layer)
     provenance = IngestProvenance(
-        source_path=str(source_dir.resolve()),
+        source_path=str(resolved_source),
         ingested_at=utc_now(),
         ingested_by=actor,
         replaced=False,  # persistence layer corrects this from actual pre-commit state
     )
 
-    # Step 3: Atomic filesystem commit
     try:
         artifacts = _helpers.get_artifact_manager()
         loaded = artifacts.save_ingested_raw_output(
@@ -201,14 +187,13 @@ def _ingest_normal(
         console.print(f"[bright_red]Persistence error:[/bright_red] {exc}")
         raise SystemExit(1) from None
 
-    # Step 4: Record ingest event (from committed provenance, so replaced is authoritative)
     try:
         orchestrator = _helpers.build_orchestrator()
         orchestrator.record_raw_output_ingested(
             engagement_id=engagement_id,
             actor=actor,
             tool_slug=tool_slug,
-            source_path=str(source_dir.resolve()),
+            source_path=str(resolved_source),
             file_count=len(collection_output.artifacts),
             replaced=loaded.raw_output.ingest_provenance.replaced,
         )
@@ -216,9 +201,8 @@ def _ingest_normal(
         logger.warning("Failed to record ingest event: %s", exc)
         # Non-fatal: data is committed, event is advisory
 
-    # Success output
     console.print(f"[bright_green]Ingested {tool_slug}[/bright_green] into {engagement_id}")
-    console.print(f"  Source: {source_dir.resolve()}")
+    console.print(f"  Source: {resolved_source}")
     console.print(f"  Artifacts: {len(collection_output.artifacts)}")
     if loaded.raw_output.ingest_provenance.replaced:
         console.print("  [yellow]Replaced existing data[/yellow]")
@@ -238,7 +222,7 @@ def _repair_event(
     try:
         artifacts = _helpers.get_artifact_manager()
         eng_dir = artifacts.get_engagement_dir(engagement_id)
-        manifest_path = eng_dir / "raw-output" / "manifests" / f"{tool_slug}.json"
+        manifest_path = eng_dir / RAW_OUTPUT_DIR / "manifests" / f"{tool_slug}.json"
 
         if not manifest_path.exists():
             console.print(f"[bright_red]No manifest found for {tool_slug}[/bright_red]")
@@ -248,10 +232,10 @@ def _repair_event(
 
         raw = RawToolOutput.model_validate_json(manifest_path.read_text(encoding="utf-8"))
 
-        if raw.source_mode != "ingested":
+        if raw.source_mode != SOURCE_MODE_INGESTED:
             console.print(
                 f"[bright_red]Manifest for {tool_slug} has "
-                f"source_mode={raw.source_mode!r}, not 'ingested' -- "
+                f"source_mode={raw.source_mode!r}, not {SOURCE_MODE_INGESTED!r} -- "
                 f"cannot repair event[/bright_red]"
             )
             raise SystemExit(1)
@@ -261,30 +245,16 @@ def _repair_event(
         prov = raw.ingest_provenance
         assert prov is not None  # noqa: S101 -- model invariant, already validated above
 
-        # Check idempotency -- skip if event already exists
+        orchestrator = _helpers.build_orchestrator()
         try:
-            orchestrator = _helpers.build_orchestrator()
-            event_rows = orchestrator._event_repo.get_events_by_type(
-                engagement_id, "raw_output_ingested"
-            )
-            for row in event_rows:
-                try:
-                    raw_payload: Any = row["payload"]
-                    payload: dict[str, Any] = (
-                        json.loads(raw_payload) if isinstance(raw_payload, str) else raw_payload
-                    )
-                except (json.JSONDecodeError, KeyError):  # fmt: skip
-                    payload = {}
-                if payload.get("tool_slug") == tool_slug:
-                    console.print(
-                        f"[yellow]Event already exists for {tool_slug} -- nothing to do[/yellow]"
-                    )
-                    return
+            if orchestrator.has_raw_output_ingested_event(engagement_id, tool_slug):
+                console.print(
+                    f"[yellow]Event already exists for {tool_slug} -- nothing to do[/yellow]"
+                )
+                return
         except GxAssessError:
-            # Can't check; proceed with emission
-            orchestrator = _helpers.build_orchestrator()
+            pass  # Can't check; proceed with emission
 
-        # Emit from committed provenance
         orchestrator.record_raw_output_ingested(
             engagement_id=engagement_id,
             actor=actor,

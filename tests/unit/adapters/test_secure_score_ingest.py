@@ -53,7 +53,7 @@ class TestSecureScoreIngest:
 
     def test_both_files_missing_raises(self, tmp_path: Path) -> None:
         adapter = SecureScoreAdapter()
-        with pytest.raises(CollectionError, match="Secure Score output files not found"):
+        with pytest.raises(CollectionError, match=r"secureScoreControlProfiles\.json"):
             adapter.ingest_from_directory(
                 tmp_path,
                 schema_version="1.0.0",

@@ -184,21 +184,6 @@ class SecureScoreAdapter:
 
         profiles_path = source_dir / _PROFILES_FILENAME
         scores_path = source_dir / _SCORES_FILENAME
-
-        missing = [
-            name
-            for name, path in [
-                (_PROFILES_FILENAME, profiles_path),
-                (_SCORES_FILENAME, scores_path),
-            ]
-            if not path.exists()
-        ]
-        if missing:
-            raise CollectionError(
-                f"Secure Score output files not found in {source_dir}: {', '.join(missing)}",
-                adapter_name=self.tool_name,
-            )
-
         items = [
             (profiles_path, f"{self.storage_slug}/{_PROFILES_FILENAME}"),
             (scores_path, f"{self.storage_slug}/{_SCORES_FILENAME}"),

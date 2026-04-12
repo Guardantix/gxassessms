@@ -22,6 +22,7 @@ from typing import Any, Literal, cast
 
 from gxassessms.core.config.datetime_utils import format_utc, utc_now
 from gxassessms.core.contracts.errors import PersistenceError
+from gxassessms.core.domain.constants import SOURCE_MODE_COLLECTED, SOURCE_MODE_INGESTED
 from gxassessms.core.security.permissions import secure_mkdir
 
 logger = logging.getLogger(__name__)
@@ -607,7 +608,7 @@ class ArtifactManager:
                     timestamp=co.timestamp,
                     file_manifest=file_manifest,
                     execution_metadata=filtered_metadata,
-                    source_mode="collected",
+                    source_mode=SOURCE_MODE_COLLECTED,
                 )
 
                 manifest_path = staging_manifests / f"{slug}.json"
@@ -751,7 +752,7 @@ class ArtifactManager:
                 timestamp=collection_output.timestamp,
                 file_manifest=file_manifest,
                 execution_metadata={},
-                source_mode="ingested",
+                source_mode=SOURCE_MODE_INGESTED,
                 ingest_provenance=ingest_provenance,
             )
 

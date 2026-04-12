@@ -267,13 +267,6 @@ class AzureAdvisorAdapter:
         from gxassessms.adapters._base import build_collection_output
 
         output_file = source_dir / _OUTPUT_FILENAME
-
-        if not output_file.exists():
-            raise CollectionError(
-                f"Azure Advisor output file not found: {output_file}",
-                adapter_name=self.tool_name,
-            )
-
         items = [(output_file, f"{self.storage_slug}/{_OUTPUT_FILENAME}")]
 
         return build_collection_output(
