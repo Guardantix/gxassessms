@@ -49,25 +49,37 @@ The design has seven coordinated pieces across the layers:
 
 **Bootstrap precondition (new, from the engagement create fix in Section 1a):** After `mseco engagement create` succeeds, the engagement has (a) a DB row, (b) an on-disk `<engagement_dir>/` with `raw-output/manifests/`, `raw-output/artifacts/`, and `reports/` subdirectories, and (c) a `<engagement_dir>/config_snapshot.json` mirror that `replay` can use for DR recovery. Ingest assumes this precondition and does not re-provision it on the normal path; a narrow legacy-migration fallback in `save_ingested_raw_output` handles engagements created before this PR.
 
+The flow below is the **normal path** (when `--repair-event` is NOT set). The repair-event dispatch takes a different, much narrower path documented in Section 5.5b: it skips steps 5-9 entirely, reads committed provenance from the manifest on disk, and emits only the missing `raw_output_ingested` event. The repair path is audit-neutral — it does not touch any filesystem state or engagement state.
+
 ```
 1. CLI arg validation (before any I/O)
    - engagement_id matches ENGAGEMENT_ID_PATTERN (same gate as replay)
    - --tool is a non-empty string (further checked in step 4)
+   - --repair-event validation: if set, --from/--replace/--schema-version/--run-at
+     must all be absent; if any is present, click.UsageError with exit 1.
    - --from path exists, is a directory, is not a symlink, is readable
+     (required unless --repair-event is set)
    - --schema-version (if passed): non-empty, no control chars, <= 64 chars
    - --run-at (if passed): parseable via parse_utc (handles Z, +00:00, naive-as-UTC)
    - --operator (if passed): sanitized for the PipelineEvent actor field
      (default: getpass.getuser(), fallback "unknown")
 
-2. Engagement lookup (DB-required, NO filesystem fallback)
-   - EngagementRepo.get(engagement_id): raises PersistenceError if missing
-   - ArtifactManager.get_engagement_dir(engagement_id): raises if no on-disk dir
-     - Normal case: the dir exists because `engagement create` provisioned it.
-     - Legacy case: the dir is missing because the engagement was created
-       before this PR landed. Ingest does NOT fail here; the missing-dir
-       branch is handled inside save_ingested_raw_output's migration
-       fallback (Section 4.2a).
-   - EngagementConfig.model_validate(decode_config_snapshot(row))
+2. Engagement lookup (DB-required, NO filesystem fallback for config)
+   - EngagementRepo.get(engagement_id): raises PersistenceError if missing.
+   - EngagementConfig.model_validate(decode_config_snapshot(row)).
+   - The CLI DELIBERATELY does NOT call ArtifactManager.get_engagement_dir()
+     at this step. Calling it here would short-circuit the Section 4.2a
+     legacy-migration path for pre-PR engagements, because get_engagement_dir()
+     cannot distinguish the two missing-directory cases the design must
+     handle differently:
+       * (engagement_row['engagement_dir'] IS NULL, directory missing)
+         -> legacy migration path (Section 4.2a). Must succeed.
+       * (engagement_row['engagement_dir'] IS NOT NULL, directory missing)
+         -> post-PR corruption. Must fail closed with an actionable error.
+     Only the DB row's `engagement_dir` column can distinguish these cases.
+     The loaded engagement_row dict is passed through to
+     save_ingested_raw_output so the persistence layer runs the
+     discriminator under the lock (Section 4.2a).
 
 3. Adapter resolution
    - registry = discover_adapters()
@@ -82,7 +94,11 @@ The design has seven coordinated pieces across the layers:
 5. Conflict check (inside the lock, avoids TOCTOU)
    - If raw-output/manifests/<slug>.json OR raw-output/artifacts/<slug>/ exists:
      - Without --replace: print error, exit 1
-     - With --replace: remember replaced=True for the event payload
+     - With --replace: proceed; the persistence layer (Section 4.2 Phase 1)
+       re-probes under the same lock and sets IngestProvenance.replaced=True
+       on the manifest it serializes. The CLI does NOT remember a local
+       "replaced" value -- the canonical value is read back from the
+       committed manifest when building the event payload (Section 5.5 step 6).
 
 6. Adapter-owned ingest walk
    - collection_output = ingest_adapter.ingest_from_directory(
@@ -143,7 +159,7 @@ The design has seven coordinated pieces across the layers:
 
 - **DB-required, no DR fallback for config.** Unlike `replay`, ingest has no disaster-recovery path that falls back to `config_snapshot.json` for reading config. If the engagement isn't in the DB, the operator runs `mseco engagement create` first. Ingest is a pre-normalization step, not a recovery tool. (But ingest DOES write the filesystem `config_snapshot.json` mirror on legacy migration, so that replay-after-DB-loss still works for ingest-only engagements — see Section 4.2a.)
 - **Lock scope.** Conflict check, adapter walk, `validate_raw` preflight, DB state reset, atomic filesystem commit, and event emission all happen inside a single `engagement_lock.hold(engagement_id)` region. Other mutating commands (collect, replay, review UI plugins) are serialized against ingest via the same advisory filelock mechanism documented in runbook section 9.
-- **DB writes bracket the filesystem commit.** State reset happens BEFORE the filesystem commit (idempotent and safely retryable if commit fails); event emission happens AFTER (the one failure mode that requires an explicit retry-with-replace recovery, documented in Section 5.5a).
+- **DB writes bracket the filesystem commit.** State reset happens BEFORE the filesystem commit (idempotent and safely retryable if commit fails); event emission happens AFTER (the one failure mode that requires an explicit audit-neutral `--repair-event` recovery, documented in Section 5.5a/5.5b).
 - **`validate_raw` is an ingest-private preflight**, not a weakening of the replay trust boundary. Replay still performs its own `confine_and_resolve()` + `validate_raw()` on read. Ingest just runs the check earlier so the operator finds out immediately whether the client's files are usable.
 - **save_ingested_raw_output has a distinct contract from save_raw_outputs.** It writes only one slug, constructs the `RawToolOutput` internally with `source_mode="ingested"` (the one place in the codebase where that value is materialized), and fails closed on missing engagement dir unless the narrow legacy-migration condition applies (Section 4.2a).
 
@@ -244,7 +260,8 @@ class IngestProvenance(BaseModel):
     Present only on manifests written by `mseco ingest`. Records what the
     operator did, when they did it, and where the source data came from --
     enough audit trail to answer "where did this data come from" six months
-    after the engagement.
+    after the engagement, and enough to reconstruct the raw_output_ingested
+    event payload during an audit-neutral repair (see Section 5.5a/5.5b).
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -252,6 +269,7 @@ class IngestProvenance(BaseModel):
     source_path: str  # absolute path the operator passed to --from
     ingested_at: datetime  # UTC timestamp of the ingest call (NOT the tool run time)
     ingested_by: str  # PipelineEvent actor convention: "human:<operator>"
+    replaced: bool  # True iff this ingest overwrote prior raw output for this slug
 
     @field_validator("ingested_at")
     @classmethod
@@ -285,6 +303,8 @@ class IngestProvenance(BaseModel):
 ```
 
 Key semantic: `ingested_at` is the **ingest call timestamp**, distinct from `RawToolOutput.timestamp` which is the **tool run timestamp** (operator-supplied via `--run-at` or defaulted to `utc_now()` at ingest time when unknown). Conflating them would erase the "client ran the tool last Tuesday; we ingested it today" distinction that matters for report assessment dates.
+
+Key semantic for `replaced`: this is the **committed audit record** of whether this ingest overwrote prior raw output for the same slug. The persistence layer is the single source of truth — it sets this field based on what was actually replaced at commit time, not what the operator intended with `--replace`. Operators who pass `--replace` against a slug with no prior data still get `replaced=False` in the committed manifest (because nothing was actually replaced). This makes `replaced` a reliable input to the `--repair-event` recovery path (Section 5.5a/5.5b), which reconstructs the missing `raw_output_ingested` event payload from committed provenance without rewriting manifest bytes.
 
 ### 2.2 Two new optional fields on `RawToolOutput`
 
@@ -429,7 +449,7 @@ Responsibilities:
 
 ### 3.2 Per-adapter discovery contracts (unchanged from today)
 
-Ingest inherits each adapter's `collect()` discovery rules verbatim. The following table documents the discovery logic already in each adapter today; the refactor preserves it exactly.
+The `build_collection_output` refactor (Section 3.1) preserves `collect()`'s discovery logic verbatim for **all 7 adapters** — parity is enforced by the refactor tests in Section 6.3. For the **5 ingest-capable adapters only** (ScubaGear, Maester, Prowler, Azure Advisor, Secure Score), `ingest_from_directory()` (Section 3.4) uses the same discovery rules as `collect()` minus freshness filtering. **Monkey365 and M365-Assess have no `ingest_from_directory()` in this PR** (see Non-goals / Codex Finding 2); their rows below document `collect()` discovery for the refactor's parity obligation only, NOT for any ingest path.
 
 | Adapter | Discovery (matches current `collect()` exactly) |
 |---|---|
@@ -478,7 +498,7 @@ The M365-Assess allowlist at `constants.py:170` lists `"script"` but the adapter
 
 ### 3.4 `ingest_from_directory()` method
 
-Every adapter implementing the `"ingest"` capability declares this uniform public signature:
+**Only 5 of the 7 built-in adapters implement this method in this PR**: ScubaGear, Maester, Prowler, Azure Advisor, Secure Score. Each of them declares the same uniform public signature:
 
 ```python
 def ingest_from_directory(
@@ -490,51 +510,9 @@ def ingest_from_directory(
 ) -> CollectionOutput:
 ```
 
-Single-root adapters (ScubaGear, Maester, Monkey365, Azure Advisor, Secure Score) do a simple directory scan matching `collect()`'s discovery rules (minus freshness filtering), build `items`, and call `build_collection_output(..., execution_metadata={})`.
+Each implementation does a simple directory scan matching its own `collect()` discovery rules (minus freshness filtering), builds `items`, and calls `build_collection_output(..., execution_metadata={})`. **Prowler** passes the fixed output filename constant to match its rglob pattern. Every ingest-capable adapter passes `execution_metadata={}` as a literal, not a default — this makes it mechanically impossible to forge provenance on the ingest path.
 
-**M365-Assess** uses an inferred `source_dir / "controls"`:
-
-```python
-def ingest_from_directory(self, source_dir, *, schema_version, timestamp):
-    controls_dir = source_dir / "controls"
-    if not controls_dir.is_dir():
-        raise CollectionError(
-            f"M365-Assess ingest: source must contain a 'controls/' subdirectory "
-            f"alongside CSV output files; found no such directory under {source_dir}",
-            adapter_name=self.tool_name,
-        )
-    csv_files = sorted(
-        (f for f in source_dir.iterdir() if f.is_file() and f.name.endswith(_CSV_SUFFIX)),
-        key=lambda f: f.name,
-    )
-    if not csv_files:
-        raise CollectionError(
-            f"M365-Assess ingest: no CSV files found directly under {source_dir}",
-            adapter_name=self.tool_name,
-        )
-    control_files = [controls_dir / filename for filename in ("risk-severity.json", "registry.json")]
-    missing = [f.name for f in control_files if not f.is_file()]
-    if missing:
-        raise CollectionError(
-            f"M365-Assess ingest: missing required controls files in "
-            f"{controls_dir}: {', '.join(missing)}",
-            adapter_name=self.tool_name,
-        )
-    items = [
-        *[(csv, f"{self.storage_slug}/{csv.name}") for csv in csv_files],
-        *[(ctrl, f"{self.storage_slug}/controls/{ctrl.name}") for ctrl in control_files],
-    ]
-    return build_collection_output(
-        tool=ToolSource.M365_ASSESS,
-        tool_slug=self.storage_slug,
-        items=items,
-        schema_version=schema_version,
-        timestamp=timestamp,
-        execution_metadata={},
-    )
-```
-
-**Prowler** passes the fixed output filename constant to match its rglob pattern; every adapter passes `execution_metadata={}` as a literal, not a default — this makes it mechanically impossible to forge provenance on the ingest path.
+**Monkey365 and M365-Assess are deliberately excluded from this method**, do NOT declare the `"ingest"` capability, do NOT declare `default_schema_version`, and do NOT expose `ingest_from_directory()` at all in this PR. The rationale is the silent-stale-data problem documented in Non-goals and surfaced by Codex Finding 2: their `collect()` paths rely on pre-run filesystem snapshots (Monkey365's `existing_files` at `monkey365/adapter.py:130`, M365-Assess's `pre_run_state` mtime/size dict at `m365_assess/adapter.py:211-219`) that ingest has no way to reconstruct. A naive directory-scan ingest for those adapters would silently merge stale and current files into one manifest. The exclusion is not just prose — it is pinned by the negative tests in Section 6.5 (`test_monkey365_has_no_ingest_capability`, `test_m365_assess_has_no_ingest_capability`). A proper freshness-safe design for those two adapters is tracked as follow-up work in the "Future work" section.
 
 ### 3.5 Protocol surface: `IngestCapableAdapter`
 
@@ -567,21 +545,21 @@ class IngestCapableAdapter(ToolAdapter, Protocol):
         ...
 ```
 
-Each built-in adapter declares its `default_schema_version` as a class attribute:
+Each **ingest-capable** built-in adapter declares its `default_schema_version` as a class attribute (5 of 7 in this PR):
 
 | Adapter | `default_schema_version` | Source of the value |
 |---|---|---|
 | ScubaGear | `_SCHEMA_VERSION` (`"1.7.1"`) | existing constant at `scubagear/adapter.py:46` |
 | Maester | `"1.0.0"` | literal, matching the inline hardcode at `maester/adapter.py:159` |
-| Monkey365 | `_SCHEMA_VERSION` | existing constant |
-| M365-Assess | `_SCHEMA_VERSION` | existing constant |
 | Prowler | `_SCHEMA_VERSION` | existing constant |
 | Azure Advisor | `_ADVISOR_API_VERSION` (`"2025-01-01"`) | existing constant at `azure_advisor/adapter.py:53` |
 | Secure Score | `_SCHEMA_VERSION` | existing constant |
 
+Monkey365 and M365-Assess are absent from this table deliberately. They do NOT declare `default_schema_version` and do NOT declare the `"ingest"` capability in this PR, per the Non-goals / Codex Finding 2 scope reduction documented in Section 3.4.
+
 **Capability consistency check**: `_validate_adapter()` at `adapters/__init__.py:84` is extended so that an adapter declaring `"ingest"` in `capabilities` must have BOTH a callable `ingest_from_directory` attribute AND a non-empty `default_schema_version` string attribute. Adapters that declare the capability without fulfilling both requirements fail discovery and are excluded from the registry with a clear error message.
 
-**`"ingest"` is added to `AdapterCapability`** at `constants.py:113` and to the `ADAPTER_CAPABILITIES` frozenset at line 122. All 7 built-in adapters add `"ingest"` to their `capabilities` frozenset.
+**`"ingest"` is added to `AdapterCapability`** at `constants.py:113` and to the `ADAPTER_CAPABILITIES` frozenset at line 122. Only the **5 ingest-capable built-in adapters** (ScubaGear, Maester, Prowler, Azure Advisor, Secure Score) add `"ingest"` to their `capabilities` frozenset. Monkey365 and M365-Assess do NOT — their capability sets are unchanged by this PR.
 
 **`_REQUIRED_ATTRIBUTES` at `adapters/__init__.py:29` is NOT extended.** The capability is opt-in — a third-party adapter for a tool with no useful file-on-disk output may legitimately not support ingest. The registry's capability-consistency check is what keeps declared and implemented in sync at discovery time.
 
@@ -615,6 +593,7 @@ def save_ingested_raw_output(
 - **Single-slug atomicity.** Only the target tool's artifacts subdirectory and manifest file are touched. All other tools' existing data remains byte-for-byte untouched.
 - **Conflict-gated.** If the slug's artifacts or manifest already exists and `replace=False`, raises `PersistenceError` before any mutation. With `replace=True`, the prior data is atomically renamed aside as part of the commit and cleaned up best-effort afterwards.
 - **Owns manifest materialization.** Constructs the `RawToolOutput` internally with `source_mode="ingested"` and the caller-provided `ingest_provenance`. The caller does not construct the `RawToolOutput` — this method is the **only** place in the codebase that writes `source_mode="ingested"`, enforced by code review.
+- **Owns the `IngestProvenance.replaced` field.** The caller passes an `IngestProvenance` with `replaced=False`; the persistence layer observes the actual pre-commit state (in Phase 1 after the conflict check) and, if prior data existed for this slug, sets `replaced=True` on the provenance object that gets serialized into the committed manifest. This ensures `replaced` is the **committed audit record of what actually happened**, not the operator's intent. Passing `--replace` against a slug with no prior data yields `replaced=False` in the committed manifest. Rationale: this makes the committed `replaced` value a reliable input to the `--repair-event` recovery path (Section 5.5a/5.5b), which has no way to re-observe pre-commit state after the fact.
 - **Invariant assertion: `execution_metadata == {}`.** The method asserts `collection_output.execution_metadata == {}` at the top and raises `PersistenceError` if violated. Ingest must never synthesize per-tool execution metadata; that field is exclusively for real tool-run provenance.
 - **Caller must hold `EngagementLock`.** This method does not acquire a lock; it trusts the caller to serialize concurrent mutations (same convention as `save_raw_outputs`).
 - **Caller must have already run the adapter's `validate_raw()`** against the source files. This method does not call `validate_raw()` itself; that's the CLI command's pre-commit check.
@@ -638,9 +617,9 @@ This closes the window between adapter-produced `CollectionOutput` (where `tool_
 
 **Three-phase discipline** matching `save_raw_outputs`:
 
-1. **Phase 1 — validate all inputs (no I/O beyond hashing):** source file presence, hash match, canonical POSIX target_relpath, slug prefix, duplicate/case-collision checks (mirroring `save_raw_outputs` Phase 1).
-2. **Phase 2 — stage to `.ingest-staging-<slug>-<uuid>/`:** copy files with hash-verified copies, write the manifest JSON to the staging directory. On any failure, `shutil.rmtree(staging_dir, ignore_errors=True)` and re-raise.
-3. **Phase 3 — atomic per-slug commit:** rename-aside any existing slug data (if `replace=True`), then commit new artifacts first and manifest last (matching `save_raw_outputs` Phase 3 ordering).
+1. **Phase 1 — validate all inputs (no I/O beyond hashing):** source file presence, hash match, canonical POSIX target_relpath, slug prefix, duplicate/case-collision checks (mirroring `save_raw_outputs` Phase 1). **Conflict probe and `replaced` determination (Finding 3 fix):** at the end of Phase 1, probe the existing slug state under the engagement lock (caller holds it). Compute `had_prior = (manifest_path.exists() or (artifacts_root / slug).is_dir())`. If `had_prior and not replace_flag`, raise `PersistenceError` with the operator-facing conflict message. Otherwise, set `ingest_provenance = ingest_provenance.model_copy(update={"replaced": had_prior})` — this is the single place in the codebase where `IngestProvenance.replaced` transitions from its caller-side placeholder to its committed audit value. The rest of Phase 1, Phase 2, and Phase 3 use this updated `ingest_provenance` for all manifest construction and serialization, so the bytes written to disk carry the correct `replaced` value. Assert invariant: `not updated.replaced or replace_flag` (you cannot have replaced prior data without the operator permitting it); if violated, that's an internal bug and raises `PersistenceError`.
+2. **Phase 2 — stage to `.ingest-staging-<slug>-<uuid>/`:** copy files with hash-verified copies, construct the `RawToolOutput` with `source_mode="ingested"` and the Phase-1-updated `ingest_provenance`, then write the manifest JSON to the staging directory. On any failure, `shutil.rmtree(staging_dir, ignore_errors=True)` and re-raise.
+3. **Phase 3 — atomic per-slug commit:** rename-aside any existing slug data (if `replace=True`), then commit new artifacts first and manifest last (matching `save_raw_outputs` Phase 3 ordering). The committed manifest bytes are the single source of truth for the `--repair-event` recovery path (Section 5.5b).
 
 ### 4.2a Legacy migration fallback
 
@@ -862,28 +841,41 @@ Click command:
          "Must match a tool enabled in this engagement's config.",
 )
 @click.option(
-    "--from", "source_path", required=True,
+    "--from", "source_path", default=None,  # required on the normal path; validated in-handler
     type=click.Path(exists=True, file_okay=False, dir_okay=True, readable=True, resolve_path=False),
     help="Path to a directory containing this tool's raw output files, "
-         "laid out as if the tool had just run against them.",
+         "laid out as if the tool had just run against them. "
+         "Required on the normal path; must be omitted with --repair-event.",
 )
 @click.option(
     "--replace", is_flag=True, default=False,
-    help="Overwrite existing raw output for this tool in the engagement.",
+    help="Overwrite existing raw output for this tool in the engagement. "
+         "Mutually exclusive with --repair-event.",
 )
 @click.option(
     "--schema-version", "schema_version_override", default=None,
-    help="Override the adapter's default schema_version string.",
+    help="Override the adapter's default schema_version string. "
+         "Mutually exclusive with --repair-event.",
 )
 @click.option(
     "--run-at", "run_at_arg", default=None,
     help="ISO-8601 UTC timestamp of when the client actually ran the tool. "
-         "Defaults to the ingest time if omitted (reports will show ingest date).",
+         "Defaults to the ingest time if omitted (reports will show ingest date). "
+         "Mutually exclusive with --repair-event.",
 )
 @click.option(
     "--operator", default=None,
     help="Operator identity recorded in the manifest provenance and event journal. "
          "Defaults to getpass.getuser().",
+)
+@click.option(
+    "--repair-event", "repair_event", is_flag=True, default=False,
+    help="Audit-neutral recovery mode. Emits the raw_output_ingested event for an "
+         "already-committed ingest whose original event emission failed (see Section "
+         "5.5a). Reads committed manifest provenance; does NOT rewrite any files, "
+         "does NOT mutate engagement state, and does NOT accept --from, --replace, "
+         "--schema-version, or --run-at. Idempotent: no-op success if the event is "
+         "already present in the journal.",
 )
 def ingest_cmd(...)
 ```
@@ -892,9 +884,11 @@ def ingest_cmd(...)
 
 - **`engagement_id`**: matches `ENGAGEMENT_ID_PATTERN` from `pipeline/state.py:94` (same gate as replay).
 - **`--operator`**: defaults to `getpass.getuser()` with `OSError` fallback to `"unknown"`. Sanitized, non-empty-checked, wrapped as `f"human:{operator}"` before writing to `IngestProvenance.ingested_by` and the event actor field.
-- **`--from`**: `source_dir = Path(source_path)` — rejected if `is_symlink()`, then `.expanduser().resolve()` to an absolute path, then `is_dir()` re-checked (defense-in-depth after resolve).
-- **`--schema-version`**: optional free-form string, sanity-checked for non-empty-after-strip, no control characters, ≤64 chars. No PEP-440, no semver — adapters use various formats including date-like (`"2025-01-01"`), so validation must not be tighter than `RawToolOutput.schema_version: str` already enforces.
-- **`--run-at`**: parsed via `parse_utc()` from `core/config/datetime_utils.py:16`. Handles `"Z"` suffix, `"+00:00"` offset, and naive-assumed-UTC. **`datetime.fromisoformat()` must not be called directly**; the convention test at `tests/conventions/test_datetime_conventions.py` bans it outside `datetime_utils.py`. Missing `--run-at` defaults to `utc_now()` with a yellow warning that reports will reflect the ingest date.
+- **`--from`**: `source_dir = Path(source_path)` — rejected if `is_symlink()`, then `.expanduser().resolve()` to an absolute path, then `is_dir()` re-checked (defense-in-depth after resolve). **Required when `--repair-event` is NOT set; MUST be omitted when `--repair-event` IS set** — the handler raises `click.UsageError` with an explicit message if either precondition is violated.
+- **`--schema-version`**: optional free-form string, sanity-checked for non-empty-after-strip, no control characters, ≤64 chars. No PEP-440, no semver — adapters use various formats including date-like (`"2025-01-01"`), so validation must not be tighter than `RawToolOutput.schema_version: str` already enforces. **Mutually exclusive with `--repair-event`** (the repair path reads committed `schema_version` from the manifest, not a new override).
+- **`--run-at`**: parsed via `parse_utc()` from `core/config/datetime_utils.py:16`. Handles `"Z"` suffix, `"+00:00"` offset, and naive-assumed-UTC. **`datetime.fromisoformat()` must not be called directly**; the convention test at `tests/conventions/test_datetime_conventions.py` bans it outside `datetime_utils.py`. Missing `--run-at` defaults to `utc_now()` with a yellow warning that reports will reflect the ingest date. **Mutually exclusive with `--repair-event`** (the repair path preserves committed `timestamp` without rewriting it).
+- **`--replace`**: **Mutually exclusive with `--repair-event`**. Repair never mutates filesystem state, so a replace flag on it is incoherent. The handler raises `click.UsageError` if both are set.
+- **`--repair-event`**: boolean flag, no arguments. When set, the handler validates that `--from`, `--replace`, `--schema-version`, and `--run-at` are all absent/default; on violation, raises `click.UsageError` listing all conflicting flags.
 
 ### 5.3 Engagement lookup
 
@@ -988,20 +982,33 @@ def get_engagement_lock() -> EngagementLock:
     return EngagementLock(get_engagements_root())
 ```
 
-### 5.5 The lock-held region — `_ingest_under_lock()`
+### 5.5 The lock-held region — `_ingest_under_lock()` (normal path)
 
-Kept as a separate helper so the lock acquisition stays narrow and readable. Runs in this specific order (see Section 1 step 8 for the rationale on DB-reset-before-filesystem-commit):
+Kept as a separate helper so the lock acquisition stays narrow and readable. `ingest_cmd` dispatches to this helper on the normal path (when `--repair-event` is NOT set) and to `_repair_event_under_lock()` (Section 5.5b) otherwise. The normal path runs in this specific order (see Section 1 step 8 for the rationale on DB-reset-before-filesystem-commit):
 
 1. **Conflict check** (TOCTOU-safe inside the lock) — uses `artifacts.get_engagement_dir()` opportunistically; if the dir is missing (legacy migration case), the conflict check becomes "no prior state," which is correct.
 2. **Adapter walk**: `ingest_adapter.ingest_from_directory(source_dir, schema_version=..., timestamp=run_at)`. Schema version resolution: `schema_version_override or ingest_adapter.default_schema_version`
 3. **Pre-commit `validate_raw`**: build a throwaway `ResolvedManifest` with absolute source_paths as `file_manifest` keys, call `ingest_adapter.validate_raw(preflight_manifest)`. On failure, abort without mutating the engagement directory.
-4. **DB state reset**: `orchestrator.reset_for_rerun(engagement_id, Stage.PARSE)` — resets the engagement state to `EngagementState.COLLECTED` (PARSE's entry state per `stages.py:386`). No-op when already at COLLECTED. Emits the existing `"rerun"` event via the orchestrator's standard path. **This runs BEFORE the filesystem commit**: if step 5 fails and Section 4.3's per-side rollback restores the pre-call filesystem state, the engagement is left at COLLECTED with its original raw output unchanged — a clean retry state. The alternative order (commit first, then reset) would leave committed filesystem data paired with stale DB state on DB failure, which is the split-brain case Codex Finding 3 called out.
-5. **Atomic filesystem commit**: construct `IngestProvenance(source_path=str(source_dir), ingested_at=utc_now(), ingested_by=f"human:{operator}")`, call `artifacts.save_ingested_raw_output(engagement_id, collection_output, ingest_provenance=..., replace=..., client_name=client_name, engagement_row=engagement_row, engagement_repo=repo)`. The three legacy-migration kwargs (`client_name`, `engagement_row`, `engagement_repo`) are only consumed on the Section 4.2a legacy-migration path when `engagement_row["engagement_dir"] IS NULL` and the directory is missing; on the normal path they're unused.
-6. **Dedicated ingest event**: `orchestrator.record_raw_output_ingested(...)` — new public wrapper. **This is the one step that can fail after the filesystem is committed**, producing the missing-audit-event failure mode documented in Section 5.5a below.
+4. **DB state reset**: `orchestrator.reset_for_rerun(engagement_id, Stage.PARSE)` — resets the engagement state to `EngagementState.COLLECTED` (PARSE's entry state per `stages.py:386`). No-op when already at COLLECTED. Emits the existing `"rerun"` event via the orchestrator's standard path. **This runs BEFORE the filesystem commit**: if step 5 fails and Section 4.3's per-side rollback restores the pre-call filesystem state, the engagement is left at COLLECTED with its original raw output unchanged — a clean retry state. The alternative order (commit first, then reset) would leave committed filesystem data paired with stale DB state on DB failure, which is the split-brain case from the first adversarial review round.
+5. **Atomic filesystem commit**: construct `IngestProvenance(source_path=str(source_dir), ingested_at=utc_now(), ingested_by=f"human:{operator}", replaced=False)`. The caller-side `replaced=False` is a placeholder: `save_ingested_raw_output` observes the actual pre-commit state in Phase 1 and, if prior raw output exists for this slug, flips the `replaced` field on the provenance before serializing it into the committed manifest (see Section 4.1 contract). Call `artifacts.save_ingested_raw_output(engagement_id, collection_output, ingest_provenance=..., replace=replace_flag, client_name=client_name, engagement_row=engagement_row, engagement_repo=repo)`. The three legacy-migration kwargs (`client_name`, `engagement_row`, `engagement_repo`) are only consumed on the Section 4.2a legacy-migration path when `engagement_row["engagement_dir"] IS NULL` and the directory is missing; on the normal path they're unused.
+6. **Dedicated ingest event**: `orchestrator.record_raw_output_ingested(...)` — new public wrapper. The payload is built from the committed manifest's `IngestProvenance` (not from local CLI variables), so the event is populated from the same bytes the repair path will read on recovery:
+    ```python
+    loaded = artifacts.save_ingested_raw_output(...)  # Phase-3 materialized manifest
+    committed_provenance = loaded.raw_output.ingest_provenance  # canonical source of truth
+    orchestrator.record_raw_output_ingested(
+        engagement_id=engagement_id,
+        actor=committed_provenance.ingested_by,
+        tool_slug=loaded.raw_output.tool_slug,
+        source_path=committed_provenance.source_path,
+        file_count=len(loaded.raw_output.file_manifest),
+        replaced=committed_provenance.replaced,
+    )
+    ```
+   **This is the one step that can fail after the filesystem is committed**, producing the missing-audit-event failure mode documented in Section 5.5a below.
 
 ### 5.5a Recovery from partial-ingest failures
 
-The two DB operations in the lock-held region (`reset_for_rerun` at step 4 and `record_raw_output_ingested` at step 6) can in principle fail under SQLite errors, disk-full conditions, or concurrent-lock escalation. The ordering in Section 5.5 is chosen to make most failure modes cleanly retryable, with one specific mode that requires an explicit recovery procedure.
+The two DB operations in the lock-held region (`reset_for_rerun` at step 4 and `record_raw_output_ingested` at step 6) can in principle fail under SQLite errors, disk-full conditions, or concurrent-lock escalation. The ordering in Section 5.5 is chosen to make most failure modes cleanly retryable, with one specific mode that requires an explicit — but audit-neutral — recovery procedure.
 
 **Failure mode analysis:**
 
@@ -1010,34 +1017,73 @@ The two DB operations in the lock-held region (`reset_for_rerun` at step 4 and `
 | 1-3 (pre-mutation) | unchanged | unchanged | Retry with corrected inputs. No recovery needed. |
 | 4 (DB state reset) | unchanged (nothing committed yet) | unchanged (reset never applied) | Retry. Clean, idempotent. |
 | 5 (filesystem commit) | unchanged (Section 4.3 per-side rollback restores pre-call state) | state reset to COLLECTED; spurious "rerun" event in journal | Retry. The spurious rerun event is minor audit noise. If the engagement was at COLLECTED before step 4, even the spurious event is avoided because `reset_for_rerun` is a no-op. |
-| 6 (ingest event emission) | **committed** (new manifest and artifacts are on disk) | state is COLLECTED; rerun event in journal; **raw_output_ingested event is missing** | **Manual recovery required.** See below. |
+| 6 (ingest event emission) | **committed** (new manifest and artifacts are on disk) | state is COLLECTED; rerun event in journal; **raw_output_ingested event is missing** | **`mseco ingest <id> --tool <slug> --repair-event`** — audit-neutral replay of step 6 only. See Section 5.5b. |
 
 **Manual recovery for step 6 failure:**
 
-The command exits with an error message that explicitly instructs the operator:
+The command exits with an error message that explicitly instructs the operator to run the repair flag:
 
 ```
 [bright_red]Error:[/bright_red] Ingest committed raw output to disk, but the
 audit event could not be recorded: <db error>.
 The engagement state is consistent, but the audit trail is incomplete.
 
-To complete the audit record, re-run the same ingest command with --replace:
-    mseco ingest <id> --tool <slug> --from <path> --replace
+To complete the audit record, re-run with --repair-event:
+    mseco ingest <id> --tool <slug> --repair-event
+
+This is audit-neutral: the committed manifest is NOT rewritten, its provenance
+(source_path, ingested_at, ingested_by, replaced) is NOT regenerated, and the
+raw_output_ingested event is emitted against the same bytes currently on disk.
+Do NOT use --replace for this recovery; --replace would destructively rewrite
+the committed manifest with a new timestamp.
 
 The replay pipeline will still work correctly in the meantime; only the audit
 event is missing.
 ```
 
-On the retry with `--replace`, the conflict gate passes (because `--replace` permits overwriting the just-committed slug), `save_ingested_raw_output` atomically replaces the slug with identical content (the source files haven't changed), and `record_raw_output_ingested` is called again with `replaced=True`. The resulting event says `replaced=True` even though the second write was semantically a recovery, not a replace. That's a known minor audit artifact documented in the runbook and accepted in this design as the pragmatic cost of avoiding a more complex idempotency layer.
+**Design constraint: the recovery path must not rewrite `RawToolOutput.timestamp` or `IngestProvenance.ingested_at` / `ingested_by` / `source_path` / `replaced` on the committed manifest.** The original adversarial-review finding was that the previous recovery procedure (rerun with `--replace`) would:
+1. Re-resolve `--run-at` to `utc_now()` if the operator omitted it, silently shifting `RawToolOutput.timestamp` from the original tool-run-ish timestamp to "hours after the first attempt."
+2. Construct a fresh `IngestProvenance(ingested_at=utc_now(), ...)`, so the committed manifest's provenance timestamp would be the *recovery* time, not the original *ingest* time — six months later, audits would see the recovery wall-clock rather than the operator's actual action.
+3. Set `replaced=True` in the new event payload because the retry conflict-gated against the just-committed slug, even though the operator was *not* semantically overwriting prior data — the "replace" flag was a workaround, not intent.
 
-**Why not a fancier recovery (auto-reconcile, deterministic event IDs, etc.)?**
+All three of those are provenance drift. The `--repair-event` path avoids them by reading committed values from the filesystem manifest rather than regenerating them from ingest-time inputs.
 
-- The probability of step 6 failure is low: SQLite with WAL mode is quite reliable, and the event append happens under the engagement lock so there's no contention with other writers.
-- The recovery procedure is one command the operator can run without understanding internals.
-- A more elaborate reconciliation path (detecting "slug is already committed, just emit the missing event, don't rewrite files") would require new logic for "is this a recovery?" detection, new tests, and new failure modes of its own.
-- If step-6 failures turn out to be more common in practice than expected, a follow-up PR can add deterministic event IDs (`event_id = f"ingest:{engagement_id}:{tool_slug}:{ingested_at}"`) and an insert-or-ignore path in `EventRepo.append()`, letting retries be fully idempotent. Scope it when we see the problem, not speculatively.
+**Why not a deterministic event ID / insert-or-ignore path instead?**
 
-**Test for this recovery procedure:** `tests/unit/cli/test_ingest_cmd.py` includes a case that mocks `record_raw_output_ingested` to raise `PersistenceError` after `save_ingested_raw_output` succeeds, asserts the error message names `--replace` as the recovery, and asserts a follow-up invocation with `--replace` emits the ingest event (with `replaced=True`) and exits cleanly.
+Deterministic event IDs (`event_id = f"ingest:{engagement_id}:{tool_slug}:{ingested_at}"`) combined with an `INSERT OR IGNORE` in `EventRepo.append()` would also solve this — the retry would naturally short-circuit on the already-committed event. Two reasons not to go that way in this PR:
+1. It requires a schema change on the event journal (event IDs are not currently exposed for callers to compute) and a new path through `EventRepo`. Scope creep for a low-frequency failure mode.
+2. The `--repair-event` flag is explicit operator action. An operator running recovery knows what they're doing and wants visibility; a silent retry-succeeds path hides a rare-but-important audit-completion event from logs.
+
+If step-6 failures turn out to be common in practice, a follow-up PR can add deterministic event IDs as the next layer of defense. Scope it when we see the problem, not speculatively.
+
+**Test for this recovery procedure:** see Section 6.13.
+
+### 5.5b The lock-held region — `_repair_event_under_lock()` (repair path)
+
+Dispatched from `ingest_cmd` when `--repair-event` is set. The repair path takes the same engagement lock as the normal path (Section 5.5) to serialize against concurrent collect/replay/ingest runs. It runs in this specific order:
+
+1. **Load the committed manifest**: read `raw-output/manifests/<slug>.json` via the existing `load_raw_outputs()` helper (or a narrower single-slug read; implementation plan decides). If the file is missing, raise `click.UsageError(f"No ingested manifest found for slug {slug!r} under engagement {id}. There is nothing to repair; run `mseco ingest` normally.")` and exit 1.
+2. **Validate the manifest is ingest-originated**: assert `raw.source_mode == "ingested"` and `raw.ingest_provenance is not None`. If either check fails (the slug came from `collect()`, not `ingest`), raise `click.UsageError(f"Slug {slug!r} was collected, not ingested. The raw_output_ingested event does not apply to collected data.")` and exit 1.
+3. **Check whether the event already exists** (idempotency): query `EventRepo` (a new helper method `find_raw_output_ingested(engagement_id, tool_slug, ingested_at)` or an ad-hoc filter over `EventRepo.list(engagement_id)`) for an existing `raw_output_ingested` event whose payload's `tool_slug == raw.tool_slug` and whose `created_at` is >= `raw.ingest_provenance.ingested_at`. If found, print a success message — "`raw_output_ingested` event already present in the journal; no action taken." — and exit 0 without emitting anything. This makes repeated `--repair-event` invocations safe.
+4. **Emit the missing event** with values read verbatim from the committed manifest:
+    ```python
+    prov = raw.ingest_provenance
+    orchestrator.record_raw_output_ingested(
+        engagement_id=engagement_id,
+        actor=prov.ingested_by,         # e.g. "human:rickp" from original ingest
+        tool_slug=raw.tool_slug,
+        source_path=prov.source_path,    # original absolute path operator passed
+        file_count=len(raw.file_manifest),
+        replaced=prov.replaced,          # original committed audit value
+    )
+    ```
+5. **Explicitly do NOT touch any filesystem state.** The repair path never calls `save_ingested_raw_output`, never calls `ingest_from_directory`, never calls `reset_for_rerun`, never rewrites the manifest, and never stages or copies files. The committed manifest and artifacts are byte-identical before and after repair — `sha256` over the manifest file is unchanged.
+6. **Print a success message** confirming which event was emitted, with the original `ingested_at` and `ingested_by` values for audit confirmation.
+
+**Explicit non-guarantees of `--repair-event`:**
+- It does NOT verify that the files under `raw-output/artifacts/<slug>/` still exist or still match `file_manifest` hashes. Filesystem corruption is a separate failure mode and is the responsibility of replay's confinement/validate_raw checks. `--repair-event` repairs the audit journal, not the filesystem.
+- It does NOT repair any other missing events (e.g., a missing `rerun` event from a step-4 failure that somehow escaped the rollback). It repairs exactly the `raw_output_ingested` event.
+- It does NOT accept `--from`, `--replace`, `--schema-version`, or `--run-at` (Section 5.2 mutual exclusion). Any of those flags being set with `--repair-event` is a `click.UsageError`.
 
 **LockTimeoutError handling** uses `e.timeout_seconds` only (the exception type at `errors.py:216` has no `lock_path` attribute):
 
@@ -1104,12 +1150,13 @@ This wrapper is the single public entry point for writing `raw_output_ingested` 
 - **Explicitly document that Monkey365 and M365-Assess ingest is NOT yet supported** and still requires the manual-manifest-construction workaround the original runbook section described. The runbook should name both adapters, cite the freshness-ambiguity reason ("their live collectors use pre-run filesystem snapshots that ingest has no way to reconstruct"), and point at the follow-up issue tracking the proper design.
 - Add a caveat about the pick-first-match UX tradeoff (applies only to the 5 supported adapters)
 - Add a caveat about `--run-at` / assessment-date
+- Document the `--repair-event` recovery flag and when to use it: only when a normal ingest exited with the "audit event could not be recorded" error. Emphasize the operator MUST use `--repair-event` rather than `--replace` for that recovery, because `--replace` would rewrite the committed manifest with new timestamps. Cross-reference runbook section 9 (lock troubleshooting) and Section 5.5a/5.5b of this design.
 
 ## Section 6: Testing strategy
 
 ### 6.1 New test files
 
-- `tests/unit/cli/test_ingest_cmd.py` — CLI unit tests (18 cases, enumerated below)
+- `tests/unit/cli/test_ingest_cmd.py` — CLI unit tests (enumerated in Section 6.6 and Section 6.13)
 - `tests/unit/adapters/test_build_collection_output.py` — shared helper (validation, sorting, target_relpath checks, empty items rejection)
 - **`tests/unit/adapters/test_<each>_ingest.py`** — one file per **ingest-supporting** adapter (5 files: ScubaGear, Maester, Prowler, Azure Advisor, Secure Score). Each file contains the adapter's `ingest_from_directory` happy path + error paths + `default_schema_version` parity test. Monkey365 and M365-Assess do NOT get ingest test files (those two don't implement `ingest_from_directory` in this PR).
 - **`tests/unit/adapters/test_<each>_collect_parity.py`** — one file per **refactor-affected** adapter (7 files: all the built-in adapters). Each file contains the collect() parity test proving the `build_collection_output` extraction is behavior-preserving. These are separate from the ingest test files because the refactor covers all 7 adapters even though ingest only covers 5.
@@ -1210,7 +1257,7 @@ Rationale for the negative tests: the scope exclusion is a deliberate safety lin
 
 ### 6.6 CLI unit tests
 
-All 18 cases go in `tests/unit/cli/test_ingest_cmd.py`. Each uses Click's `CliRunner` to invoke `ingest_cmd` with mocked dependencies.
+All CLI unit test cases go in `tests/unit/cli/test_ingest_cmd.py`. Each uses Click's `CliRunner` to invoke `ingest_cmd` with mocked dependencies.
 
 1. Invalid `engagement_id` format → exit 1, no mutation
 2. `--from` is a symlink → exit 1, no mutation
@@ -1218,7 +1265,8 @@ All 18 cases go in `tests/unit/cli/test_ingest_cmd.py`. Each uses Click's `CliRu
 4. `--run-at` unparseable → exit 1
 5. `--run-at` omitted → warning printed, `utc_now()` used
 6. Engagement missing from DB → exit 1, no mutation
-7. Engagement dir missing but DB row present → exit 1
+7a. Legacy engagement (`engagement_row['engagement_dir'] IS NULL` in the DB AND the on-disk directory is missing): `save_ingested_raw_output` is invoked with the three legacy-migration kwargs (`client_name`, `engagement_row`, `engagement_repo`) and is mocked to return success (the persistence-layer migration logic is covered in Section 6.11). Assert: exit 0, and all three migration kwargs are passed through verbatim. The CLI MUST NOT call `get_engagement_dir` before invoking `save_ingested_raw_output`, because that pre-check would short-circuit the legacy-migration path (Finding 2 regression fence).
+7b. Post-PR corruption (`engagement_row['engagement_dir']` populated but the directory is missing): `save_ingested_raw_output` is mocked to raise `PersistenceError` with "filesystem corruption or manual deletion" and the `mseco engagement purge` recovery hint in the message. Assert: exit 1, the CLI surfaces the underlying message verbatim (including the purge hint), no lock leaked, no retry loop.
 8. `--tool` disabled in config → exit 1, no lock acquired
 9. Unknown `--tool` slug → exit 1, UsageError lists available slugs
 10. Adapter lacks `"ingest"` capability → exit 1
@@ -1292,11 +1340,48 @@ New cases in `tests/unit/cli/test_engagement_create.py` (or whatever test file c
 7. `test_create_rollback_is_idempotent_if_dir_already_cleaned`: same as test 6, but the directory has already been partially removed by a concurrent hand cleanup. Assert the rollback's `shutil.rmtree(..., ignore_errors=True)` does not raise and the final state is still clean.
 8. `test_create_idempotent_on_prior_partial_state`: simulate an engagement directory that exists from a prior failed create attempt (directory present, no DB row). Run `engagement create` again with the same config. Assert it either cleanly succeeds (by reusing the existing directory and creating a new DB row with a new UUID) or cleanly fails with a message directing the operator to delete the stale directory first. (Implementation plan decides which behavior is correct; document the choice.)
 
-### 6.13 Partial-ingest recovery test (from Section 5.5a)
+### 6.13 Partial-ingest recovery and `--repair-event` tests (from Section 5.5a/5.5b)
 
-One case in `tests/unit/cli/test_ingest_cmd.py`:
+All in `tests/unit/cli/test_ingest_cmd.py`. These collectively pin the Codex Finding 3 fix — the recovery path must be audit-neutral.
 
-- `test_step_6_failure_recovery_via_replace`: mock `record_raw_output_ingested` to raise `PersistenceError`. Assert the command exits 1 with an error message that names `--replace` as the recovery procedure. Then invoke the same command again with `--replace` (mocks return to normal) and assert: (a) exit 0, (b) `save_ingested_raw_output` was called with `replace=True`, (c) `record_raw_output_ingested` was called with `replaced=True` in the payload, (d) the engagement has exactly one `raw_output_ingested` event in the journal (the successful one), (e) the engagement state is COLLECTED.
+1. `test_step_6_failure_surfaces_repair_event_hint`: mock `record_raw_output_ingested` to raise `PersistenceError` AFTER `save_ingested_raw_output` succeeds. Assert the command exits 1 and the stderr/error message:
+   - Names `--repair-event` as the recovery procedure (not `--replace`).
+   - Explicitly warns against using `--replace` for this recovery, with a one-line explanation that `--replace` would rewrite the committed manifest with a new timestamp.
+   - States that the replay pipeline still works in the meantime.
+   Also assert that the committed manifest on disk is unchanged (no rollback; Phase 3 committed successfully before step 6 failed).
+
+2. `test_repair_event_happy_path`: set up a committed `source_mode="ingested"` manifest on disk with a known `IngestProvenance(source_path="/tmp/original-from", ingested_at=<T0>, ingested_by="human:alice", replaced=True)`. Capture the manifest file's sha256 before the repair run. Invoke `mseco ingest <id> --tool <slug> --repair-event`. Assert:
+   - Exit 0.
+   - `save_ingested_raw_output` was NOT called (filesystem is not touched).
+   - `ingest_from_directory` was NOT called (adapter walk is skipped).
+   - `reset_for_rerun` was NOT called (engagement state is untouched).
+   - `record_raw_output_ingested` WAS called exactly once with `actor="human:alice"`, `source_path="/tmp/original-from"`, `replaced=True`, and `file_count` matching the committed manifest's `len(file_manifest)`.
+   - The manifest file's sha256 is byte-identical to the pre-repair value.
+   - The engagement's last state-transition timestamp is unchanged (no state mutation side effects).
+
+3. `test_repair_event_is_idempotent_when_event_already_present`: same committed manifest as test 2, but the `raw_output_ingested` event for this slug is already in the journal (simulate a prior successful repair). Invoke `--repair-event` again. Assert:
+   - Exit 0.
+   - `record_raw_output_ingested` was NOT called (idempotent no-op).
+   - Stdout contains a clear "already present in the journal; no action taken" message.
+   - Journal still has exactly one `raw_output_ingested` event for this slug (no duplicate).
+
+4. `test_repair_event_rejects_missing_manifest`: no committed manifest exists for the slug. Invoke `--repair-event`. Assert exit 1, error message includes `"No ingested manifest found for slug"`, and `record_raw_output_ingested` was NOT called.
+
+5. `test_repair_event_rejects_collected_manifest`: set up a committed manifest with `source_mode="collected"` (no `ingest_provenance`). Invoke `--repair-event`. Assert exit 1, error message mentions `"was collected, not ingested"`, and `record_raw_output_ingested` was NOT called.
+
+6. `test_repair_event_rejects_conflicting_flags`: invoke with each of the mutually-exclusive flag combinations and assert each one exits 1 with a `click.UsageError`-style message naming the conflicting flag:
+   - `--repair-event --from /some/path`
+   - `--repair-event --replace`
+   - `--repair-event --schema-version 1.2.3`
+   - `--repair-event --run-at 2026-04-11T00:00:00Z`
+
+7. `test_repair_event_preserves_committed_provenance_exactly`: this is the direct Finding 3 regression fence. Set up a committed manifest with `IngestProvenance(ingested_at=<T0 from 2 days ago>, ...)` and `RawToolOutput.timestamp=<T0>`. Invoke `--repair-event` at a later wall-clock time (mock `utc_now()` to return `<T0 + 2 days>`). Assert:
+   - The committed manifest bytes are unchanged (re-read and compare to a pre-repair snapshot byte-for-byte).
+   - The emitted event's `created_at` reflects the repair time (`<T0 + 2 days>`, because SQLite stamps it), but the payload's `source_path`, `tool_slug`, `file_count`, and `replaced` all reflect committed values from `<T0>`.
+   - `RawToolOutput.timestamp` on the committed manifest is still `<T0>`, not `<T0 + 2 days>`.
+   Before the Finding 3 fix, the `--replace` retry path would have rewritten all three timestamps; this test would have caught that by reading the manifest bytes and comparing. With the `--repair-event` fix, it passes.
+
+8. `test_repair_event_takes_engagement_lock`: assert that the repair path acquires and releases the engagement lock exactly once per invocation (same as the normal path). Use a lock-observer fixture to verify.
 
 ## Future work
 
