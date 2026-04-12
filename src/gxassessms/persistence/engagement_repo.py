@@ -75,9 +75,11 @@ class EngagementRepo:
         tenant_id: str,
         config_snapshot: dict[str, Any],
         engagement_dir: str | None = None,
+        engagement_id: str | None = None,
     ) -> str:
         """Create a new engagement. Returns the engagement_id."""
-        engagement_id = str(uuid.uuid4())
+        if engagement_id is None:
+            engagement_id = str(uuid.uuid4())
         now = format_utc(utc_now())
         config_json = json.dumps(config_snapshot)
 
@@ -99,6 +101,26 @@ class EngagementRepo:
             )
         logger.info("Created engagement %s for client %s", engagement_id, client_name)
         return engagement_id
+
+    def update_engagement_dir(
+        self,
+        engagement_id: str,
+        engagement_dir: str | None,
+    ) -> None:
+        """Set or clear the engagement_dir column on an engagement row."""
+        now = format_utc(utc_now())
+        with self._db.connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM engagements WHERE engagement_id = ?",
+                (engagement_id,),
+            ).fetchone()
+            if row is None:
+                raise PersistenceError(f"Engagement not found: {engagement_id}")
+            conn.execute(
+                "UPDATE engagements SET engagement_dir = ?, updated_at = ? WHERE engagement_id = ?",
+                (engagement_dir, now, engagement_id),
+            )
+        logger.info("Updated engagement_dir for %s to %r", engagement_id, engagement_dir)
 
     def rehydrate_from_snapshot(
         self,

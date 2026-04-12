@@ -15,6 +15,7 @@ from gxassessms.core.contracts.errors import (
 from gxassessms.pipeline.config_snapshot_mirror import (
     _do_mirror,
     mirror_config_snapshot_from_db,
+    mirror_config_snapshot_from_db_strict,
 )
 
 
@@ -131,4 +132,30 @@ class TestMirrorFailOpenContract:
         with caplog.at_level("ERROR"):
             mirror_config_snapshot_from_db(repo, am, "eng-ok")
         assert caplog.text == ""
+        am.write_config_snapshot.assert_called_once()
+
+
+class TestMirrorStrictVariant:
+    """Strict variant: raises ConfigSnapshotMirrorError on any failure."""
+
+    def test_strict_mirror_raises_on_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from gxassessms.pipeline import config_snapshot_mirror
+
+        monkeypatch.setattr(
+            config_snapshot_mirror,
+            "_do_mirror",
+            lambda *a, **kw: (_ for _ in ()).throw(ConfigSnapshotMirrorError("test", "test-id")),
+        )
+        mock_repo = MagicMock()
+        mock_am = MagicMock()
+
+        with pytest.raises(ConfigSnapshotMirrorError):
+            mirror_config_snapshot_from_db_strict(mock_repo, mock_am, "test-id")
+
+    def test_strict_mirror_succeeds_when_do_mirror_succeeds(self) -> None:
+        repo = MagicMock()
+        repo.get.return_value = {"config_snapshot": json.dumps({"client_name": "Acme"})}
+        am = MagicMock()
+        # Should not raise
+        mirror_config_snapshot_from_db_strict(repo, am, "eng-strict-ok")
         am.write_config_snapshot.assert_called_once()
