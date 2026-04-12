@@ -1611,7 +1611,7 @@ See spec Section 6.11 for 7 test cases covering: successful migration, dir creat
 
 Add to `src/gxassessms/persistence/artifacts.py`. The method follows the three-phase discipline documented in spec Section 4.2 plus the legacy-migration fallback from Section 4.2a. This is approximately 150-200 lines of code. Key contract points:
 
-1. Assert `collection_output.execution_metadata == {}` at the top.
+1. Raise `ValueError` if `collection_output.execution_metadata != {}` at the top (ingest never carries execution metadata; use explicit guard, not `assert`, so the contract holds under `-O` optimizations).
 2. Validate `tool_slug` against `TOOL_SLUG_PATTERN`.
 3. Phase 1: conflict probe, set `ingest_provenance.replaced` based on actual state, path validation.
 4. Phase 2: stage to `.ingest-staging-<slug>-<uuid>/` with hash-verified copies.
@@ -1784,7 +1784,7 @@ def resolve_enabled_adapter(
 ) -> ToolAdapter:
     """Find an adapter by storage_slug and verify it is enabled."""
     matches = [
-        cls() for cls in registry.adapters.values()
+        cls for cls in registry.adapters.values()
         if getattr(cls, "storage_slug", None) == tool_slug
     ]
     if not matches:
@@ -1799,7 +1799,7 @@ def resolve_enabled_adapter(
         raise click.UsageError(
             f"Multiple adapters claim slug {tool_slug!r}; registry is corrupt."
         )
-    adapter = matches[0]
+    adapter = matches[0]()
     enabled_names = {
         name.lower() for name, tc in config.tools.items() if tc.enabled
     }
