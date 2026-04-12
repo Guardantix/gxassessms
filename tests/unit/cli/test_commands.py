@@ -2002,19 +2002,39 @@ class TestEngagementCreate:
         result = runner.invoke(cli, ["engagement", "create", "/nonexistent/config.yaml"])
         assert result.exit_code != 0
 
+    @patch(
+        "gxassessms.pipeline.config_snapshot_mirror.mirror_config_snapshot_from_db_strict",
+        autospec=True,
+    )
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
     @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
-    def test_create_happy_path(self, mock_get: MagicMock, tmp_path: Path) -> None:
+    def test_create_happy_path(
+        self,
+        mock_get: MagicMock,
+        mock_get_artifacts: MagicMock,
+        mock_mirror: MagicMock,
+        tmp_path: Path,
+    ) -> None:
         """Successful create loads config, validates, creates engagement."""
         config_path = _write_config(tmp_path)
+        eng_dir = tmp_path / "test-corp-eng-cmd-001"
+        eng_dir.mkdir()
         mock_get.return_value.create.return_value = "eng-create-001"
+        mock_get_artifacts.return_value.create_engagement_dir.return_value = eng_dir
         runner = CliRunner()
         result = runner.invoke(cli, ["engagement", "create", str(config_path)])
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
         assert "created" in result.output.lower()
         mock_get.return_value.create.assert_called_once()
 
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
     @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
-    def test_create_repo_error(self, mock_get: MagicMock, tmp_path: Path) -> None:
+    def test_create_repo_error(
+        self,
+        mock_get: MagicMock,
+        mock_get_artifacts: MagicMock,
+        tmp_path: Path,
+    ) -> None:
         """repo.create raising GxAssessError should exit nonzero."""
         from gxassessms.core.contracts.errors import GxAssessError
 
