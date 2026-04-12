@@ -282,10 +282,6 @@ class IngestProvenance(BaseModel):
     @field_validator("ingested_at")
     @classmethod
     def ingested_at_must_be_utc(cls, v: datetime) -> datetime:
-        from datetime import UTC
-
-        if v.tzinfo is None:
-            return v.replace(tzinfo=UTC)
         return ensure_utc(v)
 
     @field_validator("source_path")

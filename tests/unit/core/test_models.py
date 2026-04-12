@@ -1091,10 +1091,19 @@ class TestIngestProvenance:
                 replaced=False,
             )
 
-    def test_ingested_at_must_be_utc(self) -> None:
+    def test_ingested_at_rejects_naive(self) -> None:
+        with pytest.raises(ValidationError, match="timezone-aware"):
+            IngestProvenance(
+                source_path="/tmp/export",  # noqa: S108
+                ingested_at=datetime(2026, 4, 11, 12, 0, 0),  # naive
+                ingested_by="human:alice",
+                replaced=False,
+            )
+
+    def test_ingested_at_normalizes_to_utc(self) -> None:
         prov = IngestProvenance(
             source_path="/tmp/export",  # noqa: S108
-            ingested_at=datetime(2026, 4, 11, 12, 0, 0),  # naive
+            ingested_at=datetime(2026, 4, 11, 12, 0, 0, tzinfo=UTC),
             ingested_by="human:alice",
             replaced=False,
         )
