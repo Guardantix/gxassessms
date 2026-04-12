@@ -318,6 +318,17 @@ class RawToolOutput(BaseModel):
     def timestamp_must_be_utc(cls, v: datetime) -> datetime:
         return ensure_utc(v)
 
+    @field_validator("file_manifest")
+    @classmethod
+    def file_manifest_must_be_valid(cls, v: dict[str, ArtifactRecord]) -> dict[str, ArtifactRecord]:
+        if not v:
+            raise ValueError("file_manifest must not be empty")
+        from gxassessms.core.domain.path_validation import validate_canonical_posix_path
+
+        for key in v:
+            validate_canonical_posix_path(key)
+        return v
+
     @model_validator(mode="after")
     def source_mode_matches_provenance(self) -> RawToolOutput:
         """source_mode and ingest_provenance must agree (bidirectional)."""
@@ -332,7 +343,7 @@ class RawToolOutput(BaseModel):
         return self
 ```
 
-Add `Literal` to imports from `typing` and `model_validator` to imports from `pydantic`.
+Add `Literal` to imports from `typing`, `Path` to imports from `pathlib`, and move `TOOL_SLUG_PATTERN` into the top-level constants imports. (`model_validator` is already imported at line 14 — no change needed.)
 
 - [ ] **Step 7: Update constants**
 
@@ -346,7 +357,7 @@ AdapterCapability = Literal[
 ]
 
 # Line 122: extend ADAPTER_CAPABILITIES frozenset
-ADAPTER_CAPABILITIES: frozenset[str] = frozenset({
+ADAPTER_CAPABILITIES: frozenset[AdapterCapability] = frozenset({
     "collect", "parse", "prerequisites", "shared_auth",
     "coverage_export", "benchmark_mapping", "ingest",
 })
