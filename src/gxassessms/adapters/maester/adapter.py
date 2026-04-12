@@ -11,6 +11,7 @@ so that prior run artifacts cannot contaminate the current collection.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +43,8 @@ from gxassessms.core.domain.models import (
 
 logger = logging.getLogger(__name__)
 
+_SCHEMA_VERSION = "1.0.0"
+
 
 class MaesterAdapter:
     """Maester adapter -- Pester-based M365/Azure security testing framework.
@@ -55,8 +58,9 @@ class MaesterAdapter:
     storage_slug: str = "maester"
     tool_source: ToolSource = ToolSource.MAESTER
     capabilities: frozenset[AdapterCapability] = frozenset(
-        {"collect", "parse", "prerequisites", "coverage_export", "benchmark_mapping"}
+        {"collect", "parse", "prerequisites", "coverage_export", "benchmark_mapping", "ingest"}
     )
+    default_schema_version: str = _SCHEMA_VERSION
 
     def check_prerequisites(self) -> PrerequisiteResult:
         """Check Maester module provenance against baseline policy."""
@@ -155,11 +159,49 @@ class MaesterAdapter:
             tool=ToolSource.MAESTER,
             tool_slug=self.storage_slug,
             items=items,
-            schema_version="1.0.0",
+            schema_version=_SCHEMA_VERSION,
             timestamp=utc_now(),
             execution_metadata={
                 "module_provenance": verification_result.to_json_dict(),
             },
+        )
+
+    def ingest_from_directory(
+        self,
+        source_dir: Path,
+        *,
+        schema_version: str,
+        timestamp: datetime,
+    ) -> CollectionOutput:
+        """Construct a CollectionOutput from operator-provided Maester output."""
+        from gxassessms.adapters._base import build_collection_output
+
+        json_results = sorted(source_dir.glob("TestResults*.json"))
+
+        if not json_results:
+            raise CollectionError(
+                f"No TestResults*.json file found in {source_dir}",
+                adapter_name=self.tool_name,
+            )
+
+        if len(json_results) > 1:
+            names = [f.name for f in json_results]
+            raise CollectionError(
+                f"Expected exactly 1 TestResults*.json in {source_dir}, "
+                f"found {len(json_results)}: {names}",
+                adapter_name=self.tool_name,
+            )
+
+        results_path = json_results[0]
+        items = [(results_path, f"{self.storage_slug}/{results_path.name}")]
+
+        return build_collection_output(
+            tool=ToolSource.MAESTER,
+            tool_slug=self.storage_slug,
+            items=items,
+            schema_version=schema_version,
+            timestamp=timestamp,
+            execution_metadata={},
         )
 
     def validate_raw(self, raw: ResolvedManifest) -> None:

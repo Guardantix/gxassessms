@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -71,8 +72,9 @@ class SecureScoreAdapter:
     storage_slug: str = "secure-score"
     tool_source: ToolSource = ToolSource.SECURE_SCORE
     capabilities: frozenset[AdapterCapability] = frozenset(
-        {"collect", "parse", "prerequisites", "shared_auth", "coverage_export"}
+        {"collect", "parse", "prerequisites", "shared_auth", "coverage_export", "ingest"}
     )
+    default_schema_version: str = _SCHEMA_VERSION
 
     def check_prerequisites(self) -> PrerequisiteResult:
         """Verify httpx and azure.identity are importable."""
@@ -168,6 +170,47 @@ class SecureScoreAdapter:
                 "profiles_count": len(profiles_data.get("value", [])),
                 "scores_count": len(scores_data.get("value", [])),
             },
+        )
+
+    def ingest_from_directory(
+        self,
+        source_dir: Path,
+        *,
+        schema_version: str,
+        timestamp: datetime,
+    ) -> CollectionOutput:
+        """Construct a CollectionOutput from operator-provided Secure Score output."""
+        from gxassessms.adapters._base import build_collection_output
+
+        profiles_path = source_dir / _PROFILES_FILENAME
+        scores_path = source_dir / _SCORES_FILENAME
+
+        missing = [
+            name
+            for name, path in [
+                (_PROFILES_FILENAME, profiles_path),
+                (_SCORES_FILENAME, scores_path),
+            ]
+            if not path.exists()
+        ]
+        if missing:
+            raise CollectionError(
+                f"Secure Score output files not found in {source_dir}: {', '.join(missing)}",
+                adapter_name=self.tool_name,
+            )
+
+        items = [
+            (profiles_path, f"{self.storage_slug}/{_PROFILES_FILENAME}"),
+            (scores_path, f"{self.storage_slug}/{_SCORES_FILENAME}"),
+        ]
+
+        return build_collection_output(
+            tool=ToolSource.SECURE_SCORE,
+            tool_slug=self.storage_slug,
+            items=items,
+            schema_version=schema_version,
+            timestamp=timestamp,
+            execution_metadata={},
         )
 
     def validate_raw(self, raw: ResolvedManifest) -> None:

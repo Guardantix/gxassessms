@@ -25,6 +25,7 @@ import os
 import re
 import shutil
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -133,8 +134,10 @@ class ProwlerAdapter:
             "prerequisites",
             "coverage_export",
             "benchmark_mapping",
+            "ingest",
         }
     )
+    default_schema_version: str = _SCHEMA_VERSION
 
     def check_prerequisites(self) -> PrerequisiteResult:
         """Verify the prowler CLI is available on PATH."""
@@ -391,6 +394,38 @@ class ProwlerAdapter:
                 "auth_method": config.auth.method,
                 "checks": checks,
             },
+        )
+
+    def ingest_from_directory(
+        self,
+        source_dir: Path,
+        *,
+        schema_version: str,
+        timestamp: datetime,
+    ) -> CollectionOutput:
+        """Construct a CollectionOutput from operator-provided Prowler output."""
+        from gxassessms.adapters._base import build_collection_output
+
+        ocsf_files = list(source_dir.rglob(f"{_DEFAULT_OUTPUT_FILENAME}{_OCSF_EXTENSION}"))
+
+        if not ocsf_files:
+            raise CollectionError(
+                f"No Prowler OCSF output found in {source_dir}. "
+                f"Expected file matching {_DEFAULT_OUTPUT_FILENAME}{_OCSF_EXTENSION}",
+                adapter_name=self.tool_name,
+            )
+
+        items = [
+            (f, f"{self.storage_slug}/{f.relative_to(source_dir).as_posix()}") for f in ocsf_files
+        ]
+
+        return build_collection_output(
+            tool=ToolSource.PROWLER,
+            tool_slug=self.storage_slug,
+            items=items,
+            schema_version=schema_version,
+            timestamp=timestamp,
+            execution_metadata={},
         )
 
     def validate_raw(self, raw: ResolvedManifest) -> None:

@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -133,8 +134,10 @@ class AzureAdvisorAdapter:
             "prerequisites",
             "shared_auth",
             "coverage_export",
+            "ingest",
         }
     )
+    default_schema_version: str = _ADVISOR_API_VERSION
 
     def check_prerequisites(self) -> PrerequisiteResult:
         """Verify azure-identity is importable.
@@ -251,6 +254,35 @@ class AzureAdvisorAdapter:
             execution_metadata={
                 "recommendation_count": len(all_recommendations),
             },
+        )
+
+    def ingest_from_directory(
+        self,
+        source_dir: Path,
+        *,
+        schema_version: str,
+        timestamp: datetime,
+    ) -> CollectionOutput:
+        """Construct a CollectionOutput from operator-provided Azure Advisor output."""
+        from gxassessms.adapters._base import build_collection_output
+
+        output_file = source_dir / _OUTPUT_FILENAME
+
+        if not output_file.exists():
+            raise CollectionError(
+                f"Azure Advisor output file not found: {output_file}",
+                adapter_name=self.tool_name,
+            )
+
+        items = [(output_file, f"{self.storage_slug}/{_OUTPUT_FILENAME}")]
+
+        return build_collection_output(
+            tool=ToolSource.AZURE_ADVISOR,
+            tool_slug=self.storage_slug,
+            items=items,
+            schema_version=schema_version,
+            timestamp=timestamp,
+            execution_metadata={},
         )
 
     def validate_raw(self, raw: ResolvedManifest) -> None:
