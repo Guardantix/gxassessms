@@ -397,3 +397,46 @@ class TestSingleToolIngestAndReplay:
         assert "already exists" in result.output.lower() or "repaired" in result.output.lower(), (
             f"Expected idempotency or repair confirmation, got:\n{result.output}"
         )
+
+    def test_ingest_records_event_in_db(
+        self,
+        isolated_data_dir: Path,
+        scubagear_fixtures_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """After CLI ingest, a raw_output_ingested event exists in the DB."""
+        runner = CliRunner()
+
+        config_file = tmp_path / "config.yaml"
+        self._write_config_yaml(config_file)
+
+        result = runner.invoke(cli, ["engagement", "create", str(config_file)])
+        assert result.exit_code == 0, result.output
+        engagement_id = _extract_engagement_id(result.output)
+
+        source_dir = tmp_path / "scuba-export"
+        source_dir.mkdir()
+        shutil.copy(
+            str(scubagear_fixtures_dir / "ScubaResults.json"),
+            str(source_dir / "ScubaResults.json"),
+        )
+
+        registry = _make_scubagear_registry()
+
+        with patch("gxassessms.adapters.discover_adapters", return_value=registry):
+            result = runner.invoke(
+                cli,
+                ["ingest", engagement_id, "--tool", "scubagear", "--from", str(source_dir)],
+            )
+        assert result.exit_code == 0, result.output
+
+        # Query EventRepo directly
+        from gxassessms.persistence import DatabaseManager, EventRepo
+
+        db = DatabaseManager()
+        db.initialize()
+        event_repo = EventRepo(db)
+        events = event_repo.get_events_by_type(engagement_id, "raw_output_ingested")
+        assert len(events) == 1
+        payload = json.loads(events[0]["payload"])
+        assert payload["tool_slug"] == "scubagear"

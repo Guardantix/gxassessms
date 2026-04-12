@@ -42,3 +42,13 @@ class TestAzureAdvisorIngest:
 
     def test_ingest_capability_declared(self) -> None:
         assert "ingest" in AzureAdvisorAdapter().capabilities
+
+    def test_missing_source_file_raises(self, tmp_path: Path) -> None:
+        """Empty source directory raises CollectionError mentioning the expected filename."""
+        adapter = AzureAdvisorAdapter()
+        with pytest.raises(CollectionError, match=r"advisor_recommendations\.json"):
+            adapter.ingest_from_directory(
+                tmp_path,
+                schema_version="2025-01-01",
+                timestamp=datetime(2026, 4, 11, tzinfo=UTC),
+            )

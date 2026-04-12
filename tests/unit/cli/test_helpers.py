@@ -855,3 +855,45 @@ class TestGetEngagementLock:
             lock = get_engagement_lock()
 
         assert isinstance(lock, EngagementLock)
+
+
+# ---------------------------------------------------------------------------
+# resolve_operator
+# ---------------------------------------------------------------------------
+
+
+class TestResolveOperator:
+    """Tests for resolve_operator() audit identity resolution."""
+
+    def test_override_returns_override(self) -> None:
+        from gxassessms.cli._helpers import resolve_operator
+
+        assert resolve_operator("alice") == "alice"
+
+    def test_no_override_returns_os_user(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from gxassessms.cli._helpers import resolve_operator
+
+        monkeypatch.setattr("getpass.getuser", lambda: "bob")
+        assert resolve_operator() == "bob"
+
+    def test_none_override_returns_os_user(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from gxassessms.cli._helpers import resolve_operator
+
+        monkeypatch.setattr("getpass.getuser", lambda: "carol")
+        assert resolve_operator(None) == "carol"
+
+    def test_empty_string_override_falls_through(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from gxassessms.cli._helpers import resolve_operator
+
+        monkeypatch.setattr("getpass.getuser", lambda: "dave")
+        # empty string is falsy -> falls through to getuser()
+        assert resolve_operator("") == "dave"
+
+    def test_fallback_on_os_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from gxassessms.cli._helpers import resolve_operator
+
+        def raise_os_error() -> str:
+            raise OSError("no HOME")
+
+        monkeypatch.setattr("getpass.getuser", raise_os_error)
+        assert resolve_operator() == "unknown"

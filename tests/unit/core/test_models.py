@@ -1192,3 +1192,52 @@ class TestRawToolOutputSourceMode:
         raw = RawToolOutput.model_validate(raw_json)
         assert raw.source_mode == "collected"
         assert raw.ingest_provenance is None
+
+
+# ---------------------------------------------------------------------------
+# Ingest provenance and model invariant tests (Commit 5 coverage)
+# ---------------------------------------------------------------------------
+
+
+class TestIngestProvenanceInvariants:
+    """Tests for frozen IngestProvenance and whitespace normalization."""
+
+    def test_frozen_provenance_rejects_mutation(self) -> None:
+        prov = IngestProvenance(
+            source_path="/tmp/export",  # noqa: S108
+            ingested_at=datetime(2026, 4, 11, tzinfo=UTC),
+            ingested_by="human:alice",
+            replaced=False,
+        )
+        with pytest.raises(ValidationError, match="frozen"):
+            prov.replaced = True  # type: ignore[misc]
+
+    def test_ingested_by_normalizes_whitespace(self) -> None:
+        prov = IngestProvenance(
+            source_path="/tmp/export",  # noqa: S108
+            ingested_at=datetime(2026, 4, 11, tzinfo=UTC),
+            ingested_by="human:  alice ",
+            replaced=False,
+        )
+        assert prov.ingested_by == "human:alice"
+
+    def test_ingested_requires_ingest_capable_manifest_version(self) -> None:
+        """source_mode='ingested' with manifest_version='1.0.0' raises."""
+        prov = IngestProvenance(
+            source_path="/tmp/export",  # noqa: S108
+            ingested_at=datetime(2026, 4, 11, tzinfo=UTC),
+            ingested_by="human:alice",
+            replaced=False,
+        )
+        with pytest.raises(ValidationError, match="manifest_version"):
+            RawToolOutput(
+                tool=ToolSource.SCUBAGEAR,
+                tool_slug="scubagear",
+                schema_version="1.7.1",
+                manifest_version="1.0.0",
+                timestamp=datetime(2026, 4, 11, tzinfo=UTC),
+                file_manifest=_MINIMAL_MANIFEST,
+                execution_metadata={},
+                source_mode="ingested",
+                ingest_provenance=prov,
+            )

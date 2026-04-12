@@ -52,3 +52,18 @@ class TestScubaGearIngest:
 
     def test_ingest_capability_declared(self) -> None:
         assert "ingest" in ScubaGearAdapter().capabilities
+
+    def test_oserror_on_iterdir_raises_collection_error(self, tmp_path: Path) -> None:
+        """OSError from iterdir is wrapped in CollectionError."""
+        from unittest.mock import patch
+
+        adapter = ScubaGearAdapter()
+        with (
+            patch.object(type(tmp_path), "iterdir", side_effect=PermissionError("denied")),
+            pytest.raises(CollectionError, match="Cannot list files"),
+        ):
+            adapter.ingest_from_directory(
+                tmp_path,
+                schema_version="1.7.1",
+                timestamp=datetime(2026, 4, 11, tzinfo=UTC),
+            )

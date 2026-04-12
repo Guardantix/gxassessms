@@ -498,6 +498,12 @@ class TestSaveRawOutputsNew:
         assert (eng_dir / "raw-output" / "artifacts").exists()
         assert (eng_dir / "reports").exists()
 
+    def test_source_mode_is_collected(self, artifact_mgr: ArtifactManager, tmp_path: Path) -> None:
+        """save_raw_outputs produces manifests with source_mode='collected'."""
+        cr = _make_collection_result(tmp_path)
+        result = artifact_mgr.save_raw_outputs("eng-smode", "Acme", [cr])
+        assert result[0].raw_output.source_mode == "collected"
+
 
 # ---------------------------------------------------------------------------
 # Security hardening tests (issues #40 and #36)
@@ -838,6 +844,85 @@ class TestSaveIngestedRawOutput:
 
         with pytest.raises(PersistenceError, match="symlink"):
             artifact_mgr.save_ingested_raw_output("eng-ingest-08", co, ingest_provenance=prov)
+
+    def test_copy_corruption_raises_and_cleans_staging(
+        self, artifact_mgr: ArtifactManager, tmp_path: Path
+    ) -> None:
+        """Mismatching copy hash -> PersistenceError; no staging dirs remain."""
+        from unittest.mock import patch as mock_patch
+
+        artifact_mgr.create_engagement_dir("eng-ingest-corrupt", "Acme")
+        co = _make_collection_output(tmp_path)
+        prov = _make_ingest_provenance(tmp_path)
+
+        with (
+            mock_patch("gxassessms.core.hashing.sha256_file", return_value="0" * 64),
+            pytest.raises(PersistenceError, match="corruption"),
+        ):
+            artifact_mgr.save_ingested_raw_output("eng-ingest-corrupt", co, ingest_provenance=prov)
+
+        eng_dir = artifact_mgr.get_engagement_dir("eng-ingest-corrupt")
+        raw_dir = eng_dir / "raw-output"
+        staging = [d for d in raw_dir.iterdir() if d.name.startswith(".ingest-staging-")]
+        assert staging == []
+
+    def test_rejects_relative_source_path(
+        self, artifact_mgr: ArtifactManager, tmp_path: Path
+    ) -> None:
+        """CollectionOutput with relative source_path -> PersistenceError."""
+        from gxassessms.core.domain.models import CollectedArtifact
+
+        artifact_mgr.create_engagement_dir("eng-ingest-relpath", "Acme")
+        content = b'{"data": 1}'
+        sha = _sha256(content)
+        co = CollectionOutput(
+            tool=ToolSource.SCUBAGEAR,
+            tool_slug="scubagear",
+            schema_version="1.0.0",
+            timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+            artifacts=[
+                CollectedArtifact(
+                    source_path="relative/path/results.json",
+                    target_relpath="scubagear/results.json",
+                    encoding="utf-8",
+                    sha256=sha,
+                ),
+            ],
+            execution_metadata={},
+        )
+        prov = _make_ingest_provenance(tmp_path)
+        with pytest.raises(PersistenceError, match="not absolute"):
+            artifact_mgr.save_ingested_raw_output("eng-ingest-relpath", co, ingest_provenance=prov)
+
+    def test_phase3_failure_cleans_staging_and_raises(
+        self, artifact_mgr: ArtifactManager, tmp_path: Path
+    ) -> None:
+        """Phase 3 rename failure -> PersistenceError; staging dir cleaned up."""
+        from unittest.mock import patch as mock_patch
+
+        artifact_mgr.create_engagement_dir("eng-ingest-p3fail", "Acme")
+        co = _make_collection_output(tmp_path)
+        prov = _make_ingest_provenance(tmp_path)
+
+        original_rename = Path.rename
+
+        def fail_on_commit_rename(self_path: Path, target: Path) -> Path:
+            # Fail when Phase 3 renames staged artifacts to final location.
+            # Phase 3 renames: staging/.../artifacts/slug -> raw-output/artifacts/slug
+            if ".ingest-staging-" in str(self_path) and "artifacts/scubagear" in str(target):
+                raise OSError("simulated commit failure")
+            return original_rename(self_path, target)
+
+        with (
+            mock_patch.object(Path, "rename", fail_on_commit_rename),
+            pytest.raises(PersistenceError, match="Failed to commit"),
+        ):
+            artifact_mgr.save_ingested_raw_output("eng-ingest-p3fail", co, ingest_provenance=prov)
+
+        eng_dir = artifact_mgr.get_engagement_dir("eng-ingest-p3fail")
+        raw_dir = eng_dir / "raw-output"
+        staging = [d for d in raw_dir.iterdir() if d.name.startswith(".ingest-staging-")]
+        assert staging == []
 
     def test_purge_audit_path_in_returned_manifest(self, tmp_path: Path) -> None:
         engagements_root = tmp_path / "engagements"

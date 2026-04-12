@@ -68,3 +68,18 @@ class TestProwlerIngest:
 
     def test_ingest_capability_declared(self) -> None:
         assert "ingest" in ProwlerAdapter().capabilities
+
+    def test_oserror_on_rglob_raises_collection_error(self, tmp_path: Path) -> None:
+        """OSError from rglob is wrapped in CollectionError."""
+        from unittest.mock import patch
+
+        adapter = ProwlerAdapter()
+        with (
+            patch.object(type(tmp_path), "rglob", side_effect=PermissionError("denied")),
+            pytest.raises(CollectionError, match="Cannot list files"),
+        ):
+            adapter.ingest_from_directory(
+                tmp_path,
+                schema_version="1.4.0",
+                timestamp=datetime(2026, 4, 11, tzinfo=UTC),
+            )
