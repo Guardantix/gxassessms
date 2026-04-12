@@ -38,6 +38,7 @@ EventType = Literal[
     "rerender",
     "token_usage",
     "manual_merge",
+    "raw_output_ingested",
 ]
 
 # Derive valid values from the EventType Literal for runtime validation

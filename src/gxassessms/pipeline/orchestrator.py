@@ -231,6 +231,29 @@ class Orchestrator:
                 },
             )
 
+    def record_raw_output_ingested(
+        self,
+        *,
+        engagement_id: str,
+        actor: str,
+        tool_slug: str,
+        source_path: str,
+        file_count: int,
+        replaced: bool,
+    ) -> None:
+        """Record a raw_output_ingested event in the engagement journal."""
+        self._emit_event(
+            engagement_id,
+            "raw_output_ingested",
+            actor,
+            {
+                "tool_slug": tool_slug,
+                "source_path": source_path,
+                "file_count": file_count,
+                "replaced": replaced,
+            },
+        )
+
     # ------------------------------------------------------------------
     # Content hashing and invalidation
     # ------------------------------------------------------------------

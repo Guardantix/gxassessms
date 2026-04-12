@@ -1409,3 +1409,29 @@ class TestDetermineResumeStage:
             {"payload": '{"from": "NORMALIZING", "to": "FAILED"}'},
         ]
         assert orchestrator.determine_resume_stage("eng-1") == Stage.NORMALIZE
+
+
+class TestRecordRawOutputIngested:
+    def test_forwards_to_emit_event(
+        self,
+        orchestrator: Orchestrator,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        orchestrator.record_raw_output_ingested(
+            engagement_id="eng-001",
+            actor="human:alice",
+            tool_slug="scubagear",
+            source_path="/var/lib/gxassessms/exports/scubagear",
+            file_count=1,
+            replaced=False,
+        )
+        mock_event_repo.append.assert_called()
+        event = mock_event_repo.append.call_args[0][0]
+        assert event.event_type == "raw_output_ingested"
+        assert event.actor == "human:alice"
+        assert event.engagement_id == "eng-001"
+        payload = event.payload
+        assert payload["tool_slug"] == "scubagear"
+        assert payload["source_path"] == "/var/lib/gxassessms/exports/scubagear"
+        assert payload["file_count"] == 1
+        assert payload["replaced"] is False
