@@ -34,7 +34,6 @@ from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import CoverageStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
-    CollectedArtifact,
     CollectionOutput,
     CoverageRecord,
     ResolvedManifest,
@@ -91,10 +90,9 @@ class MaesterAdapter:
         """
         import uuid as uuid_mod
 
-        from gxassessms.adapters._base import run_verified_powershell
+        from gxassessms.adapters._base import build_collection_output, run_verified_powershell
         from gxassessms.adapters.maester.policy import ALLOWED_COMMANDS, MODULE_POLICY
         from gxassessms.core.config.datetime_utils import utc_now
-        from gxassessms.core.hashing import sha256_file
 
         tc = config.tools.get(self.tool_name.lower())
         if tc is None or not tc.output_dir:
@@ -151,21 +149,14 @@ class MaesterAdapter:
             )
 
         results_path = json_results[0]
-        sha = sha256_file(results_path)
+        items = [(results_path, f"{self.storage_slug}/{results_path.name}")]
 
-        return CollectionOutput(
+        return build_collection_output(
             tool=ToolSource.MAESTER,
             tool_slug=self.storage_slug,
+            items=items,
             schema_version="1.0.0",
             timestamp=utc_now(),
-            artifacts=[
-                CollectedArtifact(
-                    source_path=str(results_path),
-                    target_relpath=f"{self.storage_slug}/{results_path.name}",
-                    encoding="utf-8",
-                    sha256=sha,
-                )
-            ],
             execution_metadata={
                 "module_provenance": verification_result.to_json_dict(),
             },

@@ -50,7 +50,6 @@ from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
-    CollectedArtifact,
     CollectionOutput,
     CoverageRecord,
     ResolvedManifest,
@@ -205,8 +204,8 @@ class ProwlerAdapter:
         - modules: Optional list of specific checks to run (passed to --checks)
         - timeout: Seconds (default 1800)
         """
+        from gxassessms.adapters._base import build_collection_output
         from gxassessms.core.config.datetime_utils import utc_now
-        from gxassessms.core.hashing import sha256_file
 
         prowler_path = shutil.which("prowler")
         if prowler_path is None:
@@ -371,24 +370,9 @@ class ProwlerAdapter:
                 adapter_name=self.tool_name,
             )
 
-        artifacts: list[CollectedArtifact] = []
-        for f in ocsf_files:
-            try:
-                sha = sha256_file(f)
-            except OSError as exc:
-                raise CollectionError(
-                    f"Cannot hash Prowler output file {f}: {exc}",
-                    adapter_name=self.tool_name,
-                ) from exc
-            artifacts.append(
-                CollectedArtifact(
-                    source_path=str(f),
-                    target_relpath=f"{self.storage_slug}/{f.relative_to(output_dir).as_posix()}",
-                    encoding="utf-8",
-                    sha256=sha,
-                )
-            )
-        artifacts.sort(key=lambda a: a.target_relpath)
+        items = [
+            (f, f"{self.storage_slug}/{f.relative_to(output_dir).as_posix()}") for f in ocsf_files
+        ]
 
         logger.info(
             "Prowler collection complete. %d OCSF output file(s) in %s",
@@ -396,12 +380,12 @@ class ProwlerAdapter:
             output_dir,
         )
 
-        return CollectionOutput(
+        return build_collection_output(
             tool=ToolSource.PROWLER,
             tool_slug=self.storage_slug,
+            items=items,
             schema_version=_SCHEMA_VERSION,
             timestamp=utc_now(),
-            artifacts=artifacts,
             execution_metadata={
                 "output_dir": str(output_dir),
                 "auth_method": config.auth.method,

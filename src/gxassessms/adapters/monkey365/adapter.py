@@ -40,7 +40,6 @@ from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
-    CollectedArtifact,
     CollectionOutput,
     CoverageRecord,
     ResolvedManifest,
@@ -95,10 +94,9 @@ class Monkey365Adapter:
         auth: AuthContext | None,
     ) -> CollectionOutput:
         """Run Monkey365 with provenance verification and capture OCSF JSON output."""
-        from gxassessms.adapters._base import run_verified_powershell
+        from gxassessms.adapters._base import build_collection_output, run_verified_powershell
         from gxassessms.adapters.monkey365.policy import ALLOWED_COMMANDS, MODULE_POLICY
         from gxassessms.core.config.datetime_utils import utc_now
-        from gxassessms.core.hashing import sha256_file
         from gxassessms.core.security.permissions import secure_mkdir
 
         tc = config.tools.get(self.tool_name.lower())
@@ -164,31 +162,22 @@ class Monkey365Adapter:
                 adapter_name=self.tool_name,
             )
 
-        artifacts: list[CollectedArtifact] = []
-        for results_path in new_files:
-            sha = sha256_file(results_path)
-            artifacts.append(
-                CollectedArtifact(
-                    source_path=str(results_path),
-                    target_relpath=f"{self.storage_slug}/{results_path.name}",
-                    encoding="utf-8",
-                    sha256=sha,
-                )
-            )
+        items = [(f, f"{self.storage_slug}/{f.name}") for f in new_files]
 
         logger.info(
             "Monkey365 collection complete. Output dir: %s, %d artifacts",
             output_dir,
-            len(artifacts),
+            len(items),
         )
 
-        return CollectionOutput(
+        return build_collection_output(
             tool=ToolSource.MONKEY365,
             tool_slug=self.storage_slug,
+            items=items,
             schema_version=_SCHEMA_VERSION,
             timestamp=utc_now(),
-            artifacts=artifacts,
             execution_metadata={
+                "output_dir": str(output_dir),
                 "module_provenance": verification_result.to_json_dict(),
             },
         )
