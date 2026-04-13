@@ -897,3 +897,16 @@ class TestResolveOperator:
 
         monkeypatch.setattr("getpass.getuser", raise_os_error)
         assert resolve_operator() == "unknown"
+
+    def test_fallback_on_module_not_found_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """getpass.getuser() raises ModuleNotFoundError on Windows (no pwd module).
+
+        resolve_operator() must not propagate it -- its contract is 'never raises'.
+        """
+        from gxassessms.cli._helpers import resolve_operator
+
+        def raise_module_not_found() -> str:
+            raise ModuleNotFoundError("No module named 'pwd'")
+
+        monkeypatch.setattr("getpass.getuser", raise_module_not_found)
+        assert resolve_operator() == "unknown"

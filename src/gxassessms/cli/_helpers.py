@@ -137,7 +137,7 @@ def resolve_operator(override: str | None = None) -> str:
 
     try:
         return override or getpass.getuser()
-    except (OSError, KeyError) as exc:  # fmt: skip
+    except (OSError, KeyError, ModuleNotFoundError) as exc:  # fmt: skip
         logger.warning(
             "Could not determine OS user for audit attribution (%s); "
             "use --operator to set identity explicitly",
