@@ -124,7 +124,7 @@ tools:
 | `enabled` | boolean | `false` | Whether to run this tool |
 | `modules` | list of strings | `[]` | Which modules/products to assess (tool-specific) |
 | `timeout` | integer | varies | Maximum seconds for tool execution |
-| `output_dir` | string | `""` | Custom output directory (required for M365 Assess) |
+| `output_dir` | string | `""` | Output directory for raw tool data (required for all adapters) |
 | `script_dir` | string | `""` | Tool script directory (required for M365 Assess) |
 | `extra_args` | list of strings | `[]` | Additional arguments passed to the tool |
 | `module_policy_override` | object | none | Advanced: narrow module provenance policy (see below) |
@@ -133,14 +133,18 @@ tools:
 tools:
   scubagear:
     enabled: true
+    output_dir: "./output/scubagear"
     modules: ["AAD", "EXO", "SharePoint", "Teams"]
     timeout: 1200
 
   maester:
     enabled: true
+    output_dir: "./output/maester"
     timeout: 600
 
-  securescore: true    # shorthand -- just enable with defaults
+  securescore:
+    enabled: true
+    output_dir: "./output/securescore"
 ```
 
 **Tool-specific module values:**
@@ -235,13 +239,19 @@ auth:
 tools:
   scubagear:
     enabled: true
+    output_dir: "./output/scubagear"
     modules: ["AAD", "Defender", "EXO", "SharePoint", "Teams"]
     timeout: 1800
   maester:
     enabled: true
+    output_dir: "./output/maester"
     timeout: 600
-  securescore: true
-  azureadvisor: true
+  securescore:
+    enabled: true
+    output_dir: "./output/securescore"
+  azureadvisor:
+    enabled: true
+    output_dir: "./output/azureadvisor"
 
 report:
   formats: ["docx"]

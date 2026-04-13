@@ -31,6 +31,7 @@ auth:
 tools:
   scubagear:
     enabled: true
+    output_dir: "./output/scubagear"  # Where raw output is written
     modules: ["AAD", "EXO"]    # Start small -- just Entra ID and Exchange
     timeout: 1200              # 20 minutes (generous for a first run)
 ```

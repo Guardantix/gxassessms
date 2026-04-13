@@ -31,6 +31,7 @@ Exchange Online, SharePoint, Teams, Defender, and Power Platform.
 tools:
   scubagear:
     enabled: true
+    output_dir: "./output/scubagear"
     modules: ["AAD", "Defender", "EXO", "PowerPlatform", "SharePoint", "Teams"]
     timeout: 1800    # default: 1800 (30 minutes)
 ```
@@ -61,6 +62,7 @@ configuration, privileged identity management, and more.
 tools:
   maester:
     enabled: true
+    output_dir: "./output/maester"
     timeout: 600
 ```
 
@@ -85,6 +87,7 @@ storage accounts, networking, identity, and M365 service configuration.
 tools:
   monkey365:
     enabled: true
+    output_dir: "./output/monkey365"
     timeout: 900
 ```
 
@@ -109,6 +112,7 @@ frameworks.
 tools:
   prowler:
     enabled: true
+    output_dir: "./output/prowler"
     timeout: 1200
 ```
 
@@ -129,7 +133,9 @@ rating for your M365 tenant. Provides a score and improvement actions.
 
 ```yaml
 tools:
-  securescore: true    # shorthand is usually enough
+  securescore:
+    enabled: true
+    output_dir: "./output/securescore"
 ```
 
 **Notes:** Lightweight -- runs in seconds. The findings come with Microsoft's own
@@ -150,7 +156,9 @@ reliability, performance, cost, and operational excellence.
 
 ```yaml
 tools:
-  azureadvisor: true
+  azureadvisor:
+    enabled: true
+    output_dir: "./output/azureadvisor"
 ```
 
 **Notes:** Requires `client.subscription_id` in your config. Findings use
@@ -174,11 +182,11 @@ tools:
   m365_assess:
     enabled: true
     script_dir: "/path/to/M365-Assess"     # directory containing Invoke-M365Assessment.ps1
-    output_dir: "/path/to/m365-output"     # where raw output is written
+    output_dir: "./output/m365_assess"
 ```
 
-Both `script_dir` and `output_dir` are required for this adapter. `script_dir`
-must point to the directory containing `Invoke-M365Assessment.ps1`.
+`script_dir` is required for this adapter and must point to the directory
+containing `Invoke-M365Assessment.ps1`.
 
 ## Choosing Which Adapters to Run
 

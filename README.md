@@ -43,6 +43,7 @@ auth:
 tools:
   scubagear:
     enabled: true
+    output_dir: "./output/scubagear"
     modules: ["AAD", "EXO", "SharePoint", "Teams"]
 ```
 
