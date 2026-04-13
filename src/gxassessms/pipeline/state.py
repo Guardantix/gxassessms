@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal, TypedDict, get_args
+from typing import Any, Literal, NotRequired, TypedDict, get_args
 
 from filelock import BaseFileLock, FileLock, Timeout
 
@@ -99,9 +99,8 @@ class RawOutputIngestedPayload(TypedDict):
     source_path: str
     file_count: int
     replaced: bool
-    ingested_at: (
-        str  # ISO 8601 string (datetime.isoformat()); used by --repair-event idempotency check
-    )
+    # Absent in legacy events; callers must use .get("ingested_at") to read.
+    ingested_at: NotRequired[str]  # ISO 8601 from datetime.isoformat()
 
 
 ENGAGEMENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
