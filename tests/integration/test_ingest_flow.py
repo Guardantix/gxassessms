@@ -452,6 +452,85 @@ class TestSingleToolIngestAndReplay:
             f"Expected idempotency or repair confirmation, got:\n{result.output}"
         )
 
+    def test_repair_event_after_db_wipe_rehydrates_and_records_event(
+        self,
+        isolated_data_dir: Path,
+        scubagear_fixtures_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """--repair-event succeeds after a DB wipe by rehydrating from config_snapshot.json.
+
+        Simulates the documented DR scenario: ingest succeeds, DB is wiped,
+        --repair-event must re-insert the engagement row and record the event.
+        """
+        runner = CliRunner()
+
+        config_file = tmp_path / "config.yaml"
+        self._write_config_yaml(config_file)
+
+        result = runner.invoke(cli, ["engagement", "create", str(config_file)])
+        assert result.exit_code == 0, result.output
+        engagement_id = _extract_engagement_id(result.output)
+
+        source_dir = tmp_path / "scuba-export"
+        source_dir.mkdir()
+        shutil.copy(
+            str(scubagear_fixtures_dir / "ScubaResults.json"),
+            str(source_dir / "ScubaResults.json"),
+        )
+
+        registry = _make_scubagear_registry()
+
+        with patch("gxassessms.adapters.discover_adapters", return_value=registry):
+            result = runner.invoke(
+                cli,
+                ["ingest", engagement_id, "--tool", "scubagear", "--from", str(source_dir)],
+            )
+        assert result.exit_code == 0, result.output
+
+        # Simulate DB wipe: delete the SQLite database file and its WAL/SHM journal
+        # files (present when WAL mode is active). DatabaseManager will recreate a
+        # fresh schema on the next connection.
+        db_path = isolated_data_dir / "engagements.db"
+        assert db_path.exists(), f"Expected DB at {db_path}"
+        db_path.unlink()
+        for journal_suffix in ("-wal", "-shm"):
+            journal = db_path.parent / (db_path.name + journal_suffix)
+            if journal.exists():
+                journal.unlink()
+
+        # --repair-event should rehydrate the engagement row and record the event
+        with patch("gxassessms.adapters.discover_adapters", return_value=registry):
+            result = runner.invoke(
+                cli,
+                ["ingest", engagement_id, "--tool", "scubagear", "--repair-event"],
+            )
+        assert result.exit_code == 0, (
+            f"--repair-event failed after DB wipe (exit {result.exit_code}):\n{result.output}"
+        )
+        assert "repaired" in result.output.lower(), (
+            f"Expected 'Repaired' confirmation, got:\n{result.output}"
+        )
+
+        # Verify the event was recorded in the freshly re-created DB
+        from gxassessms.persistence import DatabaseManager, EventRepo
+
+        db = DatabaseManager()
+        db.initialize()
+        event_repo = EventRepo(db)
+        events = event_repo.get_events_by_type(engagement_id, "raw_output_ingested")
+        assert len(events) == 1, f"Expected 1 raw_output_ingested event, found {len(events)}"
+        payload = json.loads(events[0]["payload"])
+        assert payload["tool_slug"] == "scubagear"
+
+        # Verify the engagement row was actually rehydrated
+        from gxassessms.cli._helpers import get_engagement_repo
+
+        repo = get_engagement_repo()
+        row = repo.get(engagement_id)
+        assert row is not None, "Engagement row should be rehydrated after --repair-event"
+        assert row["client_name"] == "Integration Test"
+
     def test_ingest_records_event_in_db(
         self,
         isolated_data_dir: Path,

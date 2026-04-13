@@ -761,6 +761,71 @@ class TestRepairEventHappyPath:
 
         assert result.exit_code != 0
 
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
+    @patch("gxassessms.cli._helpers.resolve_enabled_adapter", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_repair_event_rehydrates_when_engagement_row_missing(
+        self,
+        mock_get_repo: MagicMock,
+        mock_resolve: MagicMock,
+        mock_require: MagicMock,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
+        tmp_path: Path,
+    ) -> None:
+        """--repair-event rehydrates the engagement row when the DB was wiped.
+
+        When repo.get() raises PersistenceError (missing row), the repair path
+        must rehydrate from config_snapshot.json before calling
+        record_raw_output_ingested() -- otherwise the FK constraint fails.
+        """
+        # Simulate wiped DB: get() raises, rehydrate_from_snapshot() succeeds silently
+        mock_get_repo.return_value.get.side_effect = PersistenceError("engagement not found")
+        snapshot = json.loads(_make_engagement_row()["config_snapshot"])
+        mock_get_artifacts.return_value.read_config_snapshot.return_value = snapshot
+
+        adapter = _make_mock_adapter()
+        mock_resolve.return_value = adapter
+        mock_require.return_value = adapter
+
+        eng_dir = tmp_path / _ENGAGEMENT_ID
+        manifest_dir = eng_dir / "raw-output" / "manifests"
+        manifest_dir.mkdir(parents=True)
+        manifest_path = manifest_dir / f"{_TOOL_SLUG}.json"
+        manifest_path.write_text(self._make_manifest_json(), encoding="utf-8")
+        mock_get_artifacts.return_value.get_engagement_dir.return_value = eng_dir
+
+        orchestrator = mock_build_orch.return_value
+        orchestrator.has_raw_output_ingested_event.return_value = False
+        mock_lock = mock_get_lock.return_value
+        mock_lock.hold.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.hold.return_value.__exit__ = MagicMock(return_value=False)
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["ingest", _ENGAGEMENT_ID, "--tool", _TOOL_SLUG, "--repair-event"],
+        )
+
+        assert result.exit_code == 0, result.output
+        # DR message must be printed
+        assert "DR" in result.output, f"Expected 'DR' in output, got:\n{result.output}"
+        assert "Rehydrated" in result.output, (
+            f"Expected 'Rehydrated' in output, got:\n{result.output}"
+        )
+        # Rehydration must have been called with the engagement's identity fields
+        mock_get_repo.return_value.rehydrate_from_snapshot.assert_called_once()
+        call_kwargs = mock_get_repo.return_value.rehydrate_from_snapshot.call_args.kwargs
+        assert call_kwargs["engagement_id"] == _ENGAGEMENT_ID
+        assert call_kwargs["client_name"] == snapshot["client_name"]
+        assert call_kwargs["tenant_id"] == snapshot["tenant_id"]
+        # Event must still be recorded after rehydration
+        orchestrator.record_raw_output_ingested.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # Shared helper for repair-event error-path tests
@@ -939,8 +1004,10 @@ class TestIngestErrorPaths:
     @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)  # NEW
     def test_repair_event_proceeds_when_idempotency_check_fails(
         self,
+        mock_get_repo: MagicMock,  # NEW first param (innermost = first)
         mock_get_artifacts: MagicMock,
         mock_build_orch: MagicMock,
         mock_get_lock: MagicMock,
@@ -948,6 +1015,8 @@ class TestIngestErrorPaths:
     ) -> None:
         """Repair path: idempotency check failure is non-fatal; event still emitted."""
         from gxassessms.core.contracts.errors import GxAssessError
+
+        mock_get_repo.return_value.get.return_value = _make_engagement_row()  # NEW
 
         eng_dir = tmp_path / _ENGAGEMENT_ID
         manifest_dir = eng_dir / "raw-output" / "manifests"
@@ -1327,14 +1396,18 @@ class TestIngestLockAcquisition:
     @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
     @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
     @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)  # NEW
     def test_repair_event_acquires_engagement_lock(
         self,
+        mock_get_repo: MagicMock,  # NEW first param (innermost = first)
         mock_get_artifacts: MagicMock,
         mock_build_orch: MagicMock,
         mock_get_lock: MagicMock,
         tmp_path: Path,
     ) -> None:
         """--repair-event acquires per-engagement lock before idempotency check."""
+        mock_get_repo.return_value.get.return_value = _make_engagement_row()  # NEW
+
         eng_dir = tmp_path / _ENGAGEMENT_ID
         manifest_dir = eng_dir / "raw-output" / "manifests"
         manifest_dir.mkdir(parents=True)

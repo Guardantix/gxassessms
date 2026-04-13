@@ -301,6 +301,44 @@ def _repair_event(
                     f"({exc}); a duplicate may be emitted."
                 )
 
+            # DR path: ensure the engagement row exists before the FK-constrained
+            # event INSERT. If the DB was wiped after ingest, repo.get() raises
+            # PersistenceError; rehydrate from the on-disk config snapshot.
+            repo = _helpers.get_engagement_repo()
+            try:
+                repo.get(engagement_id)
+            except PersistenceError:
+                try:
+                    snapshot = artifacts.read_config_snapshot(engagement_id)
+                except PersistenceError as snap_err:
+                    console.print(f"[bright_red]DR repair failed:[/bright_red] {snap_err}")
+                    raise SystemExit(1) from None
+                try:
+                    from gxassessms.core.config.config import EngagementConfig
+
+                    config = EngagementConfig.model_validate(snapshot)
+                except PydanticValidationError as ve:
+                    console.print(
+                        f"[bright_red]DR repair failed:[/bright_red] Config validation error: {ve}"
+                    )
+                    raise SystemExit(1) from None
+                try:
+                    repo.rehydrate_from_snapshot(
+                        engagement_id=engagement_id,
+                        client_name=config.client_name,
+                        tenant_id=config.tenant_id,
+                        config_snapshot=config.model_dump(mode="json"),
+                        engagement_dir=str(eng_dir),
+                    )
+                except PersistenceError as rehydrate_err:
+                    if "already exists" not in str(rehydrate_err):
+                        console.print(f"[bright_red]DR repair failed:[/bright_red] {rehydrate_err}")
+                        raise SystemExit(1) from None
+                console.print(
+                    f"[yellow]DR:[/yellow] Rehydrated engagement row for "
+                    f"{engagement_id!r} from filesystem config snapshot."
+                )
+
             orchestrator.record_raw_output_ingested(
                 engagement_id=engagement_id,
                 actor=prov.ingested_by,  # from committed manifest, not current CLI invocation
