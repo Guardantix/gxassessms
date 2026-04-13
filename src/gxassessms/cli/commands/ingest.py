@@ -283,7 +283,7 @@ def _repair_event(
             orchestrator = _helpers.build_orchestrator()
             try:
                 if orchestrator.has_raw_output_ingested_event(
-                    engagement_id, tool_slug, source_path=prov.source_path
+                    engagement_id, tool_slug, source_path=prov.source_path, replaced=prov.replaced
                 ):
                     console.print(
                         f"[yellow]Event already exists for {tool_slug} -- nothing to do[/yellow]"

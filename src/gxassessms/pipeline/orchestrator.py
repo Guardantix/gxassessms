@@ -262,10 +262,14 @@ class Orchestrator:
         tool_slug: str,
         *,
         source_path: str | None = None,
+        replaced: bool | None = None,
     ) -> bool:
         """Return True if a matching raw_output_ingested event exists.
 
         If source_path is provided, both tool_slug and source_path must match.
+        If replaced is provided, the event's replaced flag must also match --
+        use this to distinguish a replacement ingest event from the prior
+        initial-ingest event that shares the same (tool_slug, source_path).
         If source_path is None, only tool_slug is checked (backward-compatible).
         """
         events = self._event_repo.get_events_by_type(engagement_id, "raw_output_ingested")
@@ -279,8 +283,10 @@ class Orchestrator:
                     exc_info=True,
                 )
                 continue
-            if payload.get("tool_slug") == tool_slug and (
-                source_path is None or payload.get("source_path") == source_path
+            if (
+                payload.get("tool_slug") == tool_slug
+                and (source_path is None or payload.get("source_path") == source_path)
+                and (replaced is None or payload.get("replaced") == replaced)
             ):
                 return True
         return False

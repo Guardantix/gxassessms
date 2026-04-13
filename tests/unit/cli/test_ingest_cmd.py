@@ -544,6 +544,7 @@ class TestRepairEventHappyPath:
             _ENGAGEMENT_ID,
             _TOOL_SLUG,
             source_path="/home/testuser/scubagear-output",  # from _make_manifest_json
+            replaced=False,
         )
         orchestrator.record_raw_output_ingested.assert_called_once()
         call_kwargs = orchestrator.record_raw_output_ingested.call_args.kwargs

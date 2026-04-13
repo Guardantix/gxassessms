@@ -1540,3 +1540,44 @@ class TestHasRawOutputIngestedEvent:
             )
             is False
         )
+
+    def test_returns_false_when_replaced_flag_differs(
+        self, orchestrator: Orchestrator, mock_event_repo: MagicMock
+    ) -> None:
+        """Prior event has replaced=False but repair is for replaced=True ingest.
+
+        Same (tool_slug, source_path) but different replaced value means this is
+        a different ingest operation (a replacement whose event was never recorded).
+        The old event must NOT satisfy the check.
+        """
+        payload_json = (
+            '{"tool_slug": "scubagear", "source_path": "/home/user/data",'
+            ' "file_count": 1, "replaced": false}'
+        )
+        mock_event_repo.get_events_by_type.return_value = [
+            {"event_type": "raw_output_ingested", "payload": payload_json}
+        ]
+        assert (
+            orchestrator.has_raw_output_ingested_event(
+                "eng-001", "scubagear", source_path="/home/user/data", replaced=True
+            )
+            is False
+        )
+
+    def test_returns_true_when_replaced_flag_matches(
+        self, orchestrator: Orchestrator, mock_event_repo: MagicMock
+    ) -> None:
+        """Event with replaced=True matches when caller passes replaced=True."""
+        payload_json = (
+            '{"tool_slug": "scubagear", "source_path": "/home/user/data",'
+            ' "file_count": 3, "replaced": true}'
+        )
+        mock_event_repo.get_events_by_type.return_value = [
+            {"event_type": "raw_output_ingested", "payload": payload_json}
+        ]
+        assert (
+            orchestrator.has_raw_output_ingested_event(
+                "eng-001", "scubagear", source_path="/home/user/data", replaced=True
+            )
+            is True
+        )
