@@ -154,7 +154,7 @@ class TestSeverityCoverage:
                 if not isinstance(value, Severity):
                     try:
                         Severity(value)
-                    except ValueError, KeyError:
+                    except (ValueError, KeyError):
                         pytest.fail(
                             f"{type(adapter).__name__}.severity_map[{key!r}] "
                             f"= {value!r} is not a valid Severity member."
@@ -180,7 +180,7 @@ class TestCategoryCoverage:
                 if not isinstance(value, Category):
                     try:
                         Category(value)
-                    except ValueError, KeyError:
+                    except (ValueError, KeyError):
                         pytest.fail(
                             f"{type(adapter).__name__}.category_map[{key!r}] "
                             f"= {value!r} is not a valid Category member."
