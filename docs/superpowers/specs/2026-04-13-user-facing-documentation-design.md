@@ -157,8 +157,8 @@ Full config YAML reference. Operators come here after the quickstart.
    `pipeline`), only `client` and `auth` required. Note: strict validation rejects
    misspelled keys and wrong types immediately.
 
-2. **`client` section.** Field table: `name` (required), `tenant_id` (required),
-   `subscription_id` (optional). Must match auth.tenant_id.
+2. **`client` section.** Field table: `name` (required), `tenant_id` (required,
+   must match `auth.tenant_id`), `subscription_id` (optional).
 
 3. **`auth` section.** Four auth methods explained separately:
    - `client_credential` with secret (automated/unattended)
@@ -177,8 +177,9 @@ Full config YAML reference. Operators come here after the quickstart.
 6. **`pipeline` section.** `max_parallel`, `qa_model`, `qa_token_budget`. Trade-off
    guidance.
 
-7. **Module provenance overrides.** What `module_policy_override` does (exact
-   version/hash pin). Link to security.md. Framed as advanced.
+7. **Module provenance overrides.** Clarify this is a per-tool nested field within
+   the `tools` section, not a top-level config section. What `module_policy_override`
+   does (exact version/hash pin). Link to security.md. Framed as advanced.
 
 8. **Complete example.** Full annotated YAML showing all sections. Copy-paste starting
    point.
@@ -203,10 +204,11 @@ Scannable reference. No prose paragraphs -- syntax, examples, notes.
    - `mseco replay` -- re-run from raw outputs
    - `mseco consolidate` -- re-consolidate with different policy
    - `mseco review` -- QA review workflow
-   - `mseco engagement list|status|archive|export|delete` -- lifecycle
+   - `mseco engagement create|list|status|archive|restore|purge|export` -- lifecycle
    - `mseco adapters list|check|scaffold` -- discovery
    - `mseco ingest` -- import external output
    - `mseco compute-module-hash` -- advanced/security
+   - `mseco analytics` -- tracking and trends (extension point)
 
    Each subsection: what it does (one sentence), syntax + options, example
    invocation, expected output/exit codes/common errors.
@@ -273,7 +275,7 @@ Operator-facing trust model. Not the internal threat model.
 
 5. **Operator checklist.** Keep modules updated, use certificate auth for production,
    rotate secrets, review output before sharing, clean up with
-   `mseco engagement delete`.
+   `mseco engagement purge`.
 
 ---
 
