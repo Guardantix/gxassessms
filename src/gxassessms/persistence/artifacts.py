@@ -805,6 +805,12 @@ class ArtifactManager:
             # Without this guard, an exception on the very first rename (step 1)
             # would leave existing_artifacts untouched but the rmtree would delete
             # it, corrupting the engagement.
+            #
+            # Known limitation: if existing_artifacts was absent before the replace
+            # (degenerate manifest-only prior state), old_artifacts_aside will not
+            # exist and the new-artifacts cleanup below is skipped. New artifacts are
+            # left at the final location while the restored manifest describes the
+            # prior ingest -- a pre-existing partial corruption this rollback cannot fix.
             old_artifacts_aside = raw_output_dir / f".old-artifacts-{slug}-{staging_id}"
             old_manifest_aside = raw_output_dir / f".old-manifest-{slug}-{staging_id}"
 
