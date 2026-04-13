@@ -65,8 +65,8 @@ in under 2 minutes.
    - Produces a single report
    - Emphasize: you don't need to know how each tool works individually
 
-3. **Quick install.** `pip install gxassessms` (or editable install for now). Python 3.14+
-   called out prominently with a note about why.
+3. **Quick install.** `pip install gxassessms` (or editable install for now). Python 3.12+
+   requirement noted.
 
 4. **Minimal example.** ~15-line config YAML (client name, tenant ID, auth, one tool) +
    `mseco run config.yaml`. Show what happens, what output to expect.
@@ -88,13 +88,13 @@ Highest-traffic page for IT admins who've never touched Python.
 
 **Structure:**
 
-1. **Requirements summary.** Table: Python 3.14+, PowerShell 7+ (for PS-based adapters),
+1. **Requirements summary.** Table: Python 3.12+, PowerShell 7+ (for PS-based adapters),
    Node.js (for report rendering). Clear about what's optional per adapter type.
 
-2. **Python 3.14.** Biggest friction point. Short explanation of why, then
-   platform-specific instructions:
-   - Windows: python.org download, winget, pyenv-win
-   - Linux: deadsnakes PPA, pyenv
+2. **Python setup.** 3.12+ is widely available on all platforms. Brief
+   platform-specific pointers:
+   - Windows: python.org download or winget
+   - Linux: system package manager or deadsnakes PPA
    - Container: base image recommendation
 
 3. **Installing gxassessms.** `pip install gxassessms` and editable install from source.
