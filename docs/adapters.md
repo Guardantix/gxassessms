@@ -173,7 +173,12 @@ mapping to CIS benchmarks.
 tools:
   m365_assess:
     enabled: true
+    script_dir: "/path/to/M365-Assess"     # directory containing Invoke-M365Assessment.ps1
+    output_dir: "/path/to/m365-output"     # where raw output is written
 ```
+
+Both `script_dir` and `output_dir` are required for this adapter. `script_dir`
+must point to the directory containing `Invoke-M365Assessment.ps1`.
 
 ## Choosing Which Adapters to Run
 

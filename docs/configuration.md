@@ -124,7 +124,8 @@ tools:
 | `enabled` | boolean | `false` | Whether to run this tool |
 | `modules` | list of strings | `[]` | Which modules/products to assess (tool-specific) |
 | `timeout` | integer | varies | Maximum seconds for tool execution |
-| `output_dir` | string | `""` | Custom output directory |
+| `output_dir` | string | `""` | Custom output directory (required for M365 Assess) |
+| `script_dir` | string | `""` | Tool script directory (required for M365 Assess) |
 | `extra_args` | list of strings | `[]` | Additional arguments passed to the tool |
 | `module_policy_override` | object | none | Advanced: narrow module provenance policy (see below) |
 
