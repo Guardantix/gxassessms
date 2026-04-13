@@ -176,7 +176,7 @@ def _ingest_normal(
 
     try:
         collection_output = adapter.ingest_from_directory(
-            source_dir,
+            resolved_source,
             schema_version=schema_version,
             timestamp=timestamp,
         )

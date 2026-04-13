@@ -347,6 +347,60 @@ class TestSingleToolIngestAndReplay:
             f"Expected error message about existing data or --replace flag, got:\n{result.output}"
         )
 
+    def test_ingest_relative_from_path_succeeds(
+        self,
+        isolated_data_dir: Path,
+        scubagear_fixtures_dir: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Ingest with a relative --from path succeeds (resolved before adapter call)."""
+        runner = CliRunner()
+
+        config_file = tmp_path / "config.yaml"
+        self._write_config_yaml(config_file)
+
+        result = runner.invoke(cli, ["engagement", "create", str(config_file)])
+        assert result.exit_code == 0, result.output
+        engagement_id = _extract_engagement_id(result.output)
+
+        source_name = "scuba-export"
+        source_dir = tmp_path / source_name
+        source_dir.mkdir()
+        shutil.copy(
+            str(scubagear_fixtures_dir / "ScubaResults.json"),
+            str(source_dir / "ScubaResults.json"),
+        )
+
+        # Change CWD to tmp_path so "scuba-export" is a valid relative path
+        monkeypatch.chdir(tmp_path)
+
+        with patch(
+            "gxassessms.adapters.discover_adapters",
+            return_value=_make_scubagear_registry(),
+        ):
+            result = runner.invoke(
+                cli,
+                ["ingest", engagement_id, "--tool", "scubagear", "--from", source_name],
+            )
+
+        assert result.exit_code == 0, (
+            f"Ingest with relative --from path failed (exit {result.exit_code}):\n{result.output}"
+        )
+
+        # Verify the manifest records an absolute source_path
+        from gxassessms.cli._helpers import get_artifact_manager
+
+        am = get_artifact_manager()
+        eng_dir = am.get_engagement_dir(engagement_id)
+        manifest_data = json.loads(
+            (eng_dir / "raw-output" / "manifests" / "scubagear.json").read_text(encoding="utf-8")
+        )
+        recorded_source = manifest_data.get("ingest_provenance", {}).get("source_path", "")
+        assert Path(recorded_source).is_absolute(), (
+            f"Manifest source_path should be absolute, got: {recorded_source!r}"
+        )
+
     def test_repair_event_after_ingest(
         self,
         isolated_data_dir: Path,

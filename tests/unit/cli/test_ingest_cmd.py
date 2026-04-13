@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
 from click.testing import CliRunner
 
 from gxassessms.cli.main import cli
@@ -389,7 +390,67 @@ class TestIngestNormalHappyPath:
 
 
 # ---------------------------------------------------------------------------
-# 5. Repair-event happy path
+# 5. Path resolution test
+# ---------------------------------------------------------------------------
+
+
+class TestIngestPathResolution:
+    """Adapter must receive the absolute resolved path even when --from is relative."""
+
+    @patch("gxassessms.cli._helpers.get_engagement_lock", autospec=True)
+    @patch("gxassessms.cli._helpers.build_orchestrator", autospec=True)
+    @patch("gxassessms.cli._helpers.get_artifact_manager", autospec=True)
+    @patch("gxassessms.cli._helpers.require_ingest_capable", autospec=True)
+    @patch("gxassessms.cli._helpers.resolve_enabled_adapter", autospec=True)
+    @patch("gxassessms.cli._helpers.get_engagement_repo", autospec=True)
+    def test_ingest_passes_resolved_path_to_adapter(
+        self,
+        mock_get_repo: MagicMock,
+        mock_resolve: MagicMock,
+        mock_require: MagicMock,
+        mock_get_artifacts: MagicMock,
+        mock_build_orch: MagicMock,
+        mock_get_lock: MagicMock,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Adapter receives an absolute path even when --from is a relative path."""
+        mock_get_repo.return_value.get.return_value = _make_engagement_row()
+        adapter = _make_mock_adapter()
+        mock_resolve.return_value = adapter
+        mock_require.return_value = adapter
+        collection_output = _make_collection_output(artifact_count=1)
+        adapter.ingest_from_directory.return_value = collection_output
+        loaded = _make_loaded_manifest(replaced=False)
+        mock_get_artifacts.return_value.save_ingested_raw_output.return_value = loaded
+        mock_lock = mock_get_lock.return_value
+        mock_lock.hold.return_value.__enter__ = MagicMock(return_value=None)
+        mock_lock.hold.return_value.__exit__ = MagicMock(return_value=False)
+
+        source_name = "scuba-export"
+        source_dir = tmp_path / source_name
+        source_dir.mkdir()
+        monkeypatch.chdir(tmp_path)  # Make "scuba-export" a valid relative path
+
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["ingest", _ENGAGEMENT_ID, "--tool", _TOOL_SLUG, "--from", source_name],
+        )
+
+        assert result.exit_code == 0, result.output
+        passed_path = adapter.ingest_from_directory.call_args[0][0]
+        assert passed_path.is_absolute(), (
+            f"Adapter received a relative path: {passed_path!r}. "
+            "Expected the resolved absolute path."
+        )
+        assert passed_path == source_dir.resolve(), (
+            f"Expected {source_dir.resolve()!r}, got {passed_path!r}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# 6. Repair-event happy path
 # ---------------------------------------------------------------------------
 
 
@@ -735,7 +796,7 @@ def _make_repair_manifest_json(tool_slug: str = _TOOL_SLUG, replaced: bool = Fal
 
 
 # ---------------------------------------------------------------------------
-# 6. Error path tests
+# 7. Error path tests
 # ---------------------------------------------------------------------------
 
 
@@ -1110,7 +1171,7 @@ class TestIngestErrorPaths:
 
 
 # ---------------------------------------------------------------------------
-# 7. Happy path additional tests (operator, schema-version wiring)
+# 8. Happy path additional tests (operator, schema-version wiring)
 # ---------------------------------------------------------------------------
 
 
@@ -1218,7 +1279,7 @@ class TestIngestWiringHappyPath:
 
 
 # ---------------------------------------------------------------------------
-# 8. Lock acquisition tests
+# 9. Lock acquisition tests
 # ---------------------------------------------------------------------------
 
 
