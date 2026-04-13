@@ -109,14 +109,26 @@ class TestIngestCapableAdapter:
 
             def ingest_from_directory(
                 self, source_dir: Path, *, schema_version: str, timestamp: datetime
-            ) -> CollectionOutput: ...
+            ) -> CollectionOutput:
+                pass  # type: ignore[empty-body]
 
-            def check_prerequisites(self): ...
-            def authenticate(self, config, auth): ...
-            def collect(self, config, auth, output_dir, timeout): ...
-            def validate_raw(self, manifest): ...
-            def parse(self, manifest): ...
-            def coverage(self, manifest): ...
+            def check_prerequisites(self):
+                pass
+
+            def authenticate(self, config, auth):
+                pass
+
+            def collect(self, config, auth, output_dir, timeout):
+                pass
+
+            def validate_raw(self, manifest):
+                pass
+
+            def parse(self, manifest):
+                pass
+
+            def coverage(self, manifest):
+                pass
 
         assert isinstance(FakeIngestAdapter(), IngestCapableAdapter)
 
@@ -128,11 +140,22 @@ class TestIngestCapableAdapter:
             capabilities = frozenset({"collect"})
             # Missing: default_schema_version, ingest_from_directory
 
-            def check_prerequisites(self): ...
-            def authenticate(self, config, auth): ...
-            def collect(self, config, auth, output_dir, timeout): ...
-            def validate_raw(self, manifest): ...
-            def parse(self, manifest): ...
-            def coverage(self, manifest): ...
+            def check_prerequisites(self):
+                pass
+
+            def authenticate(self, config, auth):
+                pass
+
+            def collect(self, config, auth, output_dir, timeout):
+                pass
+
+            def validate_raw(self, manifest):
+                pass
+
+            def parse(self, manifest):
+                pass
+
+            def coverage(self, manifest):
+                pass
 
         assert not isinstance(NoIngestAdapter(), IngestCapableAdapter)
