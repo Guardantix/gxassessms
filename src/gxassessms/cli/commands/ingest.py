@@ -216,6 +216,7 @@ def _ingest_normal(
                     source_path=str(resolved_source),
                     file_count=len(collection_output.artifacts),
                     replaced=loaded.raw_output.ingest_provenance.replaced,
+                    ingested_at=loaded.raw_output.ingest_provenance.ingested_at,
                 )
             except GxAssessError as exc:
                 logger.warning("Failed to record ingest event: %s", exc, exc_info=True)
@@ -283,7 +284,11 @@ def _repair_event(
             orchestrator = _helpers.build_orchestrator()
             try:
                 if orchestrator.has_raw_output_ingested_event(
-                    engagement_id, tool_slug, source_path=prov.source_path, replaced=prov.replaced
+                    engagement_id,
+                    tool_slug,
+                    source_path=prov.source_path,
+                    replaced=prov.replaced,
+                    ingested_at=prov.ingested_at.isoformat(),
                 ):
                     console.print(
                         f"[yellow]Event already exists for {tool_slug} -- nothing to do[/yellow]"
@@ -360,6 +365,7 @@ def _repair_event(
                 source_path=prov.source_path,
                 file_count=len(raw.file_manifest),
                 replaced=prov.replaced,
+                ingested_at=prov.ingested_at,
             )
         console.print(f"[bright_green]Repaired ingest event for {tool_slug}[/bright_green]")
 

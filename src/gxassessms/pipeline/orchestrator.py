@@ -241,6 +241,7 @@ class Orchestrator:
         source_path: str,
         file_count: int,
         replaced: bool,
+        ingested_at: datetime,
     ) -> None:
         """Record a raw_output_ingested event in the engagement journal."""
         payload: RawOutputIngestedPayload = {
@@ -248,6 +249,7 @@ class Orchestrator:
             "source_path": source_path,
             "file_count": file_count,
             "replaced": replaced,
+            "ingested_at": ingested_at.isoformat(),
         }
         self._emit_event(
             engagement_id,
@@ -263,14 +265,21 @@ class Orchestrator:
         *,
         source_path: str | None = None,
         replaced: bool | None = None,
+        ingested_at: str | None = None,
     ) -> bool:
         """Return True if a matching raw_output_ingested event exists.
 
         If source_path is provided, both tool_slug and source_path must match.
-        If replaced is provided, the event's replaced flag must also match --
-        use this to distinguish a replacement ingest event from the prior
-        initial-ingest event that shares the same (tool_slug, source_path).
+        If replaced is provided, the event's replaced flag must also match.
+        If ingested_at is provided (ISO string from datetime.isoformat()), the event's
+        ingested_at must also match -- use when multiple ingests share
+        (tool_slug, source_path, replaced) to discriminate the latest from prior ones.
         If source_path is None, only tool_slug is checked (backward-compatible).
+
+        Backward-compat: events recorded before this fix lack ingested_at in their
+        payload. payload.get("ingested_at") returns None for those events, so they
+        will NOT satisfy the filter when ingested_at is given. This is intentional:
+        a legacy event from a prior replace should not mask a missing newer event.
         """
         events = self._event_repo.get_events_by_type(engagement_id, "raw_output_ingested")
         for event in events:
@@ -287,6 +296,7 @@ class Orchestrator:
                 payload.get("tool_slug") == tool_slug
                 and (source_path is None or payload.get("source_path") == source_path)
                 and (replaced is None or payload.get("replaced") == replaced)
+                and (ingested_at is None or payload.get("ingested_at") == ingested_at)
             ):
                 return True
         return False

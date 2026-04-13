@@ -99,6 +99,9 @@ class RawOutputIngestedPayload(TypedDict):
     source_path: str
     file_count: int
     replaced: bool
+    ingested_at: (
+        str  # ISO 8601 string (datetime.isoformat()); used by --repair-event idempotency check
+    )
 
 
 ENGAGEMENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")
