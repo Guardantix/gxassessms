@@ -785,6 +785,33 @@ class TestSaveIngestedRawOutput:
         artifact_path = eng_dir / "raw-output" / "artifacts" / "scubagear" / "v1.json"
         assert artifact_path.read_bytes() == new_content
 
+    def test_replace_cleans_up_old_manifest_file(
+        self, artifact_mgr: ArtifactManager, tmp_path: Path
+    ) -> None:
+        """After a successful replace, the old manifest file must not remain.
+
+        The .old-manifest-* aside is a JSON file, not a directory.  A prior
+        bug used shutil.rmtree() for the cleanup which silently skipped it
+        (ignore_errors=True), leaving stale manifests to accumulate.
+        """
+        artifact_mgr.create_engagement_dir("eng-ingest-replace-clean", "Acme")
+        co = _make_collection_output(tmp_path, filename="v1.json", content=b'{"v": 1}')
+        prov = _make_ingest_provenance(tmp_path)
+        artifact_mgr.save_ingested_raw_output(
+            "eng-ingest-replace-clean", co, ingest_provenance=prov
+        )
+
+        co2 = _make_collection_output(tmp_path, filename="v1.json", content=b'{"v": 2}')
+        prov2 = _make_ingest_provenance(tmp_path)
+        artifact_mgr.save_ingested_raw_output(
+            "eng-ingest-replace-clean", co2, ingest_provenance=prov2, replace=True
+        )
+
+        eng_dir = artifact_mgr.get_engagement_dir("eng-ingest-replace-clean")
+        raw_dir = eng_dir / "raw-output"
+        leftovers = [p for p in raw_dir.iterdir() if p.name.startswith(".old-manifest-")]
+        assert leftovers == [], f"Old manifest files not cleaned up: {leftovers}"
+
     def test_nonexistent_engagement_raises(
         self, artifact_mgr: ArtifactManager, tmp_path: Path
     ) -> None:

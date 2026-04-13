@@ -844,15 +844,16 @@ class ArtifactManager:
             shutil.rmtree(staging_dir, ignore_errors=True)
             raise PersistenceError(f"Failed to commit ingest for {slug!r}: {e}") from e
 
-        # Best-effort cleanup: staging dir and renamed-aside old data
+        # Best-effort cleanup: staging dir and renamed-aside old data.
+        # The old artifacts aside is a directory; the old manifest aside is a
+        # file -- rmtree() silently skips files even with ignore_errors=True,
+        # so they must be removed with unlink().
         shutil.rmtree(staging_dir, ignore_errors=True)
-        for name in (
-            f".old-artifacts-{slug}-{staging_id}",
-            f".old-manifest-{slug}-{staging_id}",
-        ):
-            old = raw_output_dir / name
-            if old.exists():
-                shutil.rmtree(old, ignore_errors=True)
+        old_artifacts = raw_output_dir / f".old-artifacts-{slug}-{staging_id}"
+        if old_artifacts.exists():
+            shutil.rmtree(old_artifacts, ignore_errors=True)
+        old_manifest = raw_output_dir / f".old-manifest-{slug}-{staging_id}"
+        old_manifest.unlink(missing_ok=True)
 
         committed_manifest_path = raw_output_dir / "manifests" / f"{slug}.json"
         logger.info("Persisted ingested raw output for %s/%s", engagement_id, slug)
