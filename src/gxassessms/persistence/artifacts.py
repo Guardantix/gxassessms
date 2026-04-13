@@ -797,6 +797,44 @@ class ArtifactManager:
                 e,
                 raw_output_dir,
             )
+            # Best-effort rollback: restore the renamed-aside old data so a
+            # previously valid ingest remains accessible to mseco replay.
+            #
+            # Guard: only remove new data at the final artifacts location when
+            # we know old data was moved aside first (.old-artifacts-* exists).
+            # Without this guard, an exception on the very first rename (step 1)
+            # would leave existing_artifacts untouched but the rmtree would delete
+            # it, corrupting the engagement.
+            old_artifacts_aside = raw_output_dir / f".old-artifacts-{slug}-{staging_id}"
+            old_manifest_aside = raw_output_dir / f".old-manifest-{slug}-{staging_id}"
+
+            if old_artifacts_aside.exists():
+                # Step 1 succeeded: old artifacts were moved aside. If step 3 also
+                # succeeded, new artifacts landed at the final location -- remove them
+                # before restoring the old ones.
+                new_artifacts_final = raw_output_dir / "artifacts" / slug
+                if new_artifacts_final.exists():
+                    shutil.rmtree(new_artifacts_final, ignore_errors=True)
+                try:
+                    old_artifacts_aside.rename(existing_artifacts)
+                except OSError as restore_err:
+                    logger.error(
+                        "Phase 3 rollback failed to restore artifacts for %s: %s",
+                        slug,
+                        restore_err,
+                    )
+
+            if old_manifest_aside.exists():
+                # Step 2 succeeded: old manifest was moved aside. Restore it.
+                try:
+                    old_manifest_aside.rename(existing_manifest)
+                except OSError as restore_err:
+                    logger.error(
+                        "Phase 3 rollback failed to restore manifest for %s: %s",
+                        slug,
+                        restore_err,
+                    )
+
             shutil.rmtree(staging_dir, ignore_errors=True)
             raise PersistenceError(f"Failed to commit ingest for {slug!r}: {e}") from e
 

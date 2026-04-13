@@ -494,3 +494,126 @@ class TestSingleToolIngestAndReplay:
         assert len(events) == 1
         payload = json.loads(events[0]["payload"])
         assert payload["tool_slug"] == "scubagear"
+
+
+class TestIngestPhase3Rollback:
+    """Verify that a failed phase-3 commit rolls back renamed-aside old data."""
+
+    def _write_config_yaml(self, path: Path) -> None:
+        path.write_text(
+            "client:\n"
+            "  name: Integration Test\n"
+            "  tenant_id: 00000000-0000-0000-0000-000000000001\n"
+            "auth:\n"
+            "  method: client_credential\n"
+            "  client_id: 00000000-0000-0000-0000-000000000002\n"
+            "  tenant_id: 00000000-0000-0000-0000-000000000001\n"
+            "  client_secret_env: TEST_SECRET\n"
+            "tools:\n"
+            "  scubagear:\n"
+            "    enabled: true\n",
+            encoding="utf-8",
+        )
+
+    def test_phase3_commit_failure_rolls_back_old_data(
+        self,
+        isolated_data_dir: Path,
+        scubagear_fixtures_dir: Path,
+        tmp_path: Path,
+    ) -> None:
+        """When the final manifest rename fails during --replace, old data is restored.
+
+        Simulates: old artifacts and manifest moved aside (.old-*), new artifacts
+        committed (rename #3 succeeds), then manifest rename (#4) raises OSError.
+        After rollback: old manifest and artifacts are restored, no .old-* orphans remain.
+        """
+        runner = CliRunner()
+
+        config_file = tmp_path / "config.yaml"
+        self._write_config_yaml(config_file)
+
+        result = runner.invoke(cli, ["engagement", "create", str(config_file)])
+        assert result.exit_code == 0, result.output
+        engagement_id = _extract_engagement_id(result.output)
+
+        source_dir = tmp_path / "scuba-export"
+        source_dir.mkdir()
+        shutil.copy(
+            str(scubagear_fixtures_dir / "ScubaResults.json"),
+            str(source_dir / "ScubaResults.json"),
+        )
+
+        registry = _make_scubagear_registry()
+
+        # First ingest: creates the existing data to be replaced
+        with patch("gxassessms.adapters.discover_adapters", return_value=registry):
+            r1 = runner.invoke(
+                cli,
+                ["ingest", engagement_id, "--tool", "scubagear", "--from", str(source_dir)],
+            )
+        assert r1.exit_code == 0, r1.output
+
+        from gxassessms.cli._helpers import get_artifact_manager
+
+        am = get_artifact_manager()
+        eng_dir = am.get_engagement_dir(engagement_id)
+        raw_output_dir = eng_dir / "raw-output"
+        manifest_path = raw_output_dir / "manifests" / "scubagear.json"
+        artifacts_dir = raw_output_dir / "artifacts" / "scubagear"
+
+        original_manifest_text = manifest_path.read_text(encoding="utf-8")
+        original_artifact_files = {p.name for p in artifacts_dir.rglob("*") if p.is_file()}
+
+        # Patch Path.rename to fail ONLY when the staging manifest is being
+        # committed to its final location. The guard checks that the source
+        # (self_path) is inside the .ingest-staging-* directory, which
+        # distinguishes this rename from the rollback's .old-manifest-*.rename()
+        # call (which has a .old-manifest-* source, not a staging source).
+        original_rename = Path.rename
+
+        def rename_that_fails_on_manifest_commit(self_path: Path, target: Path) -> Path:  # type: ignore[override]
+            target = Path(target)
+            if (
+                ".ingest-staging-" in str(self_path)
+                and target.name == "scubagear.json"
+                and target.parent.name == "manifests"
+            ):
+                raise OSError("Simulated disk failure during manifest commit")
+            return original_rename(self_path, target)  # type: ignore[arg-type]
+
+        with (
+            patch.object(Path, "rename", rename_that_fails_on_manifest_commit),
+            patch("gxassessms.adapters.discover_adapters", return_value=registry),
+        ):
+            r2 = runner.invoke(
+                cli,
+                [
+                    "ingest",
+                    engagement_id,
+                    "--tool",
+                    "scubagear",
+                    "--from",
+                    str(source_dir),
+                    "--replace",
+                ],
+            )
+
+        assert r2.exit_code != 0, f"Expected failure, but got exit 0:\n{r2.output}"
+
+        # Rollback verification 1: original manifest is restored intact
+        assert manifest_path.exists(), "Original manifest should be restored after rollback"
+        assert manifest_path.read_text(encoding="utf-8") == original_manifest_text, (
+            "Original manifest content should be unchanged after rollback"
+        )
+
+        # Rollback verification 2: no orphaned .old-* files remain
+        orphans = list(raw_output_dir.glob(".old-*"))
+        assert len(orphans) == 0, f"Orphaned .old-* files found after rollback: {orphans}"
+
+        # Rollback verification 3: original artifacts are still accessible
+        assert artifacts_dir.exists(), "Original artifacts directory should exist"
+        restored_files = {p.name for p in artifacts_dir.rglob("*") if p.is_file()}
+        assert restored_files == original_artifact_files, (
+            f"Artifact files changed after rollback. Expected {original_artifact_files}, "
+            f"got {restored_files}"
+        )
