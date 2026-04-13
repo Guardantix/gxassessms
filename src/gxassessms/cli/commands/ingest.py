@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -304,9 +305,22 @@ def _repair_event(
             # DR path: ensure the engagement row exists before the FK-constrained
             # event INSERT. If the DB was wiped after ingest, repo.get() raises
             # PersistenceError; rehydrate from the on-disk config snapshot.
+            # sqlite3.Error covers transient DB unavailability (locked, etc.);
+            # fall through and let rehydrate_from_snapshot's own SELECT+INSERT
+            # be the definitive check (mirrors _rehydrate_engagement_if_missing
+            # in replay.py).
             repo = _helpers.get_engagement_repo()
             try:
                 repo.get(engagement_id)
+            except sqlite3.Error as db_err:
+                # Transient: let rehydrate_from_snapshot's own SELECT+INSERT
+                # be the definitive "is the DB writable / is the row there" test.
+                logger.warning(
+                    "DB lookup failed for %s during DR probe (%s); "
+                    "deferring decision to rehydrate_from_snapshot",
+                    engagement_id,
+                    db_err,
+                )
             except PersistenceError:
                 try:
                     snapshot = artifacts.read_config_snapshot(engagement_id)
