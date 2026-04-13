@@ -1020,6 +1020,83 @@ class TestSaveIngestedRawOutput:
         staging = [d for d in raw_dir.iterdir() if d.name.startswith(".ingest-staging-")]
         assert staging == []
 
+    def test_fresh_ingest_rollback_removes_committed_artifacts_on_manifest_rename_failure(
+        self, artifact_mgr: ArtifactManager, tmp_path: Path
+    ) -> None:
+        """Fresh ingest Phase 3 manifest rename failure: rollback removes committed artifacts."""
+        from unittest.mock import patch as mock_patch
+
+        artifact_mgr.create_engagement_dir("eng-p3fail-mfail", "Acme")
+        co = _make_collection_output(tmp_path)
+        prov = _make_ingest_provenance(tmp_path)
+
+        original_rename = Path.rename
+
+        def fail_on_manifest_commit(self_path: Path, target: Path) -> Path:
+            # Fail only when the staging manifest is renamed to its final location
+            if ".ingest-staging-" in str(self_path) and "manifests/scubagear.json" in str(target):
+                raise OSError("simulated manifest rename failure")
+            return original_rename(self_path, target)
+
+        with (
+            mock_patch.object(Path, "rename", fail_on_manifest_commit),
+            pytest.raises(PersistenceError, match="Failed to commit"),
+        ):
+            artifact_mgr.save_ingested_raw_output("eng-p3fail-mfail", co, ingest_provenance=prov)
+
+        eng_dir = artifact_mgr.get_engagement_dir("eng-p3fail-mfail")
+        raw_dir = eng_dir / "raw-output"
+        # Rollback must have removed newly-committed artifacts
+        assert not (raw_dir / "artifacts" / "scubagear").exists()
+        # No staging debris
+        staging = [d for d in raw_dir.iterdir() if d.name.startswith(".ingest-staging-")]
+        assert staging == []
+
+    def test_replace_ingest_rollback_restores_old_data_on_manifest_rename_failure(
+        self, artifact_mgr: ArtifactManager, tmp_path: Path
+    ) -> None:
+        """Replace ingest: Phase 3 manifest rename failure restores prior artifacts and manifest."""
+        from unittest.mock import patch as mock_patch
+
+        artifact_mgr.create_engagement_dir("eng-p3fail-replace", "Acme")
+
+        # First ingest (fresh, succeeds)
+        co1 = _make_collection_output(tmp_path, content=b'{"version": 1}')
+        prov1 = _make_ingest_provenance(tmp_path)
+        artifact_mgr.save_ingested_raw_output("eng-p3fail-replace", co1, ingest_provenance=prov1)
+
+        eng_dir = artifact_mgr.get_engagement_dir("eng-p3fail-replace")
+        raw_dir = eng_dir / "raw-output"
+        old_artifact = raw_dir / "artifacts" / "scubagear" / "ScubaResults.json"
+        assert old_artifact.read_bytes() == b'{"version": 1}'
+
+        # Second ingest (replace), fails on manifest rename
+        co2 = _make_collection_output(tmp_path, content=b'{"version": 2}')
+        prov2 = _make_ingest_provenance(tmp_path)
+        original_rename = Path.rename
+
+        def fail_on_manifest_commit(self_path: Path, target: Path) -> Path:
+            if ".ingest-staging-" in str(self_path) and "manifests/scubagear.json" in str(target):
+                raise OSError("simulated manifest rename failure")
+            return original_rename(self_path, target)
+
+        with (
+            mock_patch.object(Path, "rename", fail_on_manifest_commit),
+            pytest.raises(PersistenceError, match="Failed to commit"),
+        ):
+            artifact_mgr.save_ingested_raw_output(
+                "eng-p3fail-replace", co2, ingest_provenance=prov2, replace=True
+            )
+
+        # Old artifacts restored -- v1 content
+        assert old_artifact.read_bytes() == b'{"version": 1}'
+        # Old manifest restored
+        assert (raw_dir / "manifests" / "scubagear.json").exists()
+        # No staging or aside debris
+        for entry in raw_dir.iterdir():
+            assert not entry.name.startswith(".ingest-staging-")
+            assert not entry.name.startswith(".old-")
+
     def test_purge_audit_path_in_returned_manifest(self, tmp_path: Path) -> None:
         engagements_root = tmp_path / "engagements"
         engagements_root.mkdir()

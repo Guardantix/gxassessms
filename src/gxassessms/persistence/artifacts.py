@@ -785,6 +785,7 @@ class ArtifactManager:
             shutil.rmtree(staging_dir, ignore_errors=True)
             raise
 
+        artifacts_committed = False
         # Phase 3: Rename-aside existing data then commit
         try:
             if existing_artifacts.exists():
@@ -799,6 +800,7 @@ class ArtifactManager:
 
             # Artifacts first, then manifest (manifest is the commit signal)
             (staging_dir / "artifacts" / slug).rename(raw_output_dir / "artifacts" / slug)
+            artifacts_committed = True  # artifacts at final location; manifest rename is next
             (staging_dir / "manifests" / f"{slug}.json").rename(existing_manifest)
         except OSError as e:
             logger.error(
@@ -811,28 +813,18 @@ class ArtifactManager:
             )
             # Best-effort rollback: restore the renamed-aside old data so a
             # previously valid ingest remains accessible to mseco replay.
-            #
-            # Guard: only remove new data at the final artifacts location when
-            # we know old data was moved aside first (.old-artifacts-* exists).
-            # Without this guard, an exception on the very first rename (step 1)
-            # would leave existing_artifacts untouched but the rmtree would delete
-            # it, corrupting the engagement.
-            #
-            # Known limitation: if existing_artifacts was absent before the replace
-            # (degenerate manifest-only prior state), old_artifacts_aside will not
-            # exist and the new-artifacts cleanup below is skipped. New artifacts are
-            # left at the final location while the restored manifest describes the
-            # prior ingest -- a pre-existing partial corruption this rollback cannot fix.
             old_artifacts_aside = raw_output_dir / f".old-artifacts-{slug}-{staging_id}"
             old_manifest_aside = raw_output_dir / f".old-manifest-{slug}-{staging_id}"
 
-            if old_artifacts_aside.exists():
-                # Step 1 succeeded: old artifacts were moved aside. If step 3 also
-                # succeeded, new artifacts landed at the final location -- remove them
-                # before restoring the old ones.
+            # If artifacts reached the final location before the failure, remove them.
+            # This covers both the "replacing" case (old data moved aside first) and the
+            # "fresh ingest" case (no prior data to move aside).
+            if artifacts_committed:
                 new_artifacts_final = raw_output_dir / "artifacts" / slug
                 if new_artifacts_final.exists():
                     shutil.rmtree(new_artifacts_final, ignore_errors=True)
+
+            if old_artifacts_aside.exists():
                 try:
                     old_artifacts_aside.rename(existing_artifacts)
                 except OSError as restore_err:
