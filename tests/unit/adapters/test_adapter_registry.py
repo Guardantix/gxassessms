@@ -364,12 +364,23 @@ def test_ingest_capability_requires_method_and_schema_version() -> None:
         capabilities = frozenset({"collect", "ingest"})
         # Missing: default_schema_version, ingest_from_directory
 
-        def check_prerequisites(self): pass
-        def authenticate(self, config): pass
-        def collect(self, config, auth): pass
-        def validate_raw(self, manifest): pass
-        def parse(self, manifest): pass
-        def coverage(self, manifest): pass
+        def check_prerequisites(self):
+            pass
+
+        def authenticate(self, config):
+            pass
+
+        def collect(self, config, auth):
+            pass
+
+        def validate_raw(self, manifest):
+            pass
+
+        def parse(self, manifest):
+            pass
+
+        def coverage(self, manifest):
+            pass
 
     errors = _validate_adapter("bad-ingest", BadIngestAdapter)
     assert any("ingest" in str(e).lower() for e in errors)

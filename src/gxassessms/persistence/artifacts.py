@@ -753,9 +753,7 @@ class ArtifactManager:
 
                 # Duplicate and collision checks (mirrors save_raw_output Phase 1)
                 if artifact.target_relpath in seen_relpaths:
-                    raise PersistenceError(
-                        f"Duplicate target_relpath: {artifact.target_relpath!r}"
-                    )
+                    raise PersistenceError(f"Duplicate target_relpath: {artifact.target_relpath!r}")
                 lower = artifact.target_relpath.lower()
                 if lower in seen_relpaths_lower:
                     raise PersistenceError(
