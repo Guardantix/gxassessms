@@ -921,6 +921,75 @@ class TestSaveIngestedRawOutput:
         with pytest.raises(PersistenceError, match="not absolute"):
             artifact_mgr.save_ingested_raw_output("eng-ingest-relpath", co, ingest_provenance=prov)
 
+    def test_rejects_traversal_in_target_relpath(
+        self, artifact_mgr: ArtifactManager, tmp_path: Path
+    ) -> None:
+        """Ingest with path traversal in target_relpath raises PersistenceError before any copy."""
+        from gxassessms.core.domain.models import CollectedArtifact
+
+        artifact_mgr.create_engagement_dir("eng-ingest-trav", "Acme")
+        content = b'{"data": 1}'
+        sha = _sha256(content)
+        source_file = tmp_path / "src" / "results.json"
+        source_file.parent.mkdir(parents=True, exist_ok=True)
+        source_file.write_bytes(content)
+
+        co = CollectionOutput(
+            tool=ToolSource.SCUBAGEAR,
+            tool_slug="scubagear",
+            schema_version="1.0.0",
+            timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+            artifacts=[
+                CollectedArtifact(
+                    source_path=str(source_file),
+                    target_relpath="scubagear/../../etc/passwd",
+                    encoding="utf-8",
+                    sha256=sha,
+                ),
+            ],
+            execution_metadata={},
+        )
+        prov = _make_ingest_provenance(tmp_path)
+        with pytest.raises(PersistenceError, match="Invalid target_relpath"):
+            artifact_mgr.save_ingested_raw_output("eng-ingest-trav", co, ingest_provenance=prov)
+
+        eng_dir = artifact_mgr.get_engagement_dir("eng-ingest-trav")
+        assert not (eng_dir / "raw-output" / "artifacts" / "scubagear").exists()
+
+    def test_rejects_target_relpath_with_wrong_slug_prefix(
+        self, artifact_mgr: ArtifactManager, tmp_path: Path
+    ) -> None:
+        """target_relpath starting with a different slug raises PersistenceError."""
+        from gxassessms.core.domain.models import CollectedArtifact
+
+        artifact_mgr.create_engagement_dir("eng-ingest-wrongslug", "Acme")
+        content = b'{"data": 1}'
+        sha = _sha256(content)
+        source_file = tmp_path / "src2" / "results.json"
+        source_file.parent.mkdir(parents=True, exist_ok=True)
+        source_file.write_bytes(content)
+
+        co = CollectionOutput(
+            tool=ToolSource.SCUBAGEAR,
+            tool_slug="scubagear",
+            schema_version="1.0.0",
+            timestamp=datetime(2026, 4, 1, 10, 0, 0, tzinfo=UTC),
+            artifacts=[
+                CollectedArtifact(
+                    source_path=str(source_file),
+                    target_relpath="maester/results.json",  # wrong slug prefix
+                    encoding="utf-8",
+                    sha256=sha,
+                ),
+            ],
+            execution_metadata={},
+        )
+        prov = _make_ingest_provenance(tmp_path)
+        with pytest.raises(PersistenceError, match="does not start with scubagear/"):
+            artifact_mgr.save_ingested_raw_output(
+                "eng-ingest-wrongslug", co, ingest_provenance=prov
+            )
+
     def test_phase3_failure_cleans_staging_and_raises(
         self, artifact_mgr: ArtifactManager, tmp_path: Path
     ) -> None:

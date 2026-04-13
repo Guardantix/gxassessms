@@ -691,6 +691,7 @@ class ArtifactManager:
 
         from gxassessms.core.domain.constants import MANIFEST_VERSION_CURRENT
         from gxassessms.core.domain.models import ArtifactRecord, RawToolOutput
+        from gxassessms.core.domain.path_validation import validate_canonical_posix_path
         from gxassessms.core.hashing import sha256_file
         from gxassessms.pipeline.confinement import LoadedManifest
 
@@ -735,6 +736,17 @@ class ArtifactManager:
                 if source.is_symlink():
                     raise PersistenceError(
                         f"Source is a symlink (not allowed): {artifact.source_path!r}"
+                    )
+                # Target relpath validation (trust boundary: adapter output may be malformed)
+                try:
+                    validate_canonical_posix_path(artifact.target_relpath)
+                except ValueError as e:
+                    raise PersistenceError(
+                        f"Invalid target_relpath {artifact.target_relpath!r}: {e}"
+                    ) from e
+                if not artifact.target_relpath.startswith(f"{slug}/"):
+                    raise PersistenceError(
+                        f"target_relpath {artifact.target_relpath!r} does not start with {slug}/"
                     )
                 # Strip the leading slug/ prefix from target_relpath for dest subpath
                 rel_under_slug = Path(artifact.target_relpath).relative_to(slug)
