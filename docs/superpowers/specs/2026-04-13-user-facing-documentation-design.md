@@ -1,8 +1,8 @@
 # User-Facing Documentation Design
 
 **Date:** 2026-04-13
-**Scope:** Both repos (gxassessms + gxassessms-guardantix)
-**Audiences:** (a) Non-expert IT admin operators (public package), (d) Internal Guardantix developers (private package)
+**Scope:** gxassessms (public package)
+**Audience:** Non-expert IT admin operators
 
 ## Design Principles
 
@@ -37,10 +37,6 @@ gxassessms/
       shared-host-deployment.md
     superpowers/specs/                   # existing design specs, unchanged
     superpowers/plans/                   # existing plans, unchanged
-
-gxassessms-guardantix/
-  README.md                              # rewrite
-  (all other docs unchanged)
 ```
 
 ---
@@ -144,8 +140,7 @@ Complete tutorial: "I just installed this" to "I'm looking at my first report."
 6. **Next steps.** Enable more adapters, customize report options, `mseco engagement
    list`. Links to configuration.md and cli-reference.md.
 
-Deliberately stops before QA review, analytics, or anything requiring the private
-package. Self-contained "first win" with just the public package.
+Self-contained "first win" with just the base package.
 
 ### 4. docs/configuration.md
 
@@ -279,41 +274,9 @@ Operator-facing trust model. Not the internal threat model.
 
 ---
 
-## Private Package: gxassessms-guardantix
-
-### README.md (rewrite as internal onboarding guide)
-
-**Structure:**
-
-1. **What this is.** One paragraph: proprietary extension. AI QA, branded reports,
-   review UI, analytics, longitudinal tracking. Discovered via entry points.
-
-2. **Relationship to gxassessms.** Dependency rule, how entry points work, which
-   Protocols this package implements. 30-second understanding of the boundary.
-
-3. **Development setup.** Step-by-step:
-   - Clone both repos into workspace
-   - Run `scripts/setup-venv.sh`
-   - Verify: `pytest` and `mseco adapters list`
-   - Note: Anthropic API key needed for QA layer development
-
-4. **Package layout.** Five modules (qa, reporting, review_ui, analytics, longitudinal)
-   with one sentence each. Not an architecture repeat -- just where to look.
-
-5. **Key documentation.** Table: architecture spec, code conventions, build log,
-   roadmap, CHANGELOG. With guidance on when to read each.
-
-6. **Testing.** How to run (`pytest`), test layers (unit, integration, contracts,
-   conventions), coverage expectations.
-
-7. **Entry points.** Table: QA strategy, renderers (docx, pptx), analytics, review UI.
-   Makes "extends via entry points" concrete.
-
----
-
 ## Out of Scope (deferred)
 
-- Contributor guide / CONTRIBUTING.md (audience b/c)
-- Adapter authoring guide (audience b)
-- API/extension documentation (audience b)
+- Contributor guide / CONTRIBUTING.md
+- Adapter authoring guide
+- API/extension documentation
 - Deployment deep dives (container, CI) beyond placeholder sections
