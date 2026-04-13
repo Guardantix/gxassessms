@@ -725,6 +725,8 @@ class ArtifactManager:
             secure_mkdir(staging_manifests)
 
             file_manifest: dict[str, ArtifactRecord] = {}
+            seen_relpaths: set[str] = set()
+            seen_relpaths_lower: set[str] = set()
             for artifact in collection_output.artifacts:
                 source = Path(artifact.source_path)
                 if not source.is_absolute():
@@ -748,6 +750,21 @@ class ArtifactManager:
                     raise PersistenceError(
                         f"target_relpath {artifact.target_relpath!r} does not start with {slug}/"
                     )
+
+                # Duplicate and collision checks (mirrors save_raw_output Phase 1)
+                if artifact.target_relpath in seen_relpaths:
+                    raise PersistenceError(
+                        f"Duplicate target_relpath: {artifact.target_relpath!r}"
+                    )
+                lower = artifact.target_relpath.lower()
+                if lower in seen_relpaths_lower:
+                    raise PersistenceError(
+                        f"Case-insensitive collision for target_relpath: "
+                        f"{artifact.target_relpath!r}"
+                    )
+                seen_relpaths.add(artifact.target_relpath)
+                seen_relpaths_lower.add(lower)
+
                 # Strip the leading slug/ prefix from target_relpath for dest subpath
                 rel_under_slug = Path(artifact.target_relpath).relative_to(slug)
                 dest = staging_artifacts / rel_under_slug

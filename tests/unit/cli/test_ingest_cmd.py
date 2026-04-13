@@ -25,7 +25,6 @@ from gxassessms.core.contracts.errors import PersistenceError
 
 _ENGAGEMENT_ID = "eng-ingest-001"
 _TOOL_SLUG = "scubagear"
-_ACTOR = "human:testuser"
 
 
 def _make_engagement_row(engagement_id: str = _ENGAGEMENT_ID) -> dict[str, Any]:

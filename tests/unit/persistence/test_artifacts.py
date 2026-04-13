@@ -1005,7 +1005,12 @@ class TestSaveIngestedRawOutput:
         def fail_on_commit_rename(self_path: Path, target: Path) -> Path:
             # Fail when Phase 3 renames staged artifacts to final location.
             # Phase 3 renames: staging/.../artifacts/slug -> raw-output/artifacts/slug
-            if ".ingest-staging-" in str(self_path) and "artifacts/scubagear" in str(target):
+            target = Path(target)
+            if (
+                ".ingest-staging-" in str(self_path)
+                and target.name == "scubagear"
+                and target.parent.name == "artifacts"
+            ):
                 raise OSError("simulated commit failure")
             return original_rename(self_path, target)
 
@@ -1034,7 +1039,12 @@ class TestSaveIngestedRawOutput:
 
         def fail_on_manifest_commit(self_path: Path, target: Path) -> Path:
             # Fail only when the staging manifest is renamed to its final location
-            if ".ingest-staging-" in str(self_path) and "manifests/scubagear.json" in str(target):
+            target = Path(target)
+            if (
+                ".ingest-staging-" in str(self_path)
+                and target.name == "scubagear.json"
+                and target.parent.name == "manifests"
+            ):
                 raise OSError("simulated manifest rename failure")
             return original_rename(self_path, target)
 
@@ -1076,7 +1086,12 @@ class TestSaveIngestedRawOutput:
         original_rename = Path.rename
 
         def fail_on_manifest_commit(self_path: Path, target: Path) -> Path:
-            if ".ingest-staging-" in str(self_path) and "manifests/scubagear.json" in str(target):
+            target = Path(target)
+            if (
+                ".ingest-staging-" in str(self_path)
+                and target.name == "scubagear.json"
+                and target.parent.name == "manifests"
+            ):
                 raise OSError("simulated manifest rename failure")
             return original_rename(self_path, target)
 
