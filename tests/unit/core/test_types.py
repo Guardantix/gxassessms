@@ -3,6 +3,7 @@
 from gxassessms.core.contracts.types import (
     AdapterRunStatus,
     ConsolidationRule,
+    IngestCapableAdapter,
     Narratives,
     PrerequisiteResult,
     QAResult,
@@ -80,3 +81,81 @@ class TestAdapterRunStatus:
         assert AdapterRunStatus.FAILED == "FAILED"
         assert AdapterRunStatus.SKIPPED == "SKIPPED"
         assert AdapterRunStatus.TIMEOUT == "TIMEOUT"
+
+
+class TestIngestCapableAdapter:
+    """Spec Section 3.5: IngestCapableAdapter Protocol."""
+
+    def test_protocol_is_runtime_checkable(self) -> None:
+        assert hasattr(IngestCapableAdapter, "__protocol_attrs__") or hasattr(
+            IngestCapableAdapter, "__abstractmethods__"
+        )
+        # The Protocol decorator makes it runtime-checkable
+        # Just verify we can use isinstance
+        assert callable(getattr(IngestCapableAdapter, "__instancecheck__", None))
+
+    def test_class_with_ingest_satisfies_protocol(self) -> None:
+        from datetime import datetime
+        from pathlib import Path
+
+        from gxassessms.core.domain.models import CollectionOutput
+
+        class FakeIngestAdapter:
+            tool_name = "Fake"
+            storage_slug = "fake"
+            tool_source = "Fake"
+            capabilities = frozenset({"collect", "ingest"})
+            default_schema_version = "1.0.0"
+
+            def ingest_from_directory(
+                self, source_dir: Path, *, schema_version: str, timestamp: datetime
+            ) -> CollectionOutput:
+                pass  # type: ignore[empty-body]
+
+            def check_prerequisites(self):
+                pass
+
+            def authenticate(self, config, auth):
+                pass
+
+            def collect(self, config, auth, output_dir, timeout):
+                pass
+
+            def validate_raw(self, manifest):
+                pass
+
+            def parse(self, manifest):
+                pass
+
+            def coverage(self, manifest):
+                pass
+
+        assert isinstance(FakeIngestAdapter(), IngestCapableAdapter)
+
+    def test_class_without_ingest_method_fails_check(self) -> None:
+        class NoIngestAdapter:
+            tool_name = "NoIngest"
+            storage_slug = "no-ingest"
+            tool_source = "NoIngest"
+            capabilities = frozenset({"collect"})
+            # Missing: default_schema_version, ingest_from_directory
+
+            def check_prerequisites(self):
+                pass
+
+            def authenticate(self, config, auth):
+                pass
+
+            def collect(self, config, auth, output_dir, timeout):
+                pass
+
+            def validate_raw(self, manifest):
+                pass
+
+            def parse(self, manifest):
+                pass
+
+            def coverage(self, manifest):
+                pass
+
+        assert not isinstance(NoIngestAdapter(), IngestCapableAdapter)

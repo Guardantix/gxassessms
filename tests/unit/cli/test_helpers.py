@@ -678,3 +678,235 @@ class TestBuildConsolidationRule:
             with patch("gxassessms.cli._helpers._load_policy_rules", return_value={}):
                 build_consolidation_rule()
         mock_cls.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# resolve_enabled_adapter
+# ---------------------------------------------------------------------------
+
+
+def _make_config_with_tools(tools: dict) -> EngagementConfig:
+    """Build a minimal config-like object with a .tools dict."""
+    from gxassessms.core.config.config import AuthConfig, EngagementConfig, ToolConfig
+
+    tool_configs = {name: ToolConfig(enabled=enabled) for name, enabled in tools.items()}
+    return EngagementConfig(
+        client_name="Test Corp",
+        tenant_id="00000000-0000-0000-0000-000000000001",
+        auth=AuthConfig(
+            method="client_credential",
+            tenant_id="00000000-0000-0000-0000-000000000001",
+            client_id="00000000-0000-0000-0000-000000000002",
+            client_secret_env="GX_SECRET",  # pragma: allowlist secret
+        ),
+        tools=tool_configs,
+        qa_model="claude-opus-4-6",
+        qa_token_budget=50000,
+    )
+
+
+class TestResolveEnabledAdapter:
+    """Tests for resolve_enabled_adapter()."""
+
+    def test_finds_adapter_by_storage_slug(self) -> None:
+        """Happy path: matching slug + enabled tool -> adapter instance returned."""
+
+        from gxassessms.cli._helpers import resolve_enabled_adapter
+
+        mock_instance = MagicMock()
+        mock_instance.tool_name = "ScubaGear"
+        MockCls = MagicMock(return_value=mock_instance)
+        MockCls.storage_slug = "scubagear"
+        registry = _make_registry(adapters={"scubagear": MockCls})
+        config = _make_config_with_tools({"scubagear": True})
+
+        with patch("gxassessms.adapters.discover_adapters", return_value=registry):
+            result = resolve_enabled_adapter("scubagear", config)
+
+        assert result is mock_instance
+
+    def test_unknown_slug_raises_usage_error(self) -> None:
+        """Unknown storage_slug raises click.UsageError listing available slugs."""
+        import click
+
+        from gxassessms.cli._helpers import resolve_enabled_adapter
+
+        MockCls = MagicMock()
+        MockCls.storage_slug = "scubagear"
+        registry = _make_registry(adapters={"scubagear": MockCls})
+        config = _make_config_with_tools({})
+
+        with (
+            patch("gxassessms.adapters.discover_adapters", return_value=registry),
+            pytest.raises(click.UsageError, match="Unknown tool slug"),
+        ):
+            resolve_enabled_adapter("no_such_tool", config)
+
+    def test_disabled_tool_raises_usage_error(self) -> None:
+        """Adapter found by slug but tool disabled in config raises click.UsageError."""
+        import click
+
+        from gxassessms.cli._helpers import resolve_enabled_adapter
+
+        mock_instance = MagicMock()
+        mock_instance.tool_name = "ScubaGear"
+        MockCls = MagicMock(return_value=mock_instance)
+        MockCls.storage_slug = "scubagear"
+        registry = _make_registry(adapters={"scubagear": MockCls})
+        config = _make_config_with_tools({"scubagear": False})
+
+        with (
+            patch("gxassessms.adapters.discover_adapters", return_value=registry),
+            pytest.raises(click.UsageError, match="not enabled"),
+        ):
+            resolve_enabled_adapter("scubagear", config)
+
+    def test_error_message_lists_available_slugs(self) -> None:
+        """UsageError for unknown slug lists the available slugs in the message."""
+        import click
+
+        from gxassessms.cli._helpers import resolve_enabled_adapter
+
+        MockCls = MagicMock()
+        MockCls.storage_slug = "scubagear"
+        registry = _make_registry(adapters={"scubagear": MockCls})
+        config = _make_config_with_tools({})
+
+        with (
+            patch("gxassessms.adapters.discover_adapters", return_value=registry),
+            pytest.raises(click.UsageError, match="scubagear"),
+        ):
+            resolve_enabled_adapter("bad_slug", config)
+
+
+# ---------------------------------------------------------------------------
+# require_ingest_capable
+# ---------------------------------------------------------------------------
+
+
+class TestRequireIngestCapable:
+    """Tests for require_ingest_capable()."""
+
+    def test_narrows_ingest_capable_adapter(self) -> None:
+        """ScubaGearAdapter declares 'ingest' and implements ingest_from_directory."""
+        from gxassessms.adapters.scubagear.adapter import ScubaGearAdapter
+        from gxassessms.cli._helpers import require_ingest_capable
+
+        adapter = ScubaGearAdapter()
+        narrowed = require_ingest_capable(adapter)
+        assert hasattr(narrowed, "ingest_from_directory")
+
+    def test_rejects_non_ingest_adapter(self) -> None:
+        """Monkey365Adapter lacks 'ingest' capability -> UsageError raised."""
+        import click
+
+        from gxassessms.adapters.monkey365.adapter import Monkey365Adapter
+        from gxassessms.cli._helpers import require_ingest_capable
+
+        with pytest.raises(click.UsageError, match="does not support ingest"):
+            require_ingest_capable(Monkey365Adapter())
+
+    def test_rejects_adapter_with_ingest_cap_but_no_method(self) -> None:
+        """Adapter declares 'ingest' capability but lacks ingest_from_directory -> UsageError."""
+        import click
+
+        from gxassessms.cli._helpers import require_ingest_capable
+
+        fake_adapter = MagicMock()
+        fake_adapter.capabilities = frozenset({"ingest"})
+        fake_adapter.tool_name = "FakeTool"
+        # MagicMock has any attribute, so we need to check isinstance fails.
+        # We use a real plain object without the method to trigger the isinstance guard.
+
+        class _CapableButNoMethod:
+            tool_name = "FakeTool"
+            capabilities = frozenset({"ingest"})
+            # Deliberately does NOT implement ingest_from_directory
+
+        with pytest.raises(click.UsageError, match="does not implement ingest_from_directory"):
+            require_ingest_capable(_CapableButNoMethod())
+
+    def test_returns_same_object(self) -> None:
+        """require_ingest_capable returns the same object (narrowed, not wrapped)."""
+        from gxassessms.adapters.scubagear.adapter import ScubaGearAdapter
+        from gxassessms.cli._helpers import require_ingest_capable
+
+        adapter = ScubaGearAdapter()
+        assert require_ingest_capable(adapter) is adapter
+
+
+# ---------------------------------------------------------------------------
+# get_engagement_lock
+# ---------------------------------------------------------------------------
+
+
+class TestGetEngagementLock:
+    """Tests for get_engagement_lock()."""
+
+    def test_returns_engagement_lock_instance(self, tmp_path) -> None:
+        """get_engagement_lock() returns an EngagementLock for the engagements root."""
+        from gxassessms.cli._helpers import get_engagement_lock
+        from gxassessms.pipeline.state import EngagementLock
+
+        with patch(
+            "gxassessms.cli._helpers.get_engagements_root",
+            return_value=tmp_path / "engagements",
+        ):
+            lock = get_engagement_lock()
+
+        assert isinstance(lock, EngagementLock)
+
+
+# ---------------------------------------------------------------------------
+# resolve_operator
+# ---------------------------------------------------------------------------
+
+
+class TestResolveOperator:
+    """Tests for resolve_operator() audit identity resolution."""
+
+    def test_override_returns_override(self) -> None:
+        from gxassessms.cli._helpers import resolve_operator
+
+        assert resolve_operator("alice") == "alice"
+
+    def test_no_override_returns_os_user(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from gxassessms.cli._helpers import resolve_operator
+
+        monkeypatch.setattr("getpass.getuser", lambda: "bob")
+        assert resolve_operator() == "bob"
+
+    def test_none_override_returns_os_user(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from gxassessms.cli._helpers import resolve_operator
+
+        monkeypatch.setattr("getpass.getuser", lambda: "carol")
+        assert resolve_operator(None) == "carol"
+
+    def test_empty_string_override_falls_through(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from gxassessms.cli._helpers import resolve_operator
+
+        monkeypatch.setattr("getpass.getuser", lambda: "dave")
+        # empty string is falsy -> falls through to getuser()
+        assert resolve_operator("") == "dave"
+
+    def test_fallback_on_os_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from gxassessms.cli._helpers import resolve_operator
+
+        def raise_os_error() -> str:
+            raise OSError("no HOME")
+
+        monkeypatch.setattr("getpass.getuser", raise_os_error)
+        assert resolve_operator() == "unknown"
+
+    def test_fallback_on_module_not_found_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """getpass.getuser() raises ModuleNotFoundError on Windows (no pwd module).
+
+        resolve_operator() must not propagate it -- its contract is 'never raises'.
+        """
+        from gxassessms.cli._helpers import resolve_operator
+
+        def raise_module_not_found() -> str:
+            raise ModuleNotFoundError("No module named 'pwd'")
+
+        monkeypatch.setattr("getpass.getuser", raise_module_not_found)
+        assert resolve_operator() == "unknown"

@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -41,7 +42,6 @@ from gxassessms.core.domain.constants import SEVERITY_IDENTITY_MAP
 from gxassessms.core.domain.enums import CoverageStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
-    CollectedArtifact,
     CollectionOutput,
     CoverageRecord,
     ResolvedManifest,
@@ -134,8 +134,10 @@ class AzureAdvisorAdapter:
             "prerequisites",
             "shared_auth",
             "coverage_export",
+            "ingest",
         }
     )
+    default_schema_version: str = _ADVISOR_API_VERSION
 
     def check_prerequisites(self) -> PrerequisiteResult:
         """Verify azure-identity is importable.
@@ -164,8 +166,8 @@ class AzureAdvisorAdapter:
         Handles pagination via nextLink. Saves the full response (all pages
         merged) as a single JSON file.
         """
+        from gxassessms.adapters._base import build_collection_output
         from gxassessms.core.config.datetime_utils import utc_now
-        from gxassessms.core.hashing import sha256_file
 
         validate_auth_context(auth, adapter_name=self.tool_name)
 
@@ -235,21 +237,7 @@ class AzureAdvisorAdapter:
                 adapter_name=self.tool_name,
             ) from exc
 
-        try:
-            sha = sha256_file(output_file)
-        except OSError as exc:
-            raise CollectionError(
-                f"Failed to hash Azure Advisor output at {output_file}: {exc}",
-                adapter_name=self.tool_name,
-            ) from exc
-        artifacts: list[CollectedArtifact] = [
-            CollectedArtifact(
-                source_path=str(output_file),
-                target_relpath=f"{self.storage_slug}/{_OUTPUT_FILENAME}",
-                encoding="utf-8",
-                sha256=sha,
-            )
-        ]
+        items = [(output_file, f"{self.storage_slug}/{_OUTPUT_FILENAME}")]
 
         logger.info(
             "Azure Advisor collection complete: %d recommendations saved to %s",
@@ -257,15 +245,42 @@ class AzureAdvisorAdapter:
             output_file,
         )
 
-        return CollectionOutput(
+        return build_collection_output(
             tool=ToolSource.AZURE_ADVISOR,
             tool_slug=self.storage_slug,
+            items=items,
             schema_version=_ADVISOR_API_VERSION,
             timestamp=utc_now(),
-            artifacts=artifacts,
             execution_metadata={
                 "recommendation_count": len(all_recommendations),
             },
+        )
+
+    def ingest_from_directory(
+        self,
+        source_dir: Path,
+        *,
+        schema_version: str,
+        timestamp: datetime,
+    ) -> CollectionOutput:
+        """Construct a CollectionOutput from operator-provided Azure Advisor output."""
+        from gxassessms.adapters._base import build_collection_output
+
+        output_file = source_dir / _OUTPUT_FILENAME
+        if not output_file.is_file():
+            raise CollectionError(
+                f"Expected {_OUTPUT_FILENAME!r} not found in {source_dir}",
+                adapter_name=self.tool_name,
+            )
+        items = [(output_file, f"{self.storage_slug}/{_OUTPUT_FILENAME}")]
+
+        return build_collection_output(
+            tool=ToolSource.AZURE_ADVISOR,
+            tool_slug=self.storage_slug,
+            items=items,
+            schema_version=schema_version,
+            timestamp=timestamp,
+            execution_metadata={},
         )
 
     def validate_raw(self, raw: ResolvedManifest) -> None:

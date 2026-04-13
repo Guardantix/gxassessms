@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +36,6 @@ from gxassessms.core.domain.constants import SEVERITY_IDENTITY_MAP, AdapterCapab
 from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
-    CollectedArtifact,
     CollectionOutput,
     CoverageRecord,
     ResolvedManifest,
@@ -72,8 +72,9 @@ class SecureScoreAdapter:
     storage_slug: str = "secure-score"
     tool_source: ToolSource = ToolSource.SECURE_SCORE
     capabilities: frozenset[AdapterCapability] = frozenset(
-        {"collect", "parse", "prerequisites", "shared_auth", "coverage_export"}
+        {"collect", "parse", "prerequisites", "shared_auth", "coverage_export", "ingest"}
     )
+    default_schema_version: str = _SCHEMA_VERSION
 
     def check_prerequisites(self) -> PrerequisiteResult:
         """Verify httpx and azure.identity are importable."""
@@ -95,8 +96,8 @@ class SecureScoreAdapter:
         Raises:
             CollectionError: If the API call fails or output_dir is missing.
         """
+        from gxassessms.adapters._base import build_collection_output
         from gxassessms.core.config.datetime_utils import utc_now
-        from gxassessms.core.hashing import sha256_file
 
         validate_auth_context(auth, self.tool_name)
 
@@ -148,40 +149,62 @@ class SecureScoreAdapter:
             encoding="utf-8",
         )
 
-        profiles_sha = sha256_file(profiles_path)
-        scores_sha = sha256_file(scores_path)
-
-        artifacts: list[CollectedArtifact] = [
-            CollectedArtifact(
-                source_path=str(profiles_path),
-                target_relpath=f"{self.storage_slug}/{_PROFILES_FILENAME}",
-                encoding="utf-8",
-                sha256=profiles_sha,
-            ),
-            CollectedArtifact(
-                source_path=str(scores_path),
-                target_relpath=f"{self.storage_slug}/{_SCORES_FILENAME}",
-                encoding="utf-8",
-                sha256=scores_sha,
-            ),
+        items = [
+            (profiles_path, f"{self.storage_slug}/{_PROFILES_FILENAME}"),
+            (scores_path, f"{self.storage_slug}/{_SCORES_FILENAME}"),
         ]
 
         logger.info(
             "Secure Score collection complete. Output dir: %s, %d artifacts",
             output_dir,
-            len(artifacts),
+            len(items),
         )
 
-        return CollectionOutput(
+        return build_collection_output(
             tool=ToolSource.SECURE_SCORE,
             tool_slug=self.storage_slug,
+            items=items,
             schema_version=_SCHEMA_VERSION,
             timestamp=utc_now(),
-            artifacts=artifacts,
             execution_metadata={
                 "profiles_count": len(profiles_data.get("value", [])),
                 "scores_count": len(scores_data.get("value", [])),
             },
+        )
+
+    def ingest_from_directory(
+        self,
+        source_dir: Path,
+        *,
+        schema_version: str,
+        timestamp: datetime,
+    ) -> CollectionOutput:
+        """Construct a CollectionOutput from operator-provided Secure Score output."""
+        from gxassessms.adapters._base import build_collection_output
+
+        profiles_path = source_dir / _PROFILES_FILENAME
+        scores_path = source_dir / _SCORES_FILENAME
+        for expected_path, expected_name in (
+            (profiles_path, _PROFILES_FILENAME),
+            (scores_path, _SCORES_FILENAME),
+        ):
+            if not expected_path.is_file():
+                raise CollectionError(
+                    f"Expected {expected_name!r} not found in {source_dir}",
+                    adapter_name=self.tool_name,
+                )
+        items = [
+            (profiles_path, f"{self.storage_slug}/{_PROFILES_FILENAME}"),
+            (scores_path, f"{self.storage_slug}/{_SCORES_FILENAME}"),
+        ]
+
+        return build_collection_output(
+            tool=ToolSource.SECURE_SCORE,
+            tool_slug=self.storage_slug,
+            items=items,
+            schema_version=schema_version,
+            timestamp=timestamp,
+            execution_metadata={},
         )
 
     def validate_raw(self, raw: ResolvedManifest) -> None:

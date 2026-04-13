@@ -284,7 +284,7 @@ class TestLogProvenance:
     """Tests for _log_provenance -- structured logging of verification outcomes."""
 
     def test_approved_and_supported_logs_info(self, caplog: pytest.LogCaptureFixture) -> None:
-        with caplog.at_level(logging.DEBUG):
+        with caplog.at_level(logging.DEBUG, logger="gxassessms"):
             _log_provenance(_result(), "test-adapter")
         assert any("APPROVED" in r.message and "SUPPORTED" in r.message for r in caplog.records)
         info_records = [r for r in caplog.records if "APPROVED" in r.message]
@@ -310,7 +310,7 @@ class TestLogProvenance:
         """Expected sig statuses (platform_unsupported, None) stay at INFO."""
         candidate = _candidate(staged_signature_status=sig_status, evidence_path="hash_only")
         result = _result(evidence_path="hash_only", approved_candidate=candidate)
-        with caplog.at_level(logging.DEBUG):
+        with caplog.at_level(logging.DEBUG, logger="gxassessms"):
             _log_provenance(result, "test-adapter")
         records = [r for r in caplog.records if "APPROVED" in r.message]
         assert records[0].levelno == logging.INFO
@@ -339,7 +339,7 @@ class TestLogProvenance:
         assert "hash_rejected" in records[0].message
 
     def test_uses_module_name_when_no_adapter_name(self, caplog: pytest.LogCaptureFixture) -> None:
-        with caplog.at_level(logging.DEBUG):
+        with caplog.at_level(logging.DEBUG, logger="gxassessms"):
             _log_provenance(_result(), "")
         records = [r for r in caplog.records if "APPROVED" in r.message]
         assert "TestModule" in records[0].message

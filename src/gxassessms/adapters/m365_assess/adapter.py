@@ -41,7 +41,6 @@ from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import Category, CoverageStatus, Severity, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
-    CollectedArtifact,
     CollectionOutput,
     CoverageRecord,
     ResolvedManifest,
@@ -146,8 +145,8 @@ class M365AssessAdapter:
 
         Raises CollectionError on PowerShell failure, timeout, or missing output.
         """
+        from gxassessms.adapters._base import build_collection_output
         from gxassessms.core.config.datetime_utils import utc_now
-        from gxassessms.core.hashing import sha256_file
 
         tc = config.tools.get(self.tool_name.lower())
         if tc is None or not tc.output_dir:
@@ -246,18 +245,6 @@ class M365AssessAdapter:
                 adapter_name=self.tool_name,
             )
 
-        artifacts: list[CollectedArtifact] = []
-        for csv_file in sorted(csv_files, key=lambda f: f.name):
-            sha = sha256_file(csv_file)
-            artifacts.append(
-                CollectedArtifact(
-                    source_path=str(csv_file),
-                    target_relpath=f"{self.storage_slug}/{csv_file.name}",
-                    encoding="utf-8",
-                    sha256=sha,
-                )
-            )
-
         # Collect controls directory reference files so they are saved in the
         # raw-output manifest and available during replay via manifest scan
         # (strategy #3 in _locate_m365_assess_controls).
@@ -273,21 +260,13 @@ class M365AssessAdapter:
         else:
             cwd_controls = Path.cwd() / "controls"
             controls_dir = cwd_controls if cwd_controls.is_dir() else output_dir / "controls"
-        for filename in ("risk-severity.json", "registry.json"):
-            ctrl_file = controls_dir / filename
-            if ctrl_file.is_file():
-                sha = sha256_file(ctrl_file)
-                artifacts.append(
-                    CollectedArtifact(
-                        source_path=str(ctrl_file),
-                        target_relpath=f"{self.storage_slug}/controls/{filename}",
-                        encoding="utf-8",
-                        sha256=sha,
-                    )
-                )
-        staged_controls = {
-            Path(a.target_relpath).name for a in artifacts if "/controls/" in a.target_relpath
-        }
+
+        controls_items = [
+            (controls_dir / filename, f"{self.storage_slug}/controls/{filename}")
+            for filename in ("risk-severity.json", "registry.json")
+            if (controls_dir / filename).is_file()
+        ]
+        staged_controls = {Path(relpath).name for _, relpath in controls_items}
         missing = {"risk-severity.json", "registry.json"} - staged_controls
         if missing:
             raise CollectionError(
@@ -297,10 +276,15 @@ class M365AssessAdapter:
                 adapter_name=self.tool_name,
             )
 
+        csv_items = [
+            (csv, f"{self.storage_slug}/{csv.name}")
+            for csv in sorted(csv_files, key=lambda f: f.name)
+        ]
+
         logger.info(
             "M365-Assess collection complete. Output dir: %s, %d artifacts",
             output_dir,
-            len(artifacts),
+            len(csv_items) + len(controls_items),
         )
 
         execution_metadata: dict[str, str] = {
@@ -310,12 +294,12 @@ class M365AssessAdapter:
         if tc.controls_dir:
             execution_metadata["controls_dir"] = str(controls_dir)
 
-        return CollectionOutput(
+        return build_collection_output(
             tool=ToolSource.M365_ASSESS,
             tool_slug=self.storage_slug,
+            items=csv_items + controls_items,
             schema_version=_SCHEMA_VERSION,
             timestamp=utc_now(),
-            artifacts=artifacts,
             execution_metadata=execution_metadata,
         )
 

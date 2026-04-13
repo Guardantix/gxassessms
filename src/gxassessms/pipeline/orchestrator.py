@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, Any
 
 from gxassessms.core.config.config import EngagementConfig
 from gxassessms.core.config.datetime_utils import parse_utc, utc_now
-from gxassessms.core.contracts.errors import PipelineError
+from gxassessms.core.contracts.errors import PersistenceError, PipelineError
 from gxassessms.core.domain.enums import Severity
 from gxassessms.core.domain.models import Finding
 from gxassessms.persistence import (
@@ -41,6 +41,7 @@ from gxassessms.pipeline.state import (
     EngagementState,
     EventType,
     PipelineEvent,
+    RawOutputIngestedPayload,
     _extract_payload,
 )
 
@@ -230,6 +231,75 @@ class Orchestrator:
                     "severity": finding.severity.value,
                 },
             )
+
+    def record_raw_output_ingested(
+        self,
+        *,
+        engagement_id: str,
+        actor: str,
+        tool_slug: str,
+        source_path: str,
+        file_count: int,
+        replaced: bool,
+        ingested_at: datetime,
+    ) -> None:
+        """Record a raw_output_ingested event in the engagement journal."""
+        payload: RawOutputIngestedPayload = {
+            "tool_slug": tool_slug,
+            "source_path": source_path,
+            "file_count": file_count,
+            "replaced": replaced,
+            "ingested_at": ingested_at.isoformat(),
+        }
+        self._emit_event(
+            engagement_id,
+            "raw_output_ingested",
+            actor,
+            dict(payload),
+        )
+
+    def has_raw_output_ingested_event(
+        self,
+        engagement_id: str,
+        tool_slug: str,
+        *,
+        source_path: str | None = None,
+        replaced: bool | None = None,
+        ingested_at: str | None = None,
+    ) -> bool:
+        """Return True if a matching raw_output_ingested event exists.
+
+        If source_path is provided, both tool_slug and source_path must match.
+        If replaced is provided, the event's replaced flag must also match.
+        If ingested_at is provided (ISO string from datetime.isoformat()), the event's
+        ingested_at must also match -- use when multiple ingests share
+        (tool_slug, source_path, replaced) to discriminate the latest from prior ones.
+        If source_path is None, only tool_slug is checked (backward-compatible).
+
+        Backward-compat: events recorded before this fix lack ingested_at in their
+        payload. payload.get("ingested_at") returns None for those events, so they
+        will NOT satisfy the filter when ingested_at is given. This is intentional:
+        a legacy event from a prior replace should not mask a missing newer event.
+        """
+        events = self._event_repo.get_events_by_type(engagement_id, "raw_output_ingested")
+        for event in events:
+            try:
+                payload = _extract_payload(event)
+            except PersistenceError:
+                logger.warning(
+                    "Skipping event with corrupt payload for engagement %s",
+                    engagement_id,
+                    exc_info=True,
+                )
+                continue
+            if (
+                payload.get("tool_slug") == tool_slug
+                and (source_path is None or payload.get("source_path") == source_path)
+                and (replaced is None or payload.get("replaced") == replaced)
+                and (ingested_at is None or payload.get("ingested_at") == ingested_at)
+            ):
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # Content hashing and invalidation

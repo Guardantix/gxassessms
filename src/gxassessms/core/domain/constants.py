@@ -4,7 +4,7 @@ Single source of truth for all domain value sets. Never use raw string
 literals for these values outside this module.
 """
 
-from typing import Literal
+from typing import Literal, get_args
 
 from gxassessms.core.domain.enums import Category, FindingStatus, Severity
 
@@ -101,6 +101,21 @@ ConfidenceProvenance = Literal["system-generated", "human-overridden", "AI-adjus
 AuthMethod = Literal["client_credential", "device_code", "interactive"]
 
 # ---------------------------------------------------------------------------
+# Source Mode (RawToolOutput.source_mode)
+# ---------------------------------------------------------------------------
+
+SourceMode = Literal["collected", "ingested"]
+
+SOURCE_MODES: frozenset[str] = frozenset({"collected", "ingested"})
+
+assert frozenset(get_args(SourceMode)) == SOURCE_MODES, (  # noqa: S101
+    "SourceMode Literal and SOURCE_MODES frozenset must match"
+)
+
+SOURCE_MODE_COLLECTED: SourceMode = "collected"
+SOURCE_MODE_INGESTED: SourceMode = "ingested"
+
+# ---------------------------------------------------------------------------
 # File Encoding (RawToolOutput file_manifest values)
 # ---------------------------------------------------------------------------
 
@@ -117,6 +132,7 @@ AdapterCapability = Literal[
     "shared_auth",
     "coverage_export",
     "benchmark_mapping",
+    "ingest",
 ]
 
 ADAPTER_CAPABILITIES: frozenset[AdapterCapability] = frozenset(
@@ -127,6 +143,7 @@ ADAPTER_CAPABILITIES: frozenset[AdapterCapability] = frozenset(
         "shared_auth",
         "coverage_export",
         "benchmark_mapping",
+        "ingest",
     }
 )
 
@@ -146,11 +163,17 @@ ADAPTER_PLACEHOLDERS: frozenset[str] = frozenset(
 # Manifest / Replay Security
 # ---------------------------------------------------------------------------
 
-ManifestVersion = Literal["1.0.0"]
+ManifestVersion = Literal["1.0.0", "1.1.0"]
 
-MANIFEST_VERSION_CURRENT: str = "1.0.0"
+MANIFEST_VERSION_CURRENT: ManifestVersion = "1.1.0"
 
-RECOGNIZED_MANIFEST_VERSIONS: frozenset[str] = frozenset({"1.0.0"})
+RECOGNIZED_MANIFEST_VERSIONS: frozenset[str] = frozenset({"1.0.0", "1.1.0"})
+
+INGEST_CAPABLE_MANIFEST_VERSIONS: frozenset[str] = frozenset({"1.1.0"})
+
+assert INGEST_CAPABLE_MANIFEST_VERSIONS <= RECOGNIZED_MANIFEST_VERSIONS, (  # noqa: S101
+    "INGEST_CAPABLE_MANIFEST_VERSIONS must be a subset of RECOGNIZED_MANIFEST_VERSIONS"
+)
 
 # Regex for storage_slug: [a-z0-9][a-z0-9-]*
 TOOL_SLUG_PATTERN: str = r"[a-z0-9][a-z0-9-]*"
@@ -172,7 +195,20 @@ EXECUTION_METADATA_ALLOWLIST: dict[str, dict[str, frozenset[str]]] = {
         "azure-advisor": frozenset({"recommendation_count"}),
         "secure-score": frozenset({"profiles_count", "scores_count"}),
     },
+    "1.1.0": {
+        "scubagear": frozenset({"modules", "module_provenance"}),
+        "maester": frozenset({"module_provenance"}),
+        "monkey365": frozenset({"output_dir", "module_provenance"}),
+        "m365-assess": frozenset({"script", "tenant_id", "controls_dir"}),
+        "prowler": frozenset({"output_dir", "auth_method", "checks"}),
+        "azure-advisor": frozenset({"recommendation_count"}),
+        "secure-score": frozenset({"profiles_count", "scores_count"}),
+    },
 }
+
+assert frozenset(EXECUTION_METADATA_ALLOWLIST) == RECOGNIZED_MANIFEST_VERSIONS, (  # noqa: S101
+    "RECOGNIZED_MANIFEST_VERSIONS and EXECUTION_METADATA_ALLOWLIST keys must match"
+)
 
 # ---------------------------------------------------------------------------
 # Module Verification

@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal, get_args
+from typing import Any, Literal, NotRequired, TypedDict, get_args
 
 from filelock import BaseFileLock, FileLock, Timeout
 
@@ -38,6 +38,7 @@ EventType = Literal[
     "rerender",
     "token_usage",
     "manual_merge",
+    "raw_output_ingested",
 ]
 
 # Derive valid values from the EventType Literal for runtime validation
@@ -89,6 +90,17 @@ def _extract_payload(event: Any) -> dict[str, Any]:  # pyright: ignore[reportUnu
             return result
         return raw  # type: ignore[no-any-return]
     return dict(event.payload)  # type: ignore[union-attr]
+
+
+class RawOutputIngestedPayload(TypedDict):
+    """Typed payload for raw_output_ingested events."""
+
+    tool_slug: str
+    source_path: str
+    file_count: int
+    replaced: bool
+    # Absent in legacy events; callers must use .get("ingested_at") to read.
+    ingested_at: NotRequired[str]  # ISO 8601 from datetime.isoformat()
 
 
 ENGAGEMENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9_-]+$")

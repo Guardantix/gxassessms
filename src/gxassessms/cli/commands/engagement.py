@@ -34,21 +34,6 @@ from gxassessms.persistence.engagement_repo import decode_config_snapshot
 logger = logging.getLogger(__name__)
 
 
-def _resolve_operator() -> str:
-    """Resolve the OS username for audit attribution. Never raises.
-
-    Separate from build_audit_context()["os_user"] so that operator can
-    eventually come from an external source (e.g., authenticated identity
-    injected by a CI wrapper) rather than the local OS user.
-    """
-    import getpass
-
-    try:
-        return getpass.getuser()
-    except Exception:
-        return "unknown"
-
-
 def _check_storage_permissions(artifacts: Any, engagement_id: str) -> None:
     """Advisory permission check -- never raises, never blocks."""
     from gxassessms.core.security.permissions import warn_broad_permissions
@@ -77,6 +62,11 @@ def create_cmd(config_path: str) -> None:
     Validates the config (required fields and auth method), then creates
     the engagement record, directory structure, and config snapshot.
     """
+    import shutil
+    import uuid
+
+    from gxassessms.pipeline.config_snapshot_mirror import mirror_config_snapshot_from_db_strict
+
     path = Path(config_path)
 
     try:
@@ -93,19 +83,60 @@ def create_cmd(config_path: str) -> None:
             console.print(f"[bright_red]Error:[/bright_red] {e}")
         raise SystemExit(1)
 
+    engagement_id = str(uuid.uuid4())
+
+    # Step 1: Create DB row.
+    repo = _helpers.get_engagement_repo()
     try:
-        repo = _helpers.get_engagement_repo()
-        engagement_id = repo.create(
+        repo.create(
             client_name=config.client_name,
             tenant_id=config.tenant_id,
             config_snapshot=config.model_dump(),
+            engagement_id=engagement_id,
         )
-        console.print(f"[bright_green]Engagement created:[/bright_green] {engagement_id}")
-        console.print(f"Client: {config.client_name}")
-        console.print(f"Tenant: {config.tenant_id}")
-    except GxAssessError as e:
-        console.print(f"[bright_red]Failed to create engagement:[/bright_red] {e}")
+    except GxAssessError as exc:
+        console.print(f"[bright_red]Failed to create engagement:[/bright_red] {exc}")
         raise SystemExit(1) from None
+
+    # Step 2: Provision on-disk engagement directory.
+    try:
+        artifacts = _helpers.get_artifact_manager()
+        eng_dir = artifacts.create_engagement_dir(engagement_id, config.client_name)
+    except Exception as exc:
+        try:
+            repo.delete(engagement_id)
+        except Exception:
+            logger.warning("Rollback: failed to delete DB row %s", engagement_id)
+        console.print(f"[bright_red]Failed to provision directory:[/bright_red] {exc}")
+        raise SystemExit(1) from None
+
+    # Step 3: Update DB row with engagement_dir path.
+    try:
+        repo.update_engagement_dir(engagement_id, engagement_dir=str(eng_dir))
+    except Exception as exc:
+        shutil.rmtree(eng_dir, ignore_errors=True)
+        try:
+            repo.delete(engagement_id)
+        except Exception:
+            logger.warning("Rollback: failed to delete DB row %s", engagement_id)
+        console.print(f"[bright_red]Failed to update engagement dir:[/bright_red] {exc}")
+        raise SystemExit(1) from None
+
+    # Step 4: Mirror config snapshot (strict -- failure triggers rollback).
+    try:
+        mirror_config_snapshot_from_db_strict(repo, artifacts, engagement_id)
+    except Exception as exc:
+        shutil.rmtree(eng_dir, ignore_errors=True)
+        try:
+            repo.delete(engagement_id)
+        except Exception:
+            logger.warning("Rollback: failed to delete DB row %s", engagement_id)
+        console.print(f"[bright_red]Failed to mirror config snapshot:[/bright_red] {exc}")
+        raise SystemExit(1) from None
+
+    console.print(f"[bright_green]Engagement created:[/bright_green] {engagement_id}")
+    console.print(f"Client: {config.client_name}")
+    console.print(f"Tenant: {config.tenant_id}")
 
 
 @engagement_group.command("list")
@@ -173,7 +204,7 @@ def archive_cmd(engagement_id: str) -> None:
 
         artifacts = _helpers.get_artifact_manager()
         _check_storage_permissions(artifacts, engagement_id)
-        operator = _resolve_operator()
+        operator = _helpers.resolve_operator()
         artifacts.archive(engagement_id, operator=operator)
         console.print(f"[bright_green]Engagement {engagement_id} archived.[/bright_green]")
         console.print(
@@ -195,7 +226,7 @@ def restore_cmd(engagement_id: str) -> None:
     try:
         artifacts = _helpers.get_artifact_manager()
         _check_storage_permissions(artifacts, engagement_id)
-        operator = _resolve_operator()
+        operator = _helpers.resolve_operator()
         artifacts.restore(engagement_id, operator=operator)
         console.print(f"[bright_green]Engagement {engagement_id} restored.[/bright_green]")
     except GxAssessError as e:
@@ -232,7 +263,7 @@ def purge_cmd(engagement_id: str, confirm: bool) -> None:
     try:
         artifacts = _helpers.get_artifact_manager()
         _check_storage_permissions(artifacts, engagement_id)
-        operator = _resolve_operator()
+        operator = _helpers.resolve_operator()
 
         manifest: dict[str, Any]
         try:

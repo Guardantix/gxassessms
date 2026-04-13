@@ -162,3 +162,37 @@ class TestReplayEngine:
     def test_replay_normalize_is_valid(self) -> None:
         engine = ReplayEngine()
         engine.validate_start_stage(Stage.NORMALIZE)
+
+
+def test_load_1_1_0_ingested_manifest(tmp_path) -> None:
+    """A 1.1.0 manifest with source_mode='ingested' loads correctly."""
+    from datetime import UTC, datetime
+
+    from gxassessms.core.domain.enums import ToolSource
+    from gxassessms.core.domain.models import IngestProvenance, RawToolOutput
+
+    export_path = str(tmp_path / "export")
+    prov = IngestProvenance(
+        source_path=export_path,
+        ingested_at=datetime(2026, 4, 11, tzinfo=UTC),
+        ingested_by="human:alice",
+        replaced=False,
+    )
+    raw = RawToolOutput(
+        tool=ToolSource.SCUBAGEAR,
+        tool_slug="scubagear",
+        schema_version="1.7.1",
+        manifest_version="1.1.0",
+        timestamp=datetime(2026, 4, 11, tzinfo=UTC),
+        file_manifest={"scubagear/results.json": {"encoding": "utf-8", "sha256": "a" * 64}},
+        execution_metadata={},
+        source_mode="ingested",
+        ingest_provenance=prov,
+    )
+    manifest_path = tmp_path / "scubagear.json"
+    manifest_path.write_text(raw.model_dump_json(indent=2))
+
+    reloaded = RawToolOutput.model_validate_json(manifest_path.read_text())
+    assert reloaded.source_mode == "ingested"
+    assert reloaded.ingest_provenance.source_path == export_path
+    assert reloaded.ingest_provenance.replaced is False

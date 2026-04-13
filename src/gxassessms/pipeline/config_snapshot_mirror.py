@@ -102,3 +102,17 @@ def _do_mirror(
             f"write_config_snapshot failed: {exc}",
             engagement_id=engagement_id,
         ) from exc
+
+
+def mirror_config_snapshot_from_db_strict(
+    engagement_repo: EngagementRepo,
+    artifact_manager: ArtifactManager,
+    engagement_id: str,
+) -> None:
+    """Strict variant of mirror_config_snapshot_from_db.
+
+    Unlike the fail-open wrapper used by collect's runner, this variant
+    raises ConfigSnapshotMirrorError on any failure. Used by engagement
+    bootstrap.
+    """
+    _do_mirror(engagement_repo, artifact_manager, engagement_id)

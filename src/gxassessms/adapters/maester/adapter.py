@@ -11,6 +11,7 @@ so that prior run artifacts cannot contaminate the current collection.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -34,7 +35,6 @@ from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import CoverageStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
-    CollectedArtifact,
     CollectionOutput,
     CoverageRecord,
     ResolvedManifest,
@@ -42,6 +42,8 @@ from gxassessms.core.domain.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+_SCHEMA_VERSION = "1.0.0"
 
 
 class MaesterAdapter:
@@ -56,8 +58,9 @@ class MaesterAdapter:
     storage_slug: str = "maester"
     tool_source: ToolSource = ToolSource.MAESTER
     capabilities: frozenset[AdapterCapability] = frozenset(
-        {"collect", "parse", "prerequisites", "coverage_export", "benchmark_mapping"}
+        {"collect", "parse", "prerequisites", "coverage_export", "benchmark_mapping", "ingest"}
     )
+    default_schema_version: str = _SCHEMA_VERSION
 
     def check_prerequisites(self) -> PrerequisiteResult:
         """Check Maester module provenance against baseline policy."""
@@ -91,10 +94,9 @@ class MaesterAdapter:
         """
         import uuid as uuid_mod
 
-        from gxassessms.adapters._base import run_verified_powershell
+        from gxassessms.adapters._base import build_collection_output, run_verified_powershell
         from gxassessms.adapters.maester.policy import ALLOWED_COMMANDS, MODULE_POLICY
         from gxassessms.core.config.datetime_utils import utc_now
-        from gxassessms.core.hashing import sha256_file
 
         tc = config.tools.get(self.tool_name.lower())
         if tc is None or not tc.output_dir:
@@ -151,24 +153,61 @@ class MaesterAdapter:
             )
 
         results_path = json_results[0]
-        sha = sha256_file(results_path)
+        items = [(results_path, f"{self.storage_slug}/{results_path.name}")]
 
-        return CollectionOutput(
+        return build_collection_output(
             tool=ToolSource.MAESTER,
             tool_slug=self.storage_slug,
-            schema_version="1.0.0",
+            items=items,
+            schema_version=_SCHEMA_VERSION,
             timestamp=utc_now(),
-            artifacts=[
-                CollectedArtifact(
-                    source_path=str(results_path),
-                    target_relpath=f"{self.storage_slug}/{results_path.name}",
-                    encoding="utf-8",
-                    sha256=sha,
-                )
-            ],
             execution_metadata={
                 "module_provenance": verification_result.to_json_dict(),
             },
+        )
+
+    def ingest_from_directory(
+        self,
+        source_dir: Path,
+        *,
+        schema_version: str,
+        timestamp: datetime,
+    ) -> CollectionOutput:
+        """Construct a CollectionOutput from operator-provided Maester output."""
+        from gxassessms.adapters._base import build_collection_output
+
+        try:
+            json_results = sorted(source_dir.glob("TestResults*.json"))
+        except OSError as exc:
+            raise CollectionError(
+                f"Cannot list files in {source_dir}: {exc}",
+                adapter_name=self.tool_name,
+            ) from exc
+
+        if not json_results:
+            raise CollectionError(
+                f"No TestResults*.json file found in {source_dir}",
+                adapter_name=self.tool_name,
+            )
+
+        if len(json_results) > 1:
+            names = [f.name for f in json_results]
+            raise CollectionError(
+                f"Expected exactly 1 TestResults*.json in {source_dir}, "
+                f"found {len(json_results)}: {names}",
+                adapter_name=self.tool_name,
+            )
+
+        results_path = json_results[0]
+        items = [(results_path, f"{self.storage_slug}/{results_path.name}")]
+
+        return build_collection_output(
+            tool=ToolSource.MAESTER,
+            tool_slug=self.storage_slug,
+            items=items,
+            schema_version=schema_version,
+            timestamp=timestamp,
+            execution_metadata={},
         )
 
     def validate_raw(self, raw: ResolvedManifest) -> None:

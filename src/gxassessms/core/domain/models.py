@@ -9,15 +9,18 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from pathlib import PurePosixPath, PureWindowsPath
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 from gxassessms.core.config.datetime_utils import ensure_utc
 from gxassessms.core.domain.constants import (
+    INGEST_CAPABLE_MANIFEST_VERSIONS,
     ConfidenceProvenance,
     FileEncoding,
     RemediationPhaseName,
+    SourceMode,
 )
 from gxassessms.core.domain.enums import (
     AdapterRunStatus,
@@ -261,6 +264,55 @@ class ResolvedManifest(BaseModel):
         return ensure_utc(v)
 
 
+class IngestProvenance(BaseModel):
+    """Operator-visible provenance for ingested raw output.
+
+    Present only on manifests written by ``mseco ingest``. Records what the
+    operator did, when they did it, and where the source data came from.
+    The ``replaced`` field is the committed audit record of whether this
+    ingest overwrote prior raw output -- set by the persistence layer based
+    on actual pre-commit state, not the operator's --replace flag.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    source_path: str
+    ingested_at: datetime
+    ingested_by: str
+    replaced: bool
+
+    @field_validator("ingested_at")
+    @classmethod
+    def ingested_at_must_be_utc(cls, v: datetime) -> datetime:
+        return ensure_utc(v)
+
+    @field_validator("source_path")
+    @classmethod
+    def source_path_must_be_absolute_and_sane(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("source_path must be non-empty")
+        if len(stripped) > 4096:
+            raise ValueError("source_path must not exceed 4096 characters")
+        if not (PurePosixPath(stripped).is_absolute() or PureWindowsPath(stripped).is_absolute()):
+            raise ValueError(f"source_path must be absolute: {stripped!r}")
+        return stripped
+
+    @field_validator("ingested_by")
+    @classmethod
+    def ingested_by_must_be_human(cls, v: str) -> str:
+        prefix = "human:"
+        if not v.startswith(prefix):
+            raise ValueError(
+                f"ingested_by must start with 'human:' (manifest ingest is "
+                f"a human-driven operation), got {v!r}"
+            )
+        operator = v.removeprefix(prefix).strip()
+        if not operator:
+            raise ValueError(f"ingested_by must be 'human:<non-empty operator>', got {v!r}")
+        return f"human:{operator}"
+
+
 class RawToolOutput(BaseModel):
     """On-disk replay manifest. POSIX-relative canonical paths."""
 
@@ -273,6 +325,9 @@ class RawToolOutput(BaseModel):
     timestamp: datetime
     file_manifest: dict[str, ArtifactRecord]  # POSIX-relative -> {encoding, sha256}
     execution_metadata: dict[str, Any]
+    # New fields -- defaults preserve backward-read compatibility with 1.0.0
+    source_mode: SourceMode = "collected"
+    ingest_provenance: IngestProvenance | None = None
 
     @field_validator("timestamp")
     @classmethod
@@ -298,6 +353,23 @@ class RawToolOutput(BaseModel):
         for key in v:
             validate_canonical_posix_path(key)
         return v
+
+    @model_validator(mode="after")
+    def source_mode_matches_provenance(self) -> RawToolOutput:
+        """source_mode and ingest_provenance must agree (bidirectional)."""
+        if self.source_mode == "ingested" and self.ingest_provenance is None:
+            raise ValueError("source_mode='ingested' requires ingest_provenance to be set")
+        if self.source_mode == "collected" and self.ingest_provenance is not None:
+            raise ValueError("source_mode='collected' must not carry ingest_provenance")
+        if (
+            self.source_mode == "ingested"
+            and self.manifest_version not in INGEST_CAPABLE_MANIFEST_VERSIONS
+        ):
+            raise ValueError(
+                f"source_mode='ingested' requires manifest_version in "
+                f"{sorted(INGEST_CAPABLE_MANIFEST_VERSIONS)}, got {self.manifest_version!r}"
+            )
+        return self
 
 
 class AdapterResult(BaseModel):

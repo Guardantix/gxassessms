@@ -351,3 +351,36 @@ class TestAdapterRegistryStartupValidation:
 
         with pytest.raises(ValueError, match=r"[Ss]lug.*format"):
             _validate_registry_constraints([Adapter()])
+
+
+def test_ingest_capability_requires_method_and_schema_version() -> None:
+    """Adapter declaring 'ingest' must have ingest_from_directory and default_schema_version."""
+    from gxassessms.adapters import _validate_adapter
+
+    class BadIngestAdapter:
+        tool_name = "Bad"
+        storage_slug = "bad"
+        tool_source = ToolSource.SCUBAGEAR
+        capabilities = frozenset({"collect", "ingest"})
+        # Missing: default_schema_version, ingest_from_directory
+
+        def check_prerequisites(self):
+            pass
+
+        def authenticate(self, config):
+            pass
+
+        def collect(self, config, auth):
+            pass
+
+        def validate_raw(self, manifest):
+            pass
+
+        def parse(self, manifest):
+            pass
+
+        def coverage(self, manifest):
+            pass
+
+    errors = _validate_adapter("bad-ingest", BadIngestAdapter)
+    assert any("ingest" in str(e).lower() for e in errors)

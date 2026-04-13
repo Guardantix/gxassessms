@@ -122,6 +122,30 @@ def build_orchestrator() -> Any:
     )
 
 
+def resolve_operator(override: str | None = None) -> str:
+    """Resolve operator identity for audit attribution. Never raises.
+
+    If *override* is non-empty, it is returned as-is. Otherwise the OS
+    username from getpass.getuser() is used. Falls back to 'unknown' on
+    OSError or KeyError (e.g., missing HOME in restricted environments).
+
+    Kept separate from build_audit_context()['os_user'] so that operator
+    identity can come from an external source (e.g., --operator flag or a
+    CI wrapper) rather than the local OS user.
+    """
+    import getpass
+
+    try:
+        return override or getpass.getuser()
+    except (OSError, KeyError, ModuleNotFoundError) as exc:  # fmt: skip
+        logger.warning(
+            "Could not determine OS user for audit attribution (%s); "
+            "use --operator to set identity explicitly",
+            exc,
+        )
+        return "unknown"
+
+
 def get_engagements_root() -> Path:
     """Return the engagements root directory, creating it if needed."""
     from gxassessms.persistence import get_default_data_dir
@@ -406,6 +430,65 @@ def build_normalization_policy() -> Any:
                 exc,
             )
     return DefaultNormalizationPolicy(rules=rules)
+
+
+def resolve_enabled_adapter(
+    tool_slug: str,
+    config: Any,
+) -> Any:
+    """Find an adapter by storage_slug and verify it is enabled in config."""
+    import click
+
+    from gxassessms.adapters import discover_adapters
+
+    registry = discover_adapters()
+    matches = [
+        cls for cls in registry.adapters.values() if getattr(cls, "storage_slug", None) == tool_slug
+    ]
+    if not matches:
+        available = sorted(getattr(cls, "storage_slug", "?") for cls in registry.adapters.values())
+        raise click.UsageError(
+            f"Unknown tool slug {tool_slug!r}. Available: {', '.join(available)}"
+        )
+    adapter = matches[0]()
+    enabled_names = {name.lower() for name, tc in config.tools.items() if tc.enabled}
+    if adapter.tool_name.lower() not in enabled_names:
+        raise click.UsageError(
+            f"Tool {tool_slug!r} (adapter {adapter.tool_name!r}) is not enabled "
+            f"in this engagement's config."
+        )
+    return adapter
+
+
+def require_ingest_capable(adapter: Any) -> Any:
+    """Narrow a ToolAdapter to IngestCapableAdapter or raise."""
+    import click
+
+    from gxassessms.core.contracts.types import IngestCapableAdapter
+
+    if "ingest" not in getattr(adapter, "capabilities", frozenset[str]()):
+        raise click.UsageError(
+            f"Adapter {getattr(adapter, 'tool_name', '?')!r} does not support ingest "
+            f"(capability 'ingest' not declared)."
+        )
+    if not isinstance(adapter, IngestCapableAdapter):
+        raise click.UsageError(
+            f"Adapter {getattr(adapter, 'tool_name', '?')!r} declares 'ingest' capability but "
+            f"does not implement ingest_from_directory()."
+        )
+    if not adapter.default_schema_version.strip():
+        raise click.UsageError(
+            f"Adapter {adapter.tool_name!r} declares ingest capability but has "
+            f"empty default_schema_version."
+        )
+    return adapter
+
+
+def get_engagement_lock() -> Any:
+    """Factory for the EngagementLock matching the engagements root."""
+    from gxassessms.pipeline.state import EngagementLock
+
+    return EngagementLock(get_engagements_root())
 
 
 def build_consolidation_rule() -> Any:

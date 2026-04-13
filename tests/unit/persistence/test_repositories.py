@@ -1082,3 +1082,53 @@ class TestDecodeConfigSnapshot:
         row = {"config_snapshot": "x" * 2_000_000}
         with pytest.raises(PersistenceError, match="suspiciously large"):
             decode_config_snapshot(row)
+
+
+# ── EngagementRepo.create engagement_id kwarg ──────────────────────────
+
+
+class TestEngagementRepoCreateWithSuppliedId:
+    def test_create_with_caller_supplied_engagement_id(
+        self, engagement_repo: EngagementRepo
+    ) -> None:
+        supplied_id = "test-supplied-id-1234"
+        returned_id = engagement_repo.create(
+            client_name="Test Client",
+            tenant_id="test-tenant",
+            config_snapshot={"client_name": "Test Client", "tenant_id": "test-tenant"},
+            engagement_id=supplied_id,
+        )
+        assert returned_id == supplied_id
+        row = engagement_repo.get(supplied_id)
+        assert row is not None
+
+    def test_create_without_engagement_id_auto_generates(
+        self, engagement_repo: EngagementRepo
+    ) -> None:
+        returned_id = engagement_repo.create(
+            client_name="Test Client",
+            tenant_id="test-tenant",
+            config_snapshot={"client_name": "Test Client", "tenant_id": "test-tenant"},
+        )
+        assert len(returned_id) == 36  # UUID format
+
+
+# ── EngagementRepo.update_engagement_dir ───────────────────────────────
+
+
+class TestEngagementRepoUpdateEngagementDir:
+    def test_update_engagement_dir_sets_column(self, engagement_repo: EngagementRepo) -> None:
+        eid = engagement_repo.create(
+            client_name="Test",
+            tenant_id="t",
+            config_snapshot={"client_name": "Test", "tenant_id": "t"},
+        )
+        engagement_repo.update_engagement_dir(eid, engagement_dir="/path/to/dir")
+        row = engagement_repo.get(eid)
+        assert row["engagement_dir"] == "/path/to/dir"
+
+    def test_update_engagement_dir_nonexistent_raises(
+        self, engagement_repo: EngagementRepo
+    ) -> None:
+        with pytest.raises(PersistenceError, match="not found"):
+            engagement_repo.update_engagement_dir("nonexistent", engagement_dir="/path")

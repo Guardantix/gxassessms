@@ -5,13 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from gxassessms.cli.commands.engagement import _check_storage_permissions, _resolve_operator
+from gxassessms.cli import _helpers
+from gxassessms.cli.commands.engagement import _check_storage_permissions
 from gxassessms.persistence.artifacts import ArtifactManager
 
 
 class TestResolveOperator:
     def test_returns_username(self) -> None:
-        result = _resolve_operator()
+        result = _helpers.resolve_operator()
         assert isinstance(result, str)
         assert len(result) > 0
 
@@ -20,14 +21,14 @@ class TestResolveOperator:
             "getpass.getuser",
             side_effect=OSError("no tty"),
         ):
-            assert _resolve_operator() == "unknown"
+            assert _helpers.resolve_operator() == "unknown"
 
     def test_fallback_on_keyerror(self) -> None:
         with patch(
             "getpass.getuser",
             side_effect=KeyError("no user"),
         ):
-            assert _resolve_operator() == "unknown"
+            assert _helpers.resolve_operator() == "unknown"
 
 
 class TestCheckStoragePermissions:

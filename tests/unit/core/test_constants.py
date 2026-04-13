@@ -70,7 +70,7 @@ class TestManifestConstants:
         from gxassessms.core.domain.constants import MANIFEST_VERSION_CURRENT
 
         assert isinstance(MANIFEST_VERSION_CURRENT, str)
-        assert MANIFEST_VERSION_CURRENT == "1.0.0"
+        assert MANIFEST_VERSION_CURRENT == "1.1.0"
 
     def test_tool_slug_pattern_matches_valid(self) -> None:
         import re
@@ -165,3 +165,33 @@ class TestSeverityIdentityMap:
 
         for sev in Severity:
             assert (sev, FindingStatus.NOT_APPLICABLE) not in SEVERITY_IDENTITY_MAP
+
+
+# ---------------------------------------------------------------------------
+# Task 1: Manifest version 1.1.0 + ingest adapter capability
+# ---------------------------------------------------------------------------
+
+
+def test_manifest_version_includes_1_1_0() -> None:
+    from gxassessms.core.domain.constants import RECOGNIZED_MANIFEST_VERSIONS
+
+    assert "1.1.0" in RECOGNIZED_MANIFEST_VERSIONS
+
+
+def test_manifest_version_current_is_1_1_0() -> None:
+    from gxassessms.core.domain.constants import MANIFEST_VERSION_CURRENT
+
+    assert MANIFEST_VERSION_CURRENT == "1.1.0"
+
+
+def test_execution_metadata_allowlist_has_1_1_0() -> None:
+    from gxassessms.core.domain.constants import EXECUTION_METADATA_ALLOWLIST
+
+    assert "1.1.0" in EXECUTION_METADATA_ALLOWLIST
+    assert EXECUTION_METADATA_ALLOWLIST["1.1.0"] == EXECUTION_METADATA_ALLOWLIST["1.0.0"]
+
+
+def test_adapter_capability_includes_ingest() -> None:
+    from gxassessms.core.domain.constants import ADAPTER_CAPABILITIES
+
+    assert "ingest" in ADAPTER_CAPABILITIES

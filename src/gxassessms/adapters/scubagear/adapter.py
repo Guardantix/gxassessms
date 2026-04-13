@@ -8,6 +8,7 @@ Auth is delegated to ScubaGear itself (Connect-MgGraph); ``authenticate()`` retu
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 from typing import Any, cast
 
@@ -34,7 +35,6 @@ from gxassessms.core.domain.constants import AdapterCapability
 from gxassessms.core.domain.enums import CoverageStatus, FindingStatus, ToolSource
 from gxassessms.core.domain.models import (
     AuthContext,
-    CollectedArtifact,
     CollectionOutput,
     CoverageRecord,
     ResolvedManifest,
@@ -63,8 +63,9 @@ class ScubaGearAdapter:
     storage_slug: str = "scubagear"
     tool_source: ToolSource = ToolSource.SCUBAGEAR
     capabilities: frozenset[AdapterCapability] = frozenset(
-        {"collect", "parse", "prerequisites", "coverage_export", "benchmark_mapping"}
+        {"collect", "parse", "prerequisites", "coverage_export", "benchmark_mapping", "ingest"}
     )
+    default_schema_version: str = _SCHEMA_VERSION
 
     def check_prerequisites(self) -> PrerequisiteResult:
         """Check ScubaGear module provenance against baseline policy."""
@@ -87,10 +88,9 @@ class ScubaGearAdapter:
             CollectionError: On PowerShell failure, timeout, or missing output.
             ModuleVerificationError: On provenance or platform failures.
         """
-        from gxassessms.adapters._base import run_verified_powershell
+        from gxassessms.adapters._base import build_collection_output, run_verified_powershell
         from gxassessms.adapters.scubagear.policy import ALLOWED_COMMANDS, MODULE_POLICY
         from gxassessms.core.config.datetime_utils import utc_now
-        from gxassessms.core.hashing import sha256_file
 
         tc = config.tools.get(self.tool_name.lower())
         if tc is None or not tc.output_dir:
@@ -172,32 +172,61 @@ class ScubaGearAdapter:
             )
 
         results_path = Path(results_file)
-        sha = sha256_file(results_path)
-        artifacts: list[CollectedArtifact] = [
-            CollectedArtifact(
-                source_path=str(results_path),
-                target_relpath=f"{self.storage_slug}/{results_path.name}",
-                encoding="utf-8",
-                sha256=sha,
-            )
-        ]
+        items = [(results_path, f"{self.storage_slug}/{results_path.name}")]
 
         logger.info(
             "ScubaGear collection complete. Output dir: %s, %d artifacts",
             run_dir,
-            len(artifacts),
+            len(items),
         )
 
-        return CollectionOutput(
+        return build_collection_output(
             tool=ToolSource.SCUBAGEAR,
             tool_slug=self.storage_slug,
+            items=items,
             schema_version=_SCHEMA_VERSION,
             timestamp=utc_now(),
-            artifacts=artifacts,
             execution_metadata={
                 "modules": modules,
                 "module_provenance": verification_result.to_json_dict(),
             },
+        )
+
+    def ingest_from_directory(
+        self,
+        source_dir: Path,
+        *,
+        schema_version: str,
+        timestamp: datetime,
+    ) -> CollectionOutput:
+        """Construct a CollectionOutput from operator-provided ScubaGear output."""
+        from gxassessms.adapters._base import build_collection_output
+
+        try:
+            json_files = [f for f in source_dir.iterdir() if f.suffix == ".json"]
+        except OSError as exc:
+            raise CollectionError(
+                f"Cannot list files in {source_dir}: {exc}",
+                adapter_name=self.tool_name,
+            ) from exc
+        results_file = self._find_scuba_results_file([str(f) for f in json_files])
+
+        if results_file is None:
+            raise CollectionError(
+                f"No ScubaResults JSON file found in {source_dir}",
+                adapter_name=self.tool_name,
+            )
+
+        results_path = Path(results_file)
+        items = [(results_path, f"{self.storage_slug}/{results_path.name}")]
+
+        return build_collection_output(
+            tool=ToolSource.SCUBAGEAR,
+            tool_slug=self.storage_slug,
+            items=items,
+            schema_version=schema_version,
+            timestamp=timestamp,
+            execution_metadata={},
         )
 
     def validate_raw(self, raw: ResolvedManifest) -> None:

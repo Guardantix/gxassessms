@@ -8,6 +8,7 @@ stale state detection, and hash invalidation.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1409,3 +1410,275 @@ class TestDetermineResumeStage:
             {"payload": '{"from": "NORMALIZING", "to": "FAILED"}'},
         ]
         assert orchestrator.determine_resume_stage("eng-1") == Stage.NORMALIZE
+
+
+class TestRecordRawOutputIngested:
+    def test_forwards_to_emit_event(
+        self,
+        orchestrator: Orchestrator,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        orchestrator.record_raw_output_ingested(
+            engagement_id="eng-001",
+            actor="human:alice",
+            tool_slug="scubagear",
+            source_path="/var/lib/gxassessms/exports/scubagear",
+            file_count=1,
+            replaced=False,
+            ingested_at=datetime(2026, 4, 12, 10, 0, 0, tzinfo=UTC),
+        )
+        mock_event_repo.append.assert_called()
+        event = mock_event_repo.append.call_args[0][0]
+        assert event.event_type == "raw_output_ingested"
+        assert event.actor == "human:alice"
+        assert event.engagement_id == "eng-001"
+        payload = event.payload
+        assert payload["tool_slug"] == "scubagear"
+        assert payload["source_path"] == "/var/lib/gxassessms/exports/scubagear"
+        assert payload["file_count"] == 1
+        assert payload["replaced"] is False
+        assert payload["ingested_at"] == "2026-04-12T10:00:00+00:00"
+
+    def test_payload_includes_file_count_and_replaced(
+        self,
+        orchestrator: Orchestrator,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        """file_count and replaced kwargs are forwarded to the event payload."""
+        orchestrator.record_raw_output_ingested(
+            engagement_id="eng-002",
+            actor="human:bob",
+            tool_slug="maester",
+            source_path="/tmp/maester-output",  # noqa: S108
+            file_count=7,
+            replaced=True,
+            ingested_at=datetime(2026, 4, 12, 11, 0, 0, tzinfo=UTC),
+        )
+        event = mock_event_repo.append.call_args[0][0]
+        payload = event.payload
+        assert payload["file_count"] == 7
+        assert payload["replaced"] is True
+
+
+class TestHasRawOutputIngestedEvent:
+    def test_returns_true_when_matching_event_exists(
+        self,
+        orchestrator: Orchestrator,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        payload_json = (
+            '{"tool_slug": "scubagear", "source_path": "/tmp/src",'
+            ' "file_count": 1, "replaced": false}'
+        )
+        mock_event_repo.get_events_by_type.return_value = [
+            {"event_type": "raw_output_ingested", "payload": payload_json}
+        ]
+        assert orchestrator.has_raw_output_ingested_event("eng-001", "scubagear") is True
+
+    def test_returns_false_when_no_events(
+        self,
+        orchestrator: Orchestrator,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        mock_event_repo.get_events_by_type.return_value = []
+        assert orchestrator.has_raw_output_ingested_event("eng-001", "scubagear") is False
+
+    def test_returns_false_when_tool_slug_doesnt_match(
+        self,
+        orchestrator: Orchestrator,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        payload_json = (
+            '{"tool_slug": "maester", "source_path": "/tmp/src",'
+            ' "file_count": 1, "replaced": false}'
+        )
+        mock_event_repo.get_events_by_type.return_value = [
+            {"event_type": "raw_output_ingested", "payload": payload_json}
+        ]
+        assert orchestrator.has_raw_output_ingested_event("eng-001", "scubagear") is False
+
+    def test_skips_corrupt_payload_returns_false(
+        self,
+        orchestrator: Orchestrator,
+        mock_event_repo: MagicMock,
+    ) -> None:
+        mock_event_repo.get_events_by_type.return_value = [
+            {
+                "event_type": "raw_output_ingested",
+                "payload": "NOT VALID JSON",
+            }
+        ]
+        assert orchestrator.has_raw_output_ingested_event("eng-001", "scubagear") is False
+
+    def test_returns_true_when_slug_and_source_path_match(
+        self, orchestrator: Orchestrator, mock_event_repo: MagicMock
+    ) -> None:
+        payload_json = (
+            '{"tool_slug": "scubagear", "source_path": "/home/user/data",'
+            ' "file_count": 1, "replaced": false}'
+        )
+        mock_event_repo.get_events_by_type.return_value = [
+            {"event_type": "raw_output_ingested", "payload": payload_json}
+        ]
+        assert (
+            orchestrator.has_raw_output_ingested_event(
+                "eng-001", "scubagear", source_path="/home/user/data"
+            )
+            is True
+        )
+
+    def test_returns_false_when_source_path_differs(
+        self, orchestrator: Orchestrator, mock_event_repo: MagicMock
+    ) -> None:
+        """Slug matches but source_path differs -- replacement ingest needs repair."""
+        payload_json = (
+            '{"tool_slug": "scubagear", "source_path": "/old/path",'
+            ' "file_count": 1, "replaced": false}'
+        )
+        mock_event_repo.get_events_by_type.return_value = [
+            {"event_type": "raw_output_ingested", "payload": payload_json}
+        ]
+        assert (
+            orchestrator.has_raw_output_ingested_event(
+                "eng-001", "scubagear", source_path="/new/path"
+            )
+            is False
+        )
+
+    def test_returns_false_when_replaced_flag_differs(
+        self, orchestrator: Orchestrator, mock_event_repo: MagicMock
+    ) -> None:
+        """Prior event has replaced=False but repair is for replaced=True ingest.
+
+        Same (tool_slug, source_path) but different replaced value means this is
+        a different ingest operation (a replacement whose event was never recorded).
+        The old event must NOT satisfy the check.
+        """
+        payload_json = (
+            '{"tool_slug": "scubagear", "source_path": "/home/user/data",'
+            ' "file_count": 1, "replaced": false}'
+        )
+        mock_event_repo.get_events_by_type.return_value = [
+            {"event_type": "raw_output_ingested", "payload": payload_json}
+        ]
+        assert (
+            orchestrator.has_raw_output_ingested_event(
+                "eng-001", "scubagear", source_path="/home/user/data", replaced=True
+            )
+            is False
+        )
+
+    def test_returns_true_when_replaced_flag_matches(
+        self, orchestrator: Orchestrator, mock_event_repo: MagicMock
+    ) -> None:
+        """Event with replaced=True matches when caller passes replaced=True."""
+        payload_json = (
+            '{"tool_slug": "scubagear", "source_path": "/home/user/data",'
+            ' "file_count": 3, "replaced": true}'
+        )
+        mock_event_repo.get_events_by_type.return_value = [
+            {"event_type": "raw_output_ingested", "payload": payload_json}
+        ]
+        assert (
+            orchestrator.has_raw_output_ingested_event(
+                "eng-001", "scubagear", source_path="/home/user/data", replaced=True
+            )
+            is True
+        )
+
+    def test_returns_false_when_ingested_at_differs(
+        self, orchestrator: Orchestrator, mock_event_repo: MagicMock
+    ) -> None:
+        """Old event with same (slug, source, replaced) but different ingested_at must not match."""
+        payload_json = (
+            '{"tool_slug": "scubagear", "source_path": "/data/src",'
+            ' "file_count": 3, "replaced": true,'
+            ' "ingested_at": "2026-04-12T10:00:00+00:00"}'
+        )
+        mock_event_repo.get_events_by_type.return_value = [
+            {"event_type": "raw_output_ingested", "payload": payload_json}
+        ]
+        assert (
+            orchestrator.has_raw_output_ingested_event(
+                "eng-001",
+                "scubagear",
+                source_path="/data/src",
+                replaced=True,
+                ingested_at="2026-04-12T11:00:00+00:00",
+            )
+            is False
+        )
+
+    def test_returns_true_when_ingested_at_matches(
+        self, orchestrator: Orchestrator, mock_event_repo: MagicMock
+    ) -> None:
+        """Event matches when ingested_at filter equals the stored timestamp."""
+        payload_json = (
+            '{"tool_slug": "scubagear", "source_path": "/data/src",'
+            ' "file_count": 3, "replaced": true,'
+            ' "ingested_at": "2026-04-12T11:00:00+00:00"}'
+        )
+        mock_event_repo.get_events_by_type.return_value = [
+            {"event_type": "raw_output_ingested", "payload": payload_json}
+        ]
+        assert (
+            orchestrator.has_raw_output_ingested_event(
+                "eng-001",
+                "scubagear",
+                source_path="/data/src",
+                replaced=True,
+                ingested_at="2026-04-12T11:00:00+00:00",
+            )
+            is True
+        )
+
+    def test_returns_false_when_ingested_at_filter_given_but_event_lacks_it(
+        self, orchestrator: Orchestrator, mock_event_repo: MagicMock
+    ) -> None:
+        """Legacy event without ingested_at field does not match when filter is provided.
+
+        This is the intended backward-compat behavior: a legacy event from an earlier
+        replace should NOT satisfy the repair-event check for a newer replace that
+        shares the same (tool_slug, source_path, replaced).
+        Trade-off: --repair-event on an engagement with legacy events may emit a duplicate
+        (non-fatal; event is advisory).
+        """
+        payload_json = (
+            '{"tool_slug": "scubagear", "source_path": "/data/src",'
+            ' "file_count": 3, "replaced": true}'
+        )
+        mock_event_repo.get_events_by_type.return_value = [
+            {"event_type": "raw_output_ingested", "payload": payload_json}
+        ]
+        assert (
+            orchestrator.has_raw_output_ingested_event(
+                "eng-001",
+                "scubagear",
+                source_path="/data/src",
+                replaced=True,
+                ingested_at="2026-04-12T11:00:00+00:00",
+            )
+            is False
+        )
+
+    def test_ingested_at_filter_none_still_matches_event_with_ingested_at(
+        self, orchestrator: Orchestrator, mock_event_repo: MagicMock
+    ) -> None:
+        """Callers that omit ingested_at still match events that have it (backward-compat)."""
+        payload_json = (
+            '{"tool_slug": "scubagear", "source_path": "/data/src",'
+            ' "file_count": 1, "replaced": false,'
+            ' "ingested_at": "2026-04-12T10:00:00+00:00"}'
+        )
+        mock_event_repo.get_events_by_type.return_value = [
+            {"event_type": "raw_output_ingested", "payload": payload_json}
+        ]
+        assert (
+            orchestrator.has_raw_output_ingested_event(
+                "eng-001",
+                "scubagear",
+                source_path="/data/src",
+                replaced=False,
+            )
+            is True
+        )
