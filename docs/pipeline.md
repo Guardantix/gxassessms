@@ -99,14 +99,13 @@ sequenceDiagram
 
     CLI->>Orch: run(engagement_id, config,<br/>adapters, policies,<br/>qa_strategy, renderers)
     Orch->>Runner: run_stages(start_stage=COLLECT)
+    Runner->>Lock: hold(engagement_id)
+    activate Lock
     Runner->>Repo: get(engagement_id) — current state
     Repo-->>Runner: state
     Note over Runner: detect_stale_running()<br/>or transition CREATED → COLLECTING
 
     loop per stage in stage_order
-        Runner->>Lock: hold(engagement_id)
-        activate Lock
-
         Runner->>Repo: emit "state_transition" (X → X_ING)
         Runner->>Stage: stage_fn(ctx, plugins)
         Stage->>Plugin: invoke (parallel for collect)
@@ -136,21 +135,22 @@ sequenceDiagram
             Runner->>Repo: emit state_transition (RENDERING → COMPLETE)
         end
 
-        Lock-->>Runner: release
-        deactivate Lock
-
         opt stop_stage reached
+            Lock-->>Runner: release
+            deactivate Lock
             Runner-->>Orch: return early
         end
     end
 
+    Lock-->>Runner: release
     Orch-->>CLI: return
 ```
 
 Key invariants:
 
-- **Lock scope.** Each stage acquires the lock for its duration; the lock is
-  released between stages so a separate process can inspect engagement state.
+- **Lock scope.** `run_stages()` acquires the engagement lock once around
+  the entire stage loop and holds it until the function returns, so no other
+  process can interleave stage execution against the same engagement.
   ([`_runner.py`](../src/gxassessms/pipeline/_runner.py))
 - **Partial collection.** Failed adapters produce a `CollectionResult` with
   status `FAILED`, `TIMEOUT`, or `SKIPPED`; downstream stages skip them and

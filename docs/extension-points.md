@@ -17,7 +17,7 @@ domain models referenced below see [data-model.md](data-model.md).
 |----------|-------------------|----------------|
 | [`ToolAdapter`](#tooladapter) | `gxassessms.adapters` | `tool_name`, `storage_slug`, `tool_source`, `capabilities`, six methods |
 | [`IngestCapableAdapter`](#ingestcapableadapter) | `gxassessms.adapters` | `ToolAdapter` + `"ingest"` cap + `default_schema_version` + `ingest_from_directory` |
-| [`ReportRenderer`](#reportrenderer) | `gxassessms.renderers` | `format`, `supported_payload_versions`, `render` |
+| [`ReportRenderer`](#reportrenderer) | `gxassessms.renderers` | `format`, `theme`, `supported_payload_versions`, `render` |
 | [`QAStrategy`](#qastrategy) | `gxassessms.qa_strategies` | `review_findings`, `generate_narratives` |
 | [`ConsolidationRule`](#consolidationrule) | `gxassessms.consolidation_rules` | `consolidate` |
 | [`NormalizationPolicy`](#normalizationpolicy) | `gxassessms.policies` (`normalization`) | `normalize` |

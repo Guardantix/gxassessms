@@ -25,6 +25,7 @@ erDiagram
     engagements ||--o{ pipeline_events : has
     engagements ||--o{ overrides : has
     engagements ||--o{ stage_history : has
+    engagements ||--o{ longitudinal_snapshots : has
     findings ||--o{ overrides : "overridden via finding_id"
 
     engagements {
@@ -131,6 +132,22 @@ erDiagram
         REAL duration_seconds
     }
 
+    longitudinal_snapshots {
+        INTEGER id PK
+        TEXT engagement_id FK
+        TEXT snapshot_date
+        INTEGER total_findings
+        INTEGER critical_count
+        INTEGER high_count
+        INTEGER medium_count
+        INTEGER low_count
+        INTEGER info_count
+        INTEGER controls_assessed
+        INTEGER controls_not_assessed
+        TEXT findings_data "JSON snapshot"
+        TEXT created_at
+    }
+
 ```
 
 **Notes on relationships.**
@@ -165,6 +182,7 @@ Defined alongside the schema:
 | `idx_overrides_engagement` | `(engagement_id)` | override export |
 | `idx_stage_history_engagement` | `(engagement_id)` | timing analytics |
 | `idx_tool_run_results_engagement` | `(engagement_id)` | run metadata |
+| `idx_longitudinal_snapshots_engagement_date` | `(engagement_id, snapshot_date)` UNIQUE | trend-tracking snapshots |
 
 ## In-Memory Pydantic Models
 

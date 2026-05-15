@@ -112,9 +112,10 @@ flowchart TB
     qa --> contracts
 ```
 
-**Dependency direction.** `core/domain/` has no internal imports;
-`core/contracts/` imports only from `domain/`; everything else builds on top.
-This is enforced by the import-boundary convention tests
+**Dependency direction.** `core/domain/` and `core/config/` have no imports
+from other project packages; `core/contracts/` imports only from `domain/`
+and `config/`; everything else builds on top. This is enforced by the
+import-boundary convention tests
 (`tests/conventions/test_import_boundaries.py`).
 
 ### What each layer does
