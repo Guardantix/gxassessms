@@ -99,9 +99,11 @@ class PrerequisiteResult(TypedDict):
 Verify the tool is installed at an allowed version. For PowerShell adapters
 this typically validates against the adapter's
 `policy.py:MODULE_POLICY` via `_verification.check_module_prerequisites()`.
-Must not perform network I/O or authenticate. Called by
-`mseco preflight`, `mseco adapters check`, and (optionally) at the start of
-the `COLLECT` stage.
+Must not perform network I/O or authenticate. Called by `mseco preflight`
+and `mseco adapters check`; the runtime `COLLECT` stage (`stages.collect()`
+-> `_run_adapter()`) does not invoke this method, so operators must run
+preflight or adapter-check commands separately to surface prerequisite
+failures before kicking off a pipeline run.
 
 #### `authenticate(config) -> AuthContext | None`
 
