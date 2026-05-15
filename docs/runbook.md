@@ -163,8 +163,8 @@ Score. Pass the appropriate slug with `--tool`:
 **Not supported:** Monkey365 and M365-Assess ingest is not supported.
 Both tools embed collection timestamps inside their output in a way that
 cannot be reliably disambiguated from processing time (freshness
-ambiguity). Use live collection for these tools or contact Guardantix
-support for guidance.
+ambiguity). Use live collection for these tools or consult the adapter's
+own documentation for guidance.
 
 **Resolution:**
 
@@ -244,14 +244,14 @@ support for guidance.
 
 ---
 
-## 4. AI QA Budget Exhaustion Mid-Pipeline
+## 4. QA Token Budget Exhaustion Mid-Pipeline
 
 **Symptom:** Pipeline completes CONSOLIDATED stage but QA_REVIEW fails
 with `TokenBudgetExhaustedError`.
 
-**Likely cause:** Large engagement with many findings. The AI QA layer
-tracks token usage across all tasks (severity review, dedup review,
-root cause, narratives). Budget is configured per engagement.
+**Likely cause:** Large engagement with many findings. A non-noop
+`QAStrategy` plugin that tracks token usage has reached its configured
+per-engagement budget. Budget is configured per engagement.
 
 **Diagnostic steps:**
 
@@ -281,8 +281,8 @@ root cause, narratives). Budget is configured per engagement.
   mseco run <config.yaml> --engagement-id <id> --force-stage QA_REVIEW
   ```
 
-- **Use no-op QA:** If AI QA is not critical for this engagement, select
-  the noop strategy and skip AI-generated narratives:
+- **Use no-op QA:** If automated QA is not critical for this engagement,
+  select the noop strategy and skip generated narratives:
 
   ```
   mseco run <config.yaml> --engagement-id <id> \
@@ -291,7 +291,7 @@ root cause, narratives). Budget is configured per engagement.
 
 - **Partial QA results:** If severity review and dedup review completed
   but narratives did not, the partial results persist. The operator can
-  write narratives manually in the review UI and approve QA there.
+  write narratives manually through their QA workflow and approve QA there.
 
 ---
 
@@ -461,9 +461,9 @@ linked, payload contains unexpected shapes, or renderer JS bug.
   cd report-renderers/basic && npm install
   ```
 
-  Branded renderers installed via plugins typically link their dependencies
-  through `file:` references in the renderer's own `package.json`; ensure
-  those linked packages are installed.
+  Renderers installed via extension plugins typically link their
+  dependencies through `file:` references in the renderer's own
+  `package.json`; ensure those linked packages are installed.
 
 - **Renderer bug:** Once fixed, re-render the engagement:
 
@@ -475,11 +475,11 @@ linked, payload contains unexpected shapes, or renderer JS bug.
 
 ## 9. Concurrent CLI / UI Conflict Resolution
 
-**Symptom:** An installed review UI shows "Engagement locked by another
-process" or CLI reports a lock acquisition timeout.
+**Symptom:** A review interface plugin shows "Engagement locked by
+another process" or CLI reports a lock acquisition timeout.
 
-**Likely cause:** Both the CLI (`mseco run`) and a review UI plugin are
-attempting state-mutating operations on the same engagement
+**Likely cause:** Both the CLI (`mseco run`) and a review interface
+plugin are attempting state-mutating operations on the same engagement
 simultaneously. The advisory `filelock` serializes these operations.
 
 **Diagnostic steps:**
@@ -508,9 +508,9 @@ simultaneously. The advisory `filelock` serializes these operations.
   subcommand -- lock management is handled by `filelock` and manual
   cleanup.)
 
-- **Prevention:** Do not run `mseco run` while a review UI has active
-  pipeline re-render operations in flight. Use the review UI's own
-  pipeline controls when the UI is open.
+- **Prevention:** Do not run `mseco run` while a review interface has
+  active pipeline re-render operations in flight. Use that interface's
+  own pipeline controls when it is open.
 
 ---
 
@@ -548,7 +548,7 @@ proof that all assessment data has been deleted.
 **Caveats:**
 
 - Purge is irreversible. There is no undo.
-- Longitudinal snapshots referencing the purged engagement retain a
+- Trend-tracking snapshots referencing the purged engagement retain a
   `purged` marker instead of actual data. Cross-engagement analytics no
   longer include the purged engagement's findings.
 - The audit manifest itself may have its own retention policy
