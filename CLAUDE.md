@@ -19,12 +19,12 @@ Design spec: `../gxassessms-guardantix/docs/specs/2026-03-25-gxassessms-architec
 ## Tech Stack
 
 - Python >=3.12, Pydantic, Click, Rich, httpx
-- Node.js for report renderers (guardantix-docx-kit, guardantix-pptx-kit)
+- Node.js for the standalone basic report renderer at `report-renderers/basic/` (registered as `basic_docx`)
 - SQLite (WAL mode) + filesystem for persistence
 
 ## Conventions
 
-- Follow workspace-wide standards from `/home/guardantix/Claude/CLAUDE.md`
+- Follow workspace-wide standards from `~/.claude/CLAUDE.md`
 - Security-first: this tool handles client tenant data -- treat all assessment output as confidential
 - No hardcoded credentials or tenant identifiers in source
 - All datetime operations via centralized `core/config/datetime_utils.py`
@@ -50,9 +50,11 @@ Design spec: `../gxassessms-guardantix/docs/specs/2026-03-25-gxassessms-architec
 
 ## Workspace
 
-Both GxAssessMS packages live in `~/Claude/gxassessms-workspace/`:
-- `GxAssessMS/` -- this repo
+Both GxAssessMS packages live in `~/workspace/repos/guardantix/gxassessms-workspace/`:
+- `gxassessms/` -- this repo
 - `gxassessms-guardantix/` -- private Guardantix extension (sibling directory)
+
+Commands (build/test/security): see the Commands section in the workspace root CLAUDE.md, or run `just --list` from the workspace root.
 
 ## Related Repos
 
