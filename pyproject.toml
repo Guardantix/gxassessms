@@ -27,7 +27,7 @@ dev = [
     "pytest>=8.0",
     "pytest-cov>=6.0",
     "hypothesis>=6.0",
-    "ruff>=0.5",
+    "ruff>=0.15.7,<0.16",
     "pyright>=1.1",
     "pre-commit>=3.0",
 ]
@@ -98,6 +98,10 @@ exclude_lines = [
 target-version = "py312"
 line-length = 100
 src = ["src", "tests"]
+# Ruff 0.16 began formatting Python code fences inside Markdown. Design docs and
+# plans under docs/ carry deliberately non-runnable illustrative snippets; the
+# formatter has no business rewriting them.
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = [
